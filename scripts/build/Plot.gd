@@ -179,6 +179,11 @@ func _instantiate(def: BuildingDef) -> Node3D:
 			s.setup(def)
 			s.sink_finder = find_sink_near
 			return s
+		&"filter":
+			var f := Filter.new()
+			f.setup(def)
+			f.sink_finder = find_sink_near
+			return f
 		&"storage":
 			var b := StorageBin.new()
 			b.setup(manager, def, plot_id)

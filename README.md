@@ -50,8 +50,9 @@ it up; headless runs resolve class names from that cache.
 5. **Upgrade** axe, pickaxe, carry rack and boots; **expand** the plot through
    four tiers; **unlock** the furnace, workbench and fast conveyors.
 6. **Automate**: belts hand items straight into machines, splitters fan output
-   out three ways, storage buffers the surplus, and a sell chute closes the loop
-   without you walking a step.
+   out three ways, filters sort by item type (invert them with Shift+E), storage
+   buffers the surplus, and a sell chute closes the loop without you walking a
+   step.
 
 ## Architecture
 
@@ -61,7 +62,7 @@ scripts/systems/   GameData (autoload), Economy (autoload), PlayerState (autoloa
 scripts/data/      RecipeDef, MachineDef, BuildingDef
 scripts/physics/   LooseItem, LooseItemManager, ItemDef
 scripts/world/     ChoppableTree, OreRock, Machine, StorageBin, SellZone,
-                   Conveyor, Splitter, World, StressWorld, StressTest
+                   Conveyor, Splitter, Filter, World, StressWorld, StressTest
 scripts/build/     Plot (grid, placement, persistence), BuildSystem (ghost)
 scripts/player/    Player
 scripts/vehicle/   Hauler
@@ -132,34 +133,35 @@ Budget is 16.67 ms.
 
 ### Integration tests (`scenes/tests.tscn`)
 
-193 checks across 19 tests, all passing: data integrity, deterministic daily
+198 checks across 20 tests, all passing: data integrity, deterministic daily
 prices, chopping, mining, machine processing and rejection, sell pricing, storage
 store/dispense, belt-to-machine hand-off, splitter round-robin, building
 placement/cost/refund/bounds, save-load round-trip, plot expansion, upgrades,
 carry rack limits and deposits, hauler driving/cargo/stability, kill plane,
-item cap, and a full automated base under load.
+item cap, belt-logic filtering, and a full automated base under load.
 
 ### Physics benchmark (`scenes/bench.tscn`)
 
 | scenario | avg ms | p95 | max | at rest | % budget |
 | --- | --- | --- | --- | --- | --- |
-| 100 logs dropped | 0.71 | 1.35 | 1.71 | 0.42 | 4% |
-| 250 logs dropped | 2.31 | 3.58 | 6.41 | 0.42 | 14% |
-| **500 logs dropped** | **6.51** | **9.20** | **17.23** | **0.39** | **39%** |
-| 1000 logs dropped | 18.24 | 26.02 | 32.64 | 0.72 | 109% |
-| 2000 logs dropped | 51.26 | 76.49 | 122.53 | 1.02 | 308% |
-| conveyor, kinematic, fed 5/s | 0.64 | 1.03 | 1.37 | - | 4% |
-| conveyor, surface velocity, fed 5/s | 0.76 | 1.20 | 1.79 | - | 5% |
-| 20 dragged items over a 200 pile | 1.88 | 2.88 | 3.66 | - | 11% |
-| 60 ore fired at 60 m/s (CCD) | 0.79 | 1.85 | 2.94 | - | 5% |
-| continuous spawn/despawn churn | 2.32 | 3.23 | 4.16 | - | 14% |
-| 1500 items into a 200 cap | 3.83 | 4.82 | 6.57 | 0.41 | 23% |
+| 100 logs dropped | 0.81 | 1.52 | 1.90 | 0.43 | 5% |
+| 250 logs dropped | 2.35 | 3.78 | 4.72 | 0.42 | 14% |
+| **500 logs dropped** | **6.61** | **9.83** | **17.11** | **0.46** | **40%** |
+| 1000 logs dropped | 18.20 | 25.35 | 31.31 | 0.81 | 109% |
+| 2000 logs dropped | 50.86 | 82.50 | 91.78 | 1.22 | 305% |
+| conveyor, kinematic, fed 5/s | 0.61 | 0.89 | 2.51 | - | 4% |
+| conveyor, surface velocity, fed 5/s | 0.71 | 1.15 | 2.28 | - | 4% |
+| 20 dragged items over a 200 pile | 1.89 | 2.97 | 5.81 | - | 11% |
+| 60 ore fired at 60 m/s (CCD) | 0.71 | 1.46 | 2.04 | - | 4% |
+| continuous spawn/despawn churn | 2.15 | 2.87 | 4.14 | - | 13% |
+| 1500 items into a 200 cap | 3.45 | 3.96 | 7.35 | 0.35 | 21% |
 
 * No tunnelling: 60 ore chunks at 60 m/s, 0 escaped the plot.
 * No instability while dragging 20 items over a live 200-log pile: 0 escapes.
 * Surface-velocity belts jam at the output; kinematic belts do not. Automation
   uses the kinematic path.
-* A settled pile costs ~0.4 ms whatever its size.
+* A settled pile costs ~0.4 ms whatever its size; 100-500 items were already
+  asleep before the settle phase even began.
 
 ### Whole game, headless (`scenes/smoke_world.tscn`)
 

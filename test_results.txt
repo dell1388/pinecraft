@@ -9,6 +9,7 @@
   [ok  ] storage bin stores and dispenses
   [ok  ] conveyor feeds a machine directly
   [ok  ] splitter routes round-robin
+  [ok  ] filter sorts items by type
   [ok  ] building placement, cost and removal
   [ok  ] save/load round-trip
   [ok  ] plot expansion raises bounds and cap
@@ -17,7 +18,7 @@
   [ok  ] hauler drives, carries and stays upright
   [ok  ] kill plane rescues fallen items
   [ok  ] per-plot cap is enforced
-      full base: 191 items live, avg 1.23 ms/frame, worst 3.77 ms (budget 16.67)
+      full base: 191 items live, avg 1.25 ms/frame, worst 10.74 ms (budget 16.67)
   [ok  ] full automated base stays in budget
 
-PASS - 193 checks
+PASS - 198 checks

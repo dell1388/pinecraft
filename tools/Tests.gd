@@ -35,6 +35,7 @@ func _run_all() -> void:
 	await _test(&"storage bin stores and dispenses", test_storage)
 	await _test(&"conveyor feeds a machine directly", test_conveyor_to_machine)
 	await _test(&"splitter routes round-robin", test_splitter)
+	await _test(&"filter sorts items by type", test_filter)
 	await _test(&"building placement, cost and removal", test_building)
 	await _test(&"save/load round-trip", test_save_load)
 	await _test(&"plot expansion raises bounds and cap", test_expansion)
@@ -309,6 +310,48 @@ func test_splitter() -> void:
 			straight += 1
 	check(left > 0 and right > 0 and straight > 0,
 		"splitter did not use all three outputs (l%d s%d r%d)" % [left, straight, right])
+
+func test_filter() -> void:
+	_setup()
+	var filter := Filter.new()
+	filter.setup(GameData.building(&"filter"))
+	filter.filter_item = &"plank_pine"
+	filter.position = Vector3(0, 0.6, 0)
+	world.add_child(filter)
+	await step(2)
+	for i in 4:
+		spawn(&"plank_pine", Vector3(0, 1.1, 0))
+		await step(22)
+		spawn(&"ore_iron", Vector3(0, 1.1, 0))
+		await step(22)
+	await step(60)
+	var straight_planks := 0
+	var right_ore := 0
+	var misrouted := 0
+	for item in manager.free_items():
+		var local: Vector3 = filter.global_transform.affine_inverse() * item.global_position
+		var went_right: bool = local.x > 0.8
+		var went_straight: bool = local.z < -0.8
+		if item.item_id == &"plank_pine":
+			if went_straight:
+				straight_planks += 1
+			elif went_right:
+				misrouted += 1
+		else:
+			if went_right:
+				right_ore += 1
+			elif went_straight:
+				misrouted += 1
+	check(straight_planks >= 3, "filter sent only %d of 4 planks straight on" % straight_planks)
+	check(right_ore >= 3, "filter diverted only %d of 4 non-matching items" % right_ore)
+	check_eq(misrouted, 0, "filter sent items the wrong way")
+
+	# Inverting swaps the two paths.
+	filter.invert = true
+	var plank := spawn(&"plank_pine", Vector3(0, 1.1, 0))
+	await step(70)
+	var local_after: Vector3 = filter.global_transform.affine_inverse() * plank.global_position
+	check(local_after.x > 0.5, "inverted filter did not divert the matching item")
 
 func test_building() -> void:
 	_setup()

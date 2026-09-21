@@ -9,6 +9,9 @@ extends Node3D
 @export var speed: float = 3.5
 @export var enabled_outputs: Array[bool] = [true, true, true]
 
+## Overridden by Filter; kept here so the chassis build code is shared.
+var body_color: Color = Color(0.22, 0.26, 0.34)
+
 const OUTPUT_DIRS := [Vector3.LEFT, Vector3.FORWARD, Vector3.RIGHT]
 const OUTPUT_DISTANCE := 1.6
 
@@ -46,7 +49,7 @@ func _ready() -> void:
 	bm.size = box.size
 	mesh.mesh = bm
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.22, 0.26, 0.34)
+	mat.albedo_color = body_color
 	mesh.material_override = mat
 	body.add_child(mesh)
 	add_child(body)
@@ -71,13 +74,17 @@ func _on_body(body: Node) -> void:
 		return
 	if not Trigger.contains_point(_area_shape, item.global_position, 0.2):
 		return
-	var out_index := _pick_output()
+	var out_index := route_index_for(item)
 	if out_index < 0:
 		return
 	item.set_state(LooseItem.State.CAPTURED)
 	_routing.append(item)
 	_targets[item] = OUTPUT_DIRS[out_index] * OUTPUT_DISTANCE + Vector3(0, 0.45, 0)
 	_dirs[item] = out_index
+
+## Which output a given item should take. Round-robin here; Filter overrides it.
+func route_index_for(_item: LooseItem) -> int:
+	return _pick_output()
 
 func _pick_output() -> int:
 	for i in OUTPUT_DIRS.size():
