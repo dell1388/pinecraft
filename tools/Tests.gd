@@ -28,8 +28,12 @@ func _run_all() -> void:
 	await _test(&"data integrity", test_data_integrity)
 	await _test(&"deterministic daily prices", test_prices)
 	await _test(&"felling drops the trunk as it grew", test_chop)
+	await _test(&"branches and trunk are cut separately", test_limb_cutting)
+	await _test(&"resource fields fill to a quota and stop", test_resource_field)
 	await _test(&"bucking splits wood and conserves volume", test_bucking)
-	await _test(&"mining a rock yields ore", test_mine)
+	await _test(&"a chunk is pulled out whole when the pull is enough", test_chunk_pull)
+	await _test(&"hammering cracks a chunk apart piece by piece", test_chunk_cracking)
+	await _test(&"the crusher breaks ore down faster than a hammer", test_crusher)
 	await _test(&"sawmill mills wood and conserves volume", test_sawmill)
 	await _test(&"furnace smelts ore into billets", test_furnace)
 	await _test(&"workbench assembles from volumes", test_workbench)
@@ -191,31 +195,19 @@ func test_prices() -> void:
 
 func test_chop() -> void:
 	_setup()
-	var tree := ChoppableTree.new()
-	tree.manager = manager
-	tree.max_health = 100.0
-	tree.wood_item = &"wood_pine"
-	tree.trunk_height = 7.0
-	tree.trunk_radius = 0.34
-	tree.trunk_taper = 0.6
-	tree.branch_count = 4
-	tree.respawn_seconds = 0.0
-	tree.position = Vector3(0, 0, 0)
+	var tree := _make_tree(7.0, 0.34, 0.6, 4)
 	world.add_child(tree)
 	await step(2)
 	check_eq(manager.active_count(), 0, "wood existed before chopping")
 
 	var grown_volume := tree.wood_volume()
-	var felled := tree.chop(60.0, Vector3(0, 0, 5))
-	check(not felled, "tree fell in one hit when it should not have")
-	check_near(tree.health, 40.0, 0.01, "damage was not applied")
-	felled = tree.chop(60.0, Vector3(0, 0, 5))
-	check(felled, "tree did not fall when health hit zero")
+	tree.fell(Vector3(0, 0, 5))
 	await step(2)
 
 	# The trunk must arrive as one piece, exactly the shape it grew to - not as
 	# a pile of pre-cut logs.
-	check_eq(manager.active_count(), 1 + tree.branch_count, "felling produced the wrong piece count")
+	check_eq(manager.active_count(), 1 + 4, "felling produced the wrong piece count")
+	check(not tree.standing(), "the tree is still standing after being cut through")
 	var trunk: LooseItem = null
 	for item in manager.free_items():
 		if trunk == null or item.volume() > trunk.volume():
@@ -234,6 +226,111 @@ func test_chop() -> void:
 	if trunk != null and is_instance_valid(trunk):
 		var upright: float = absf(trunk.global_transform.basis.y.dot(Vector3.UP))
 		check(upright < 0.8, "the felled trunk never fell over (upright %.2f)" % upright)
+
+## Spec: the player cuts through the individual cylinders the tree is made of.
+## A branch comes off on its own; the trunk is severed at the height of the cut
+## and what is below it keeps standing.
+func test_limb_cutting() -> void:
+	_setup()
+	var tree := _make_tree(8.0, 0.34, 0.6, 4)
+	world.add_child(tree)
+	await step(2)
+	var grown := tree.wood_volume()
+	var branches_before := tree.branches.size()
+	check_eq(branches_before, 4, "test tree did not grow its branches")
+
+	# Aim at a branch: that branch alone comes off, and the tree stays up.
+	var branch: Dictionary = tree.branches[0]
+	var aim: Vector3 = tree.global_position + Vector3(0, float(branch.height), 0) \
+		+ (branch.dir as Vector3) * float(branch.length) * 0.5
+	check_eq(tree.limb_at(aim), 0, "aiming along a branch did not select that branch")
+	var branch_volume := Solid.volume(Solid.cylinder(
+		float(branch.radius), float(branch.radius) * 0.7, float(branch.length)))
+	var swings := 0
+	while tree.branches.size() == branches_before and swings < 200:
+		tree.cut(34.0, aim, tree.global_position + Vector3(0, 0, 4))
+		swings += 1
+	await step(2)
+	check_eq(tree.branches.size(), branches_before - 1, "cutting a branch did not take it off")
+	check(swings > 1, "a branch came off in a single swing")
+	check(tree.standing(), "cutting one branch felled the whole tree")
+	check_near(loose_volume(), branch_volume, 0.0001, "the dropped branch is the wrong size")
+	check_near(tree.wood_volume(), grown - branch_volume, 0.0001,
+		"the tree did not lose exactly the branch it dropped")
+
+	# Aim at the trunk, high up: everything above that line leaves and the
+	# stump below it is still a tree.
+	var high := tree.global_position + Vector3(0, 5.0, 0)
+	check_eq(tree.limb_at(high), -1, "aiming at the trunk did not select the trunk")
+	var trunk_swings := 0
+	while tree.trunk_height > 7.9 and trunk_swings < 400:
+		tree.cut(40.0, high, tree.global_position + Vector3(0, 0, 4))
+		trunk_swings += 1
+	await step(2)
+	check(trunk_swings > 3, "a 0.3 m trunk was cut through in %d swings" % trunk_swings)
+	check_near(tree.trunk_height, 5.0, 0.001, "the trunk was not severed at the height of the cut")
+	check(tree.standing(), "severing the top of a trunk removed the whole tree")
+	check_near(loose_volume() + tree.wood_volume(), grown, 0.0001,
+		"cutting the trunk did not conserve wood")
+
+	# Cut the stump through at the bottom and the tree is done.
+	tree.cut(99999.0, tree.global_position + Vector3(0, 0.2, 0), tree.global_position + Vector3(0, 0, 4))
+	await step(2)
+	check(not tree.standing(), "cutting the base did not finish the tree")
+	check_near(loose_volume(), grown, 0.0001, "the tree did not yield exactly what it grew")
+
+## Spec: resources spawn procedurally in form and place up to a quota, and stop
+## once the quota is reached.
+func test_resource_field() -> void:
+	_setup(false)
+	var field := ResourceField.new()
+	field.quota = 8
+	field.min_spacing = 3.0
+	field.refill_seconds = 0.4
+	var forms: Array[Dictionary] = []
+	var heights: Array[float] = []
+	field.setup([{"h": 6.0}, {"h": 9.0}],
+		func(kind: Dictionary, form_seed: int) -> Node3D:
+			var rng := RandomNumberGenerator.new()
+			rng.seed = form_seed
+			var tree := _make_tree(rng.randf_range(4.0, float(kind.h)), 0.3, 0.6, 3)
+			tree.seed_form(form_seed)
+			heights.append(tree.trunk_height)
+			return tree,
+		ResourceField.annulus(10.0, 24.0), 4242)
+	world.add_child(field)
+
+	check_eq(field.prefill(), 8, "prefill did not reach the quota")
+	check_eq(field.count(), 8, "field is not holding its quota")
+	check(field.at_quota(), "field does not report being at quota")
+
+	# Spawning stops dead at the quota, however long it runs.
+	var spawned_at_quota := field.total_spawned
+	await step(30)
+	check_eq(field.total_spawned, spawned_at_quota, "the field kept spawning past its quota")
+
+	# Form and place are both procedural.
+	var unique_heights: Dictionary = {}
+	for h in heights:
+		unique_heights["%.3f" % h] = true
+	check(unique_heights.size() > 1, "every tree in the field grew to the same height")
+	for node in field.alive:
+		var r: float = Vector2(node.position.x, node.position.z).length()
+		check(r >= 9.99 and r <= 24.01, "a node landed outside the field's ring (r=%.1f)" % r)
+	for i in field.alive.size():
+		for j in range(i + 1, field.alive.size()):
+			check(field.alive[i].position.distance_to(field.alive[j].position) >= 2.99,
+				"two nodes spawned inside the minimum spacing")
+
+	# Use one up and the field refills - back to the quota, never past it.
+	(field.alive[0] as ChoppableTree).fell()
+	await step(2)
+	check_eq(field.count(), 7, "a felled tree was not released from the field")
+	for i in 40:
+		await step(4)
+		if field.at_quota():
+			break
+	check_eq(field.count(), 8, "the field did not refill to its quota")
 
 func test_bucking() -> void:
 	_setup()
@@ -275,20 +372,128 @@ func test_bucking() -> void:
 	await step(2)
 	check_eq(manager.active_count(), before, "a piece under the minimum length was still split")
 
-func test_mine() -> void:
+## Spec: disgorging a chunk needs a pull of its mass plus the buried share of
+## its mass again. Under that, it does not move.
+func test_chunk_pull() -> void:
 	_setup()
 	var rock := OreRock.new()
 	rock.manager = manager
-	rock.max_health = 50.0
-	rock.ore_item = &"ore_copper"
-	rock.ore_count = 3
-	rock.respawn_seconds = 0.0
+	rock.ore_item = &"ore_iron"
+	rock.embed = 0.5
+	rock.volume = 0.4
 	world.add_child(rock)
 	await step(2)
-	check(not rock.mine(20.0, Vector3.ZERO), "rock broke too early")
-	check(rock.mine(40.0, Vector3.ZERO), "rock did not break")
+
+	var density := rock.density()
+	check_near(rock.mass(), density * 0.4, 0.001, "chunk mass is not density times volume")
+	check_near(rock.pull_required(), rock.mass() * 1.5, 0.001,
+		"pull needed is not mass plus half of it again at 50%% embedment")
+
+	# A pull short of the requirement does nothing at all.
+	check(rock.try_free(rock.pull_required() - 1.0) == null, "an under-strength pull freed the chunk")
+	check(not rock.consumed(), "a failed pull still took the chunk")
+	check_eq(manager.active_count(), 0, "a failed pull dropped ore anyway")
+
+	# Enough pull takes the whole thing, and the whole thing is all of it.
+	var freed := rock.try_free(rock.pull_required())
+	check(freed != null, "a pull at the requirement did not free the chunk")
+	check(rock.consumed(), "freeing the chunk did not clear it from the ground")
+	check_eq(manager.active_count(), 1, "freeing a chunk should give exactly one piece")
+	if freed != null:
+		check_near(freed.volume(), 0.4, 0.0001, "the freed piece is not the whole chunk")
+		check_near(freed.mass, density * 0.4, 0.01, "the freed piece weighs the wrong amount")
+
+	# Deeper burial means a harder pull for the same rock.
+	var deep := OreRock.new()
+	deep.manager = manager
+	deep.ore_item = &"ore_iron"
+	deep.embed = 0.8
+	deep.volume = 0.4
+	world.add_child(deep)
 	await step(2)
-	check_eq(manager.active_count(), 3, "wrong amount of ore spawned")
+	check(deep.pull_required() > rock.pull_required(),
+		"a chunk buried deeper did not need a harder pull")
+
+## Spec: a hammer opens cracks at random that deepen until the chunk breaks
+## apart, and a heavier hammer cracks faster.
+func test_chunk_cracking() -> void:
+	_setup()
+	var rock := OreRock.new()
+	rock.manager = manager
+	rock.ore_item = &"ore_iron"
+	rock.embed = 0.5
+	rock.volume = 2.0
+	rock.seed_form(99)
+	world.add_child(rock)
+	await step(2)
+	var started_with := rock.volume
+
+	# It takes real work, and it is not free the first time.
+	rock.strike(3.0)
+	check(rock.cracks.size() >= 1, "a blow opened no crack")
+	check(rock.worst_crack() > 0.0 and rock.worst_crack() < 1.0,
+		"one blow with a light hammer went straight through a 2 m3 chunk")
+
+	# Keep hammering: the chunk sheds pieces rather than vanishing.
+	var blows := 1
+	while not rock.consumed() and blows < 4000:
+		rock.strike(3.0)
+		blows += 1
+	await step(4)
+	check(blows > 10, "a 2 m3 chunk broke up in %d blows" % blows)
+	check(rock.consumed(), "the chunk never broke up")
+	check(manager.active_count() >= 2, "breaking a chunk up gave only %d piece(s)" %
+		manager.active_count())
+	check_near(loose_volume(), started_with, 0.0001,
+		"breaking the chunk up did not conserve its ore")
+
+	# A heavier head does the same job in fewer blows.
+	var heavy := OreRock.new()
+	heavy.manager = manager
+	heavy.ore_item = &"ore_iron"
+	heavy.embed = 0.5
+	heavy.volume = 2.0
+	heavy.seed_form(99)
+	world.add_child(heavy)
+	await step(2)
+	var heavy_blows := 0
+	while not heavy.consumed() and heavy_blows < 4000:
+		heavy.strike(20.0)
+		heavy_blows += 1
+	check(heavy_blows < blows, "a 20 kg hammer took %d blows against a 3 kg hammer's %d" % [
+		heavy_blows, blows])
+
+## Spec: a crusher breaks whole chunks and large pieces down, faster than by
+## hand. It conserves volume like every other machine.
+func test_crusher() -> void:
+	_setup()
+	var crusher := Machine.new()
+	crusher.setup(manager, GameData.building(&"crusher"), 0)
+	world.add_child(crusher)
+	await step(2)
+
+	# A lump far too big to carry goes in whole.
+	var lump := spawn(&"ore_iron", crusher.input_point(), Solid.cube(0.9))
+	var lump_volume := lump.volume()
+	check(lump.mass > 500.0, "test lump is only %.0f kg" % lump.mass)
+	check(crusher.accept_item(lump), "the crusher refused a whole chunk")
+	check_near(crusher.buffered_m3(), lump_volume, 0.0001, "the crusher mismeasured the lump")
+
+	for i in 1200:
+		await step(1)
+		if crusher.job.is_empty() and crusher.queue.is_empty() and crusher.total_produced > 0:
+			break
+	check(crusher.total_produced > 1, "the crusher made %d piece(s) from one lump" %
+		crusher.total_produced)
+	check_near(crusher.volume_out, lump_volume, 0.0001, "the crusher did not conserve ore")
+	var biggest := 0.0
+	for item in manager.free_items():
+		biggest = maxf(biggest, item.volume())
+	check(biggest < lump_volume, "the crusher handed back a piece as big as it was given")
+	var def: MachineDef = crusher.machine_def
+	for item in manager.free_items():
+		check(item.length() <= def.max_piece_length + 0.0001,
+			"a crushed piece is %.2f m, over the %.2f m limit" % [item.length(), def.max_piece_length])
 
 func test_sawmill() -> void:
 	_setup()
@@ -966,6 +1171,17 @@ func test_full_base() -> void:
 		produced += m.total_produced
 	check(produced > 0, "no machine produced anything in the running base")
 	check(Economy.money != money_before, "the base earned nothing (sell chute never fired)")
+
+func _make_tree(height: float, radius: float, taper: float, branches: int) -> ChoppableTree:
+	var tree := ChoppableTree.new()
+	tree.manager = manager
+	tree.wood_item = &"wood_pine"
+	tree.trunk_height = height
+	tree.trunk_radius = radius
+	tree.trunk_taper = taper
+	tree.branch_count = branches
+	tree.work_per_m2 = 900.0
+	return tree
 
 func _make_player() -> Player:
 	var p := Player.new()

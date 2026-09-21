@@ -24,10 +24,9 @@ func _ready() -> void:
 		tree.trunk_radius = 0.34
 		tree.trunk_taper = 0.6
 		tree.branch_count = 3
-		tree.respawn_seconds = 0.0
 		add_child(tree)
 		await get_tree().physics_frame
-		tree.chop(9999.0, Vector3(0, 0, 6))
+		tree.fell(Vector3(0, 0, 6))
 		await get_tree().physics_frame
 		for item in manager.free_items():
 			if trunk == null or item.volume() > trunk.volume():

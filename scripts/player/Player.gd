@@ -217,10 +217,16 @@ func _update_prompt() -> void:
 	var target := _owner_of(hit.collider)
 	if target is ChoppableTree:
 		var t := target as ChoppableTree
-		last_prompt = "[LMB] chop  (%d%%)" % int(t.health / t.max_health * 100.0)
+		var limb := t.limb_at(hit.position)
+		var what := "branch" if limb >= 0 else "trunk at %.1f m" % t.to_local(hit.position).y
+		last_prompt = "[LMB] cut %s  (%d%%)" % [what, int(t.cut_progress_at(hit.position) * 100.0)]
 	elif target is OreRock:
 		var r := target as OreRock
-		last_prompt = "[LMB] mine  (%d%%)" % int(r.health / r.max_health * 100.0)
+		var can_pull := r.pull_required() <= move_limit_kg()
+		last_prompt = "[LMB] hammer (%d%%)   %s\n%s" % [
+			int(r.worst_crack() * 100.0),
+			"[F] haul it out" if can_pull else "[F] too deep to pull",
+			r.status_line()]
 	elif target is LooseItem:
 		var i := target as LooseItem
 		var label := "%s  %.2f m  %.3f m3  %.0f kg" % [
@@ -261,10 +267,19 @@ func _swing() -> void:
 	var target := _owner_of(hit.collider)
 	if target is ChoppableTree:
 		_swing_cd = PlayerState.stat(&"axe", "cooldown", 0.4)
-		(target as ChoppableTree).chop(PlayerState.stat(&"axe", "damage", 34.0), global_position)
+		# The cut lands where the axe lands, so the limb under the crosshair is
+		# the one that comes off.
+		var said := (target as ChoppableTree).cut(
+			PlayerState.stat(&"axe", "damage", 34.0), hit.position, global_position)
+		if said != "":
+			interacted.emit(said)
 	elif target is OreRock:
-		_swing_cd = PlayerState.stat(&"pickaxe", "cooldown", 0.48)
-		(target as OreRock).mine(PlayerState.stat(&"pickaxe", "damage", 26.0), global_position)
+		# Rock is not chipped away at, it is cracked: the hammer's head mass is
+		# what opens a crack, so a heavier hammer breaks a chunk in fewer blows.
+		_swing_cd = PlayerState.stat(&"hammer", "cooldown", 0.55)
+		var said := (target as OreRock).strike(PlayerState.stat(&"hammer", "head_kg", 3.0))
+		if said != "":
+			interacted.emit(said)
 	elif target is LooseItem:
 		_buck(target as LooseItem)
 
@@ -379,7 +394,22 @@ func _grab_drag() -> void:
 	var hit := aim_hit()
 	if hit.is_empty():
 		return
-	_grab_drag_item(_owner_of(hit.collider) as LooseItem)
+	var target := _owner_of(hit.collider)
+	if target is OreRock:
+		_pull_chunk(target as OreRock)
+		return
+	_grab_drag_item(target as LooseItem)
+
+## Spec: freeing a buried chunk takes a pull of its mass plus the buried share
+## of its mass again. The player's pull is the same strength as their drag.
+func _pull_chunk(rock: OreRock) -> void:
+	var freed := rock.try_free(move_limit_kg())
+	if freed == null:
+		interacted.emit("needs %.0f kg of pull, you have %.0f - crack it up instead" % [
+			rock.pull_required(), move_limit_kg()])
+		return
+	freed.owned = true
+	interacted.emit("hauled out a %.0f kg chunk" % freed.mass)
 
 ## Takes hold of one piece for the heavy drag. Refuses anything past the move
 ## limit: that is what a winch or a crane is for.

@@ -1,96 +1,147 @@
 class_name ChoppableTree
 extends StaticBody3D
 
-## A tree built from cylinders: a flared stump, a tapered trunk, angled branches
-## and a few canopy cones.
+## A tree built from cylinders, each of which can be cut on its own.
 ##
-## Felling does not turn a tree into tidy logs. The trunk falls as one piece
-## with exactly the dimensions it grew to - a 7 m tapered pole - and the branches
-## come off as their own pieces. Turning that into something you can carry or
-## mill is the player's job: buck it with the axe.
+## There is no single "tree health": the trunk and every branch is a limb with
+## its own collider and its own accumulated axe work, and a cut goes through
+## whichever limb the player is actually aiming at. Work needed scales with the
+## area of the cut face, so a branch is a swing or two and a trunk is real
+## labour, and a sharper axe removes more area per swing.
+##
+## Cutting the trunk severs it at the height of the cut. Everything above that
+## line leaves as one falling piece with exactly the shape it grew to, the
+## branches above it come away as their own pieces, and what is left standing
+## is a shorter tree that can be cut again. Leaves are decoration: they carry no
+## collider and go when the wood they hang on goes.
 
 signal felled(tree: ChoppableTree)
+signal limb_cut(tree: ChoppableTree, wood_volume: float)
 
-@export var max_health: float = 100.0
 @export var wood_item: StringName = &"wood_pine"
 @export var trunk_height: float = 6.5
 @export var trunk_radius: float = 0.34
 @export var trunk_taper: float = 0.62      ## top radius as a fraction of the base
 @export var branch_count: int = 5
-@export var respawn_seconds: float = 35.0
+## Axe work per square metre of cut face. A fat trunk is many swings.
+@export var work_per_m2: float = 900.0
 
-## How fast the trunk swings over once it is cut through, in radians per second
-## about the stump.
+## How fast a severed trunk swings over, in radians per second about the cut.
 const FALL_RATE := 0.9
+## A trunk shorter than this is a stump: nothing left worth cutting.
+const MIN_TRUNK := 0.6
 
-var health: float
 var plot_id: int = 0
 var manager: LooseItemManager
 
-var _parts: Array[MeshInstance3D] = []
-var _shape: CollisionShape3D
-var _branches: Array[Dictionary] = []      ## {offset, dir, radius, length}
-var _respawn_timer: float = -1.0
+## Every branch still attached: {height, dir, radius, length, cut, mesh, leaf, shape}
+var branches: Array[Dictionary] = []
+## Work done on the trunk so far, and the height the current cut is being made.
+var trunk_cut: float = 0.0
+var trunk_cut_height: float = 0.0
+
+var _trunk_mesh: MeshInstance3D
+var _flare_mesh: MeshInstance3D
+var _crown: MeshInstance3D
+var _trunk_shape: CollisionShape3D
+var _standing: bool = true
 var _rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
-	health = max_health
 	collision_layer = Layers.TREE
 	collision_mask = Layers.WORLD
-	_rng.seed = hash(name) + int(position.x * 31.0) + int(position.z * 17.0)
+	if _rng.seed == 0:
+		_rng.seed = hash(name) + int(position.x * 31.0) + int(position.z * 17.0)
 	_build()
-	set_process(false)
+
+## Lets the spawner decide the tree's form deterministically.
+func seed_form(value: int) -> void:
+	_rng.seed = value
+
+func standing() -> bool:
+	return _standing
 
 func trunk_dims() -> Dictionary:
 	return Solid.cylinder(trunk_radius, trunk_radius * trunk_taper, trunk_height)
 
-## Total wood in the tree: what felling must hand back, to the cubic centimetre.
+## Radius of the trunk at a given height above the ground.
+func radius_at(height: float) -> float:
+	var t := clampf(height / maxf(0.01, trunk_height), 0.0, 1.0)
+	return lerpf(trunk_radius, trunk_radius * trunk_taper, t)
+
+## Total wood still standing: what is left to be cut out of this tree.
 func wood_volume() -> float:
+	if not _standing:
+		return 0.0
 	var total := Solid.volume(trunk_dims())
-	for b in _branches:
-		total += Solid.volume(Solid.cylinder(b.radius, b.radius * 0.7, b.length))
+	for b in branches:
+		total += Solid.volume(_branch_dims(b))
 	return total
+
+func _branch_dims(b: Dictionary) -> Dictionary:
+	return Solid.cylinder(float(b.radius), float(b.radius) * 0.7, float(b.length))
+
+# --- Construction ----------------------------------------------------------
 
 func _build() -> void:
 	var wood_def := GameData.item(wood_item)
 	var bark: Color = wood_def.color if wood_def != null else Color(0.42, 0.29, 0.17)
 	var leaf := Color(0.13, 0.42, 0.18).lerp(Color(0.20, 0.50, 0.22), _rng.randf())
 
-	_shape = CollisionShape3D.new()
-	var box := BoxShape3D.new()
-	box.size = Vector3(trunk_radius * 2.0, trunk_height, trunk_radius * 2.0)
-	_shape.shape = box
-	_shape.position = Vector3(0, trunk_height * 0.5, 0)
-	add_child(_shape)
+	_trunk_shape = CollisionShape3D.new()
+	_trunk_shape.shape = CylinderShape3D.new()
+	add_child(_trunk_shape)
 
-	# Root flare, so trunks meet the ground instead of ending at it.
-	_add_cylinder(trunk_radius * 1.45, trunk_radius * 1.02, 0.5,
+	_flare_mesh = _add_cylinder(trunk_radius * 1.45, trunk_radius * 1.02, 0.5,
 		Transform3D(Basis(), Vector3(0, 0.25, 0)), bark.darkened(0.15))
-	# The trunk itself: this is the shape that falls.
-	_add_cylinder(trunk_radius, trunk_radius * trunk_taper, trunk_height,
+	_trunk_mesh = _add_cylinder(trunk_radius, trunk_radius * trunk_taper, trunk_height,
 		Transform3D(Basis(), Vector3(0, trunk_height * 0.5, 0)), bark)
+	_crown = _add_cone(trunk_radius * 6.5, trunk_height * 0.45,
+		Transform3D(Basis(), Vector3(0, trunk_height * 1.02, 0)), leaf.darkened(0.05))
 
-	_branches.clear()
 	for i in branch_count:
 		var t: float = 0.45 + 0.5 * float(i) / maxf(1.0, float(branch_count - 1))
 		var height: float = trunk_height * t
 		var yaw: float = _rng.randf_range(0.0, TAU)
 		var pitch: float = _rng.randf_range(0.5, 0.95)      # up-and-out
 		var length: float = trunk_height * _rng.randf_range(0.18, 0.30)
-		var radius: float = lerpf(trunk_radius, trunk_radius * trunk_taper, t) * 0.42
+		var radius: float = radius_at(height) * 0.42
 		var dir := Vector3(cos(yaw) * sin(pitch), cos(pitch), sin(yaw) * sin(pitch)).normalized()
 		var base := Vector3(0, height, 0)
-		_branches.append({"offset": base, "dir": dir, "radius": radius, "length": length})
-
 		var basis := _basis_from_up(dir)
-		_add_cylinder(radius, radius * 0.7, length,
+		var mesh := _add_cylinder(radius, radius * 0.7, length,
 			Transform3D(basis, base + dir * length * 0.5), bark.lightened(0.05))
-		# A clump of foliage on the end of each branch.
-		_add_cone(radius * 7.0, length * 1.25,
+		var foliage := _add_cone(radius * 7.0, length * 1.25,
 			Transform3D(Basis(), base + dir * (length + length * 0.35)), leaf)
+		# Each branch gets its own collider, so the aim ray can say which one
+		# the player is standing under.
+		var shape := CollisionShape3D.new()
+		var cyl := CylinderShape3D.new()
+		cyl.radius = radius
+		cyl.height = length
+		shape.shape = cyl
+		shape.transform = Transform3D(basis, base + dir * length * 0.5)
+		add_child(shape)
+		branches.append({"height": height, "dir": dir, "radius": radius, "length": length,
+			"cut": 0.0, "mesh": mesh, "leaf": foliage, "shape": shape})
 
-	_add_cone(trunk_radius * 6.5, trunk_height * 0.45,
-		Transform3D(Basis(), Vector3(0, trunk_height * 1.02, 0)), leaf.darkened(0.05))
+	_refresh_trunk()
+
+## Rebuilds the trunk mesh and collider from the current height, after a cut has
+## shortened the tree.
+func _refresh_trunk() -> void:
+	var cm := _trunk_mesh.mesh as CylinderMesh
+	cm.bottom_radius = trunk_radius
+	cm.top_radius = trunk_radius * trunk_taper
+	cm.height = trunk_height
+	_trunk_mesh.position = Vector3(0, trunk_height * 0.5, 0)
+	var cyl := _trunk_shape.shape as CylinderShape3D
+	cyl.radius = trunk_radius
+	cyl.height = trunk_height
+	_trunk_shape.position = Vector3(0, trunk_height * 0.5, 0)
+	if _crown != null:
+		_crown.visible = _standing and not branches.is_empty()
+		_crown.position = Vector3(0, trunk_height * 1.02, 0)
 
 func _basis_from_up(up: Vector3) -> Basis:
 	var axis := Vector3.UP.cross(up)
@@ -98,7 +149,8 @@ func _basis_from_up(up: Vector3) -> Basis:
 		return Basis()
 	return Basis(axis.normalized(), Vector3.UP.angle_to(up))
 
-func _add_cylinder(r_bottom: float, r_top: float, height: float, xform: Transform3D, color: Color) -> void:
+func _add_cylinder(r_bottom: float, r_top: float, height: float, xform: Transform3D,
+		color: Color) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	var cm := CylinderMesh.new()
 	cm.bottom_radius = r_bottom
@@ -110,9 +162,9 @@ func _add_cylinder(r_bottom: float, r_top: float, height: float, xform: Transfor
 	mi.transform = xform
 	mi.material_override = _mat(color)
 	add_child(mi)
-	_parts.append(mi)
+	return mi
 
-func _add_cone(radius: float, height: float, xform: Transform3D, color: Color) -> void:
+func _add_cone(radius: float, height: float, xform: Transform3D, color: Color) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	var cm := CylinderMesh.new()
 	cm.bottom_radius = radius
@@ -124,7 +176,7 @@ func _add_cone(radius: float, height: float, xform: Transform3D, color: Color) -
 	mi.transform = xform
 	mi.material_override = _mat(color)
 	add_child(mi)
-	_parts.append(mi)
+	return mi
 
 func _mat(color: Color) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
@@ -132,70 +184,165 @@ func _mat(color: Color) -> StandardMaterial3D:
 	m.roughness = 0.95
 	return m
 
-## Returns true if this hit felled the tree.
-func chop(damage: float, from: Vector3) -> bool:
-	if health <= 0.0:
-		return false
-	health -= damage
-	if not _parts.is_empty():
-		var trunk := _parts[1] if _parts.size() > 1 else _parts[0]
-		trunk.scale = Vector3(1.05, 0.99, 1.05)
-		create_tween().tween_property(trunk, "scale", Vector3.ONE, 0.12)
-	if health > 0.0:
-		return false
-	_fell(from)
-	return true
+# --- Cutting ---------------------------------------------------------------
 
-func _fell(from: Vector3) -> void:
+## Which limb a world point belongs to: -1 for the trunk, otherwise an index
+## into `branches`. Points are matched to the nearest branch axis, so aiming at
+## a branch cuts that branch and aiming past it cuts the trunk.
+func limb_at(world_point: Vector3) -> int:
+	var local := to_local(world_point)
+	var best := -1
+	var best_d := INF
+	for i in branches.size():
+		var b: Dictionary = branches[i]
+		var base := Vector3(0, float(b.height), 0)
+		var dir: Vector3 = b.dir
+		var along: float = clampf((local - base).dot(dir), 0.0, float(b.length))
+		var d: float = local.distance_to(base + dir * along)
+		if d < best_d and d < float(b.radius) * 2.2:
+			best_d = d
+			best = i
+	# The trunk wins when the point is inside it, whatever branch is nearby.
+	var height := clampf(local.y, 0.0, trunk_height)
+	var trunk_d := Vector2(local.x, local.z).length()
+	if trunk_d <= radius_at(height) * 1.25:
+		return -1
+	return best
+
+## Work one swing of the axe into the limb under `world_point`. Returns a short
+## line describing what happened.
+func cut(damage: float, world_point: Vector3, from: Vector3) -> String:
+	if not _standing:
+		return ""
+	var index := limb_at(world_point)
+	if index >= 0:
+		return _cut_branch(index, damage)
+	return _cut_trunk(damage, to_local(world_point).y, from)
+
+func _cut_branch(index: int, damage: float) -> String:
+	var b: Dictionary = branches[index]
+	var area: float = PI * float(b.radius) * float(b.radius)
+	var needed: float = area * work_per_m2
+	b.cut = float(b.cut) + damage
+	if float(b.cut) < needed:
+		_nudge(b.mesh)
+		return "cutting branch: %d%%" % int(float(b.cut) / needed * 100.0)
+	_drop_branch(index, Vector3.ZERO)
+	return "branch off"
+
+## Severs the trunk at `height`. Everything above leaves; what is below stays
+## standing and can be cut again.
+func _cut_trunk(damage: float, height: float, from: Vector3) -> String:
+	height = clampf(height, 0.0, trunk_height)
+	# Moving the cut to a different height starts a new cut.
+	if absf(height - trunk_cut_height) > 0.45:
+		trunk_cut_height = height
+		trunk_cut = 0.0
+	var radius := radius_at(trunk_cut_height)
+	var needed: float = PI * radius * radius * work_per_m2
+	trunk_cut += damage
+	if trunk_cut < needed:
+		_nudge(_trunk_mesh)
+		return "cutting trunk: %d%%" % int(trunk_cut / needed * 100.0)
+	return _sever(trunk_cut_height, from)
+
+## Drops everything above `height` as loose wood and leaves the rest standing.
+func _sever(height: float, from: Vector3) -> String:
 	var dir := global_position - from
 	dir.y = 0.0
 	dir = dir.normalized() if dir.length_squared() > 0.01 else Vector3.FORWARD
 
-	if manager != null:
-		# The trunk falls as one piece, exactly as it grew.
-		#
-		# It has to pivot about its stump, not spin about its middle: a cylinder
-		# given angular velocity about its own centre just drives one edge of
-		# its base into the ground and the contact constraint cancels it, which
-		# is exactly what a standing 250 kg pole does - nothing. So the trunk is
-		# handed a rotation about the base plus the matching centre-of-mass
+	var cut_radius := radius_at(height)
+	var top_radius := trunk_radius * trunk_taper
+	var upper := Solid.cylinder(cut_radius, top_radius, maxf(0.05, trunk_height - height))
+	var dropped := Solid.volume(upper)
+
+	if manager != null and trunk_height - height > 0.05:
+		# The severed length has to pivot about the cut, not spin about its own
+		# middle: a cylinder given angular velocity about its centre drives one
+		# edge of its base into whatever it is standing on and the contact
+		# cancels it, which is what a standing quarter-tonne pole does - nothing.
+		# So it gets a rotation about the cut plus the matching centre-of-mass
 		# velocity, and a couple of degrees of lean to break the symmetry.
 		var axis := Vector3.UP.cross(dir).normalized()
 		var lean := Basis(axis, 0.06)
-		var centre := global_position + Vector3(0, trunk_height * 0.5, 0)
-		var trunk := manager.spawn(wood_item, Transform3D(lean, centre), plot_id,
-			Vector3.ZERO, trunk_dims())
-		if trunk != null:
+		var centre := global_position + Vector3(0, height + (trunk_height - height) * 0.5, 0)
+		var piece := manager.spawn(wood_item, Transform3D(lean, centre), plot_id,
+			Vector3.ZERO, upper)
+		if piece != null:
 			var spin := axis * FALL_RATE
-			trunk.angular_velocity = spin
-			trunk.linear_velocity = spin.cross(Vector3(0, trunk_height * 0.5, 0))
-		for b in _branches:
-			var branch_dims := Solid.cylinder(b.radius, b.radius * 0.7, b.length)
-			var basis := _basis_from_up(b.dir)
-			var pos: Vector3 = global_position + b.offset + b.dir * float(b.length) * 0.5
-			var piece := manager.spawn(wood_item, Transform3D(basis, pos), plot_id,
-				b.dir * 1.5, branch_dims)
-			if piece == null:
-				break
+			piece.angular_velocity = spin
+			piece.linear_velocity = spin.cross(Vector3(0, (trunk_height - height) * 0.5, 0))
 
-	_set_standing(false)
-	felled.emit(self)
-	if respawn_seconds > 0.0:
-		_respawn_timer = respawn_seconds
-		set_process(true)
+	# Branches above the cut go with it.
+	for i in range(branches.size() - 1, -1, -1):
+		if float(branches[i].height) >= height:
+			dropped += _drop_branch(i, dir * 1.5)
 
-func _set_standing(standing: bool) -> void:
-	for p in _parts:
-		p.visible = standing
-	_shape.disabled = not standing
-	collision_layer = Layers.TREE if standing else 0
+	# The stump keeps the taper it actually grew: it runs from its base radius
+	# to the radius at the cut, not to the radius the whole tree ended at. Get
+	# this wrong and the two halves of a cut no longer add up to the tree.
+	trunk_taper = cut_radius / maxf(0.001, trunk_radius)
+	trunk_height = height
+	trunk_cut = 0.0
+	trunk_cut_height = 0.0
+	_refresh_trunk()
+	limb_cut.emit(self, dropped)
+	if trunk_height <= MIN_TRUNK:
+		_standing = false
+		_trunk_shape.disabled = true
+		_trunk_mesh.visible = false
+		_flare_mesh.visible = false
+		if _crown != null:
+			_crown.visible = false
+		collision_layer = 0
+		felled.emit(self)
+		return "tree down"
+	return "trunk severed at %.1f m" % height
 
-func _process(delta: float) -> void:
-	if _respawn_timer < 0.0:
+## Takes one branch off the tree and turns it into loose wood. Returns its volume.
+## Cuts the tree right through at the base, dropping the whole thing. What a
+## perfect swing with an oversized axe would do, and how tests and the smoke
+## run take a tree down in one call.
+func fell(from: Vector3 = Vector3.ZERO) -> String:
+	if not _standing:
+		return ""
+	var origin := from if from != Vector3.ZERO else global_position + Vector3(0, 0, 3)
+	return _sever(0.0, origin)
+
+func _drop_branch(index: int, impulse: Vector3) -> float:
+	var b: Dictionary = branches[index]
+	var dims := _branch_dims(b)
+	if manager != null:
+		var basis := _basis_from_up(b.dir)
+		var pos: Vector3 = global_position + Vector3(0, float(b.height), 0) \
+			+ (b.dir as Vector3) * float(b.length) * 0.5
+		manager.spawn(wood_item, Transform3D(basis, pos), plot_id,
+			impulse + (b.dir as Vector3) * 0.8, dims)
+	(b.mesh as MeshInstance3D).queue_free()
+	(b.leaf as MeshInstance3D).queue_free()
+	(b.shape as CollisionShape3D).queue_free()
+	branches.remove_at(index)
+	if branches.is_empty() and _crown != null:
+		_crown.visible = false
+	return Solid.volume(dims)
+
+func _nudge(mesh: MeshInstance3D) -> void:
+	if not is_instance_valid(mesh):
 		return
-	_respawn_timer -= delta
-	if _respawn_timer <= 0.0:
-		_respawn_timer = -1.0
-		health = max_health
-		_set_standing(true)
-		set_process(false)
+	mesh.scale = Vector3(1.05, 0.99, 1.05)
+	create_tween().tween_property(mesh, "scale", Vector3.ONE, 0.12)
+
+## How far through the limb under this point the current cut is, 0..1. Drives
+## the aim prompt.
+func cut_progress_at(world_point: Vector3) -> float:
+	var index := limb_at(world_point)
+	if index >= 0:
+		var b: Dictionary = branches[index]
+		var needed: float = PI * float(b.radius) * float(b.radius) * work_per_m2
+		return clampf(float(b.cut) / maxf(0.001, needed), 0.0, 1.0)
+	var height := clampf(to_local(world_point).y, 0.0, trunk_height)
+	if absf(height - trunk_cut_height) > 0.45:
+		return 0.0
+	var radius := radius_at(trunk_cut_height)
+	return clampf(trunk_cut / maxf(0.001, PI * radius * radius * work_per_m2), 0.0, 1.0)

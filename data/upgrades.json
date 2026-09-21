@@ -42,36 +42,36 @@
       ]
     },
     {
-      "id": "pickaxe",
-      "display_name": "Pickaxe",
+      "id": "hammer",
+      "display_name": "Hammer",
       "levels": [
         {
           "level": 1,
           "cost": 0,
-          "damage": 26.0,
-          "cooldown": 0.48,
-          "label": "Chipped Pick"
+          "head_kg": 3.0,
+          "cooldown": 0.55,
+          "label": "Club Hammer"
         },
         {
           "level": 2,
-          "cost": 400,
-          "damage": 48.0,
-          "cooldown": 0.42,
-          "label": "Steel Pick"
+          "cost": 500,
+          "head_kg": 6.0,
+          "cooldown": 0.5,
+          "label": "Sledge"
         },
         {
           "level": 3,
-          "cost": 1800,
-          "damage": 95.0,
-          "cooldown": 0.34,
-          "label": "Carbide Pick"
+          "cost": 2400,
+          "head_kg": 11.0,
+          "cooldown": 0.44,
+          "label": "Splitting Maul"
         },
         {
           "level": 4,
-          "cost": 9000,
-          "damage": 190.0,
-          "cooldown": 0.26,
-          "label": "Deepcore Drill"
+          "cost": 11000,
+          "head_kg": 20.0,
+          "cooldown": 0.38,
+          "label": "Drop Hammer"
         }
       ]
     },
@@ -149,40 +149,6 @@
           "walk": 8.5,
           "sprint": 16.0,
           "label": "Turbo Treads"
-        }
-      ]
-    },
-    {
-      "id": "hammer",
-      "display_name": "Hammer",
-      "levels": [
-        {
-          "level": 1,
-          "cost": 0,
-          "head_kg": 3.0,
-          "cooldown": 0.55,
-          "label": "Club Hammer"
-        },
-        {
-          "level": 2,
-          "cost": 500,
-          "head_kg": 6.0,
-          "cooldown": 0.5,
-          "label": "Sledge"
-        },
-        {
-          "level": 3,
-          "cost": 2400,
-          "head_kg": 11.0,
-          "cooldown": 0.44,
-          "label": "Splitting Maul"
-        },
-        {
-          "level": 4,
-          "cost": 11000,
-          "head_kg": 20.0,
-          "cooldown": 0.38,
-          "label": "Drop Hammer"
         }
       ]
     }

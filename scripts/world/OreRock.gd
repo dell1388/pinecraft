@@ -1,71 +1,238 @@
 class_name OreRock
 extends StaticBody3D
 
-## A minable outcrop: one box collider under a small cluster of rotated boxes,
-## so it reads as broken rock rather than a crate. Breaking it drops ore pieces.
+## A chunk of ore sitting part-buried in the ground.
+##
+## There are two ways to get it out, and they cost different things. Pulling
+## takes it whole, but the pull needed is its own weight plus the share of it
+## that is still buried - so a big chunk simply will not come, however long you
+## heave. Hammering takes time instead of strength: every blow opens a crack
+## somewhere random or drives an existing one deeper, and when a crack goes all
+## the way through, the piece on the near side of it breaks away and can be
+## carried off while the rest stays in the ground.
+##
+## Either way the ore is conserved: what comes out of the hole adds up to what
+## was in it.
 
 signal broken(rock: OreRock)
+signal yielded(rock: OreRock, ore_volume: float)
 
-@export var max_health: float = 140.0
 @export var ore_item: StringName = &"ore_iron"
-@export var ore_count: int = 4
-@export var radius: float = 1.2
-@export var respawn_seconds: float = 40.0
+## How much of the chunk is buried, as a fraction. The pull needed to free it
+## is its mass plus this much of its mass again.
+@export var embed: float = 0.45
 
-var health: float
+## A chunk of radius r holds about this much ore: it is a lumpy thing, not a
+## box, so it does not fill its own bounds.
+const SHAPE_FILL := 2.36
+## Below this there is no chunk left to work; the remainder comes free whole.
+const MIN_CHUNK := 0.06
+## Crack depth opened per kilogram of hammer head, before the chunk's size is
+## taken into account. A heavier head cracks deeper, a bigger chunk cracks slower.
+const CRACK_GAIN := 0.05
+## Two blows closer together than this along the chunk work the same crack.
+const CRACK_SPREAD := 0.18
+## The least of the chunk a single fracture can take off.
+const MIN_SPLIT := 0.12
+
+var volume: float = 1.0
+## Open cracks: {t: where along the chunk, 0..1; depth: how far through, 0..1}.
+var cracks: Array[Dictionary] = []
 var plot_id: int = 0
 var manager: LooseItemManager
 
 var _parts: Array[MeshInstance3D] = []
+var _crack_meshes: Array[MeshInstance3D] = []
 var _shape: CollisionShape3D
-var _respawn_timer: float = -1.0
+var _consumed: bool = false
 var _rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
-	health = max_health
 	collision_layer = Layers.TREE      # shares the "resource node" layer
 	collision_mask = Layers.WORLD
-	_rng.seed = hash(name) + int(position.x * 13.0) + int(position.z * 29.0)
-	_build()
-	set_process(false)
+	if _rng.seed == 0:
+		_rng.seed = hash(name) + int(position.x * 13.0) + int(position.z * 29.0)
+	_rebuild()
 
-func _build() -> void:
+func seed_form(value: int) -> void:
+	_rng.seed = value
+
+## Sets the chunk's size by the ore in it. The visible rock follows from this,
+## never the other way round.
+func set_volume(value: float) -> void:
+	volume = maxf(MIN_CHUNK, value)
+	if is_inside_tree():
+		_rebuild()
+
+## Half-width of the chunk, derived from how much ore is left in it.
+func radius() -> float:
+	return pow(maxf(0.0001, volume / SHAPE_FILL), 1.0 / 3.0)
+
+func density() -> float:
+	var def := GameData.item(ore_item)
+	return def.density if def != null else 900.0
+
+func mass() -> float:
+	return density() * volume
+
+## Spec: the pull to disgorge a chunk is its mass plus the buried fraction of
+## its mass again.
+func pull_required() -> float:
+	return mass() * (1.0 + embed)
+
+func consumed() -> bool:
+	return _consumed
+
+## How close the worst crack is to going through, 0..1. Drives the aim prompt.
+func worst_crack() -> float:
+	var worst := 0.0
+	for c in cracks:
+		worst = maxf(worst, float(c.depth))
+	return worst
+
+# --- Working the chunk -----------------------------------------------------
+
+## One blow of a hammer. Opens a crack at a random spot, or drives a nearby one
+## deeper, and fractures the chunk when a crack goes all the way through.
+func strike(head_kg: float) -> String:
+	if _consumed:
+		return ""
+	var t := _rng.randf()
+	var index := _crack_near(t)
+	if index < 0:
+		cracks.append({"t": t, "depth": 0.0})
+		index = cracks.size() - 1
+	# Depth won per blow falls off with the chunk's cross-section, so the same
+	# hammer that shatters a boulder-chip barely marks a boulder.
+	var gain: float = head_kg * CRACK_GAIN / pow(maxf(0.05, volume), 2.0 / 3.0)
+	cracks[index]["depth"] = float(cracks[index].depth) + gain
+	_nudge()
+	if float(cracks[index].depth) < 1.0:
+		_refresh_cracks()
+		return "crack deepens (%d%%)" % int(float(cracks[index].depth) * 100.0)
+	return _fracture(index)
+
+func _crack_near(t: float) -> int:
+	for i in cracks.size():
+		if absf(float(cracks[i].t) - t) <= CRACK_SPREAD:
+			return i
+	return -1
+
+## A crack has gone through: the piece on its near side breaks away.
+func _fracture(index: int) -> String:
+	var t: float = cracks[index].t
+	# The crack splits the chunk where it fell; the smaller side is what comes
+	# off, so hammering peels a chunk down rather than halving it forever.
+	var share: float = clampf(minf(t, 1.0 - t), MIN_SPLIT, 0.5)
+	var piece: float = volume * share
+	cracks.remove_at(index)
+	_drop_ore(piece, Vector3.UP * 1.2)
+	volume -= piece
+	# What is left sits deeper in its hole than what came off it.
+	embed = clampf(embed + 0.06, 0.0, 0.85)
+	if volume <= MIN_CHUNK:
+		var last := volume
+		_drop_ore(last, Vector3.UP * 1.0)
+		_consume()
+		return "chunk broken up"
+	_rebuild()
+	yielded.emit(self, piece)
+	return "%.2f m3 breaks off" % piece
+
+## Tries to haul the whole chunk out of the ground. Returns the freed ore, or
+## null when the pull is not enough.
+func try_free(pull_kg: float) -> LooseItem:
+	if _consumed:
+		return null
+	if pull_kg < pull_required():
+		return null
+	var freed := _drop_ore(volume, Vector3.UP * 0.6)
+	_consume()
+	return freed
+
+## Breaks the whole chunk up at once. Not a player action: this is how tests and
+## the smoke run empty a chunk without simulating a hundred hammer blows.
+func shatter() -> int:
+	var pieces := 0
+	var guard := 0
+	while not _consumed and guard < 200:
+		guard += 1
+		if strike(10000.0) != "":
+			pieces += 1
+	return pieces
+
+func _drop_ore(piece_volume: float, impulse: Vector3) -> LooseItem:
+	if manager == null or piece_volume <= 0.0:
+		return null
+	var top := global_position + Vector3(0, radius() * (1.0 - embed) + 0.35, 0)
+	var spot := top + Vector3(_rng.randf_range(-0.3, 0.3), 0.0, _rng.randf_range(-0.3, 0.3))
+	var item := manager.spawn(ore_item, Transform3D(Basis(), spot), plot_id, impulse,
+		Solid.cube(piece_volume))
+	yielded.emit(self, piece_volume)
+	return item
+
+func _consume() -> void:
+	_consumed = true
+	_shape.disabled = true
+	for p in _parts:
+		p.visible = false
+	for c in _crack_meshes:
+		c.visible = false
+	collision_layer = 0
+	broken.emit(self)
+
+# --- Geometry --------------------------------------------------------------
+
+## The chunk is drawn from the ore left in it, so hammering a piece off visibly
+## shrinks the rock in the ground.
+func _rebuild() -> void:
+	for p in _parts:
+		p.queue_free()
+	_parts.clear()
+	var r := radius()
 	var ore_def := GameData.item(ore_item)
 	var stone := Color(0.34, 0.33, 0.31)
 	var seam: Color = ore_def.color if ore_def != null else Color(0.5, 0.5, 0.5)
+	# Buried up to `embed`, so the chunk reads as part of the ground rather
+	# than something dropped on it.
+	var lift := -r * embed
 
-	_shape = CollisionShape3D.new()
-	var box := BoxShape3D.new()
-	box.size = Vector3(radius * 1.9, radius * 1.5, radius * 1.9)
-	_shape.shape = box
-	_shape.position = Vector3(0, radius * 0.75, 0)
-	add_child(_shape)
+	if _shape == null:
+		_shape = CollisionShape3D.new()
+		_shape.shape = BoxShape3D.new()
+		add_child(_shape)
+	(_shape.shape as BoxShape3D).size = Vector3(r * 1.9, r * 1.5, r * 1.9)
+	_shape.position = Vector3(0, lift + r * 0.75, 0)
 
-	# A main mass plus a few shoulders, each tilted a little.
-	_add_block(Vector3(radius * 1.7, radius * 1.4, radius * 1.6),
-		Vector3(0, radius * 0.7, 0), _rng.randf_range(-0.2, 0.2), stone)
+	var form := RandomNumberGenerator.new()
+	form.seed = _rng.seed                 # same rock, same lumps, as it shrinks
+
+	_add_block(Vector3(r * 1.7, r * 1.4, r * 1.6),
+		Vector3(0, lift + r * 0.7, 0), form.randf_range(-0.2, 0.2), stone, form)
 	for i in 3:
-		var scale: float = _rng.randf_range(0.45, 0.75)
-		var angle: float = TAU * float(i) / 3.0 + _rng.randf_range(-0.4, 0.4)
-		_add_block(Vector3(radius * scale, radius * scale * 0.9, radius * scale),
-			Vector3(cos(angle) * radius * 0.7, radius * _rng.randf_range(0.3, 0.95),
-				sin(angle) * radius * 0.7),
-			_rng.randf_range(-0.5, 0.5), stone.lightened(_rng.randf_range(0.0, 0.12)))
-	# Ore seams: small bright blocks, so you can tell iron from gold at a glance.
+		var scale: float = form.randf_range(0.45, 0.75)
+		var angle: float = TAU * float(i) / 3.0 + form.randf_range(-0.4, 0.4)
+		_add_block(Vector3(r * scale, r * scale * 0.9, r * scale),
+			Vector3(cos(angle) * r * 0.7, lift + r * form.randf_range(0.3, 0.95),
+				sin(angle) * r * 0.7),
+			form.randf_range(-0.5, 0.5), stone.lightened(form.randf_range(0.0, 0.12)), form)
+	# Ore seams: small bright blocks, so iron reads differently from gold.
 	for i in 3:
-		var angle2: float = TAU * _rng.randf()
-		_add_block(Vector3(radius * 0.32, radius * 0.22, radius * 0.3),
-			Vector3(cos(angle2) * radius * 0.78, radius * _rng.randf_range(0.4, 1.1),
-				sin(angle2) * radius * 0.78),
-			_rng.randf_range(-0.6, 0.6), seam)
+		var angle2: float = TAU * form.randf()
+		_add_block(Vector3(r * 0.32, r * 0.22, r * 0.3),
+			Vector3(cos(angle2) * r * 0.78, lift + r * form.randf_range(0.4, 1.1),
+				sin(angle2) * r * 0.78),
+			form.randf_range(-0.6, 0.6), seam, form)
+	_refresh_cracks()
 
-func _add_block(size: Vector3, pos: Vector3, tilt: float, color: Color) -> void:
+func _add_block(size: Vector3, pos: Vector3, tilt: float, color: Color,
+		form: RandomNumberGenerator) -> void:
 	var mi := MeshInstance3D.new()
 	var bm := BoxMesh.new()
 	bm.size = size
 	mi.mesh = bm
 	mi.position = pos
-	mi.rotation = Vector3(tilt * 0.6, _rng.randf_range(0.0, PI), tilt)
+	mi.rotation = Vector3(tilt * 0.6, form.randf_range(0.0, PI), tilt)
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = color
 	mat.roughness = 1.0
@@ -73,47 +240,34 @@ func _add_block(size: Vector3, pos: Vector3, tilt: float, color: Color) -> void:
 	add_child(mi)
 	_parts.append(mi)
 
-## Returns true if this hit broke the rock.
-func mine(damage: float, from: Vector3) -> bool:
-	if health <= 0.0:
-		return false
-	health -= damage
-	if not _parts.is_empty():
-		_parts[0].scale = Vector3(1.04, 0.97, 1.04)
-		create_tween().tween_property(_parts[0], "scale", Vector3.ONE, 0.1)
-	if health > 0.0:
-		return false
-	_break(from)
-	return true
+## Cracks are drawn as dark seams that lengthen as they deepen, so a chunk that
+## is nearly through looks it.
+func _refresh_cracks() -> void:
+	for c in _crack_meshes:
+		c.queue_free()
+	_crack_meshes.clear()
+	var r := radius()
+	var lift := -r * embed
+	for crack in cracks:
+		var depth: float = clampf(float(crack.depth), 0.0, 1.0)
+		var mi := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = Vector3(r * 0.06, r * 1.45 * depth, r * 2.0 * depth)
+		mi.mesh = bm
+		mi.position = Vector3((float(crack.t) - 0.5) * r * 1.6, lift + r * 0.75, 0)
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = Color(0.06, 0.06, 0.07)
+		mat.roughness = 1.0
+		mi.material_override = mat
+		add_child(mi)
+		_crack_meshes.append(mi)
 
-func _break(from: Vector3) -> void:
-	var dir := global_position - from
-	dir.y = 0.0
-	dir = dir.normalized() if dir.length_squared() > 0.01 else Vector3.FORWARD
-	if manager != null:
-		for i in ore_count:
-			var pos := global_position + Vector3(
-				randf_range(-0.5, 0.5), radius + 0.4 + float(i) * 0.3, randf_range(-0.5, 0.5))
-			manager.spawn(ore_item, Transform3D(Basis(), pos), plot_id,
-				dir * 1.5 + Vector3.UP * 2.0)
-	_set_intact(false)
-	broken.emit(self)
-	if respawn_seconds > 0.0:
-		_respawn_timer = respawn_seconds
-		set_process(true)
-
-func _set_intact(intact: bool) -> void:
-	for p in _parts:
-		p.visible = intact
-	_shape.disabled = not intact
-	collision_layer = Layers.TREE if intact else 0
-
-func _process(delta: float) -> void:
-	if _respawn_timer < 0.0:
+func _nudge() -> void:
+	if _parts.is_empty() or not is_instance_valid(_parts[0]):
 		return
-	_respawn_timer -= delta
-	if _respawn_timer <= 0.0:
-		_respawn_timer = -1.0
-		health = max_health
-		_set_intact(true)
-		set_process(false)
+	_parts[0].scale = Vector3(1.04, 0.97, 1.04)
+	create_tween().tween_property(_parts[0], "scale", Vector3.ONE, 0.1)
+
+func status_line() -> String:
+	return "%s chunk  %.2f m3  %.0f kg  needs %.0f kg of pull" % [
+		GameData.item_name(ore_item), volume, mass(), pull_required()]

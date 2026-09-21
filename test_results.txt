@@ -2,8 +2,12 @@
   [ok  ] data integrity
   [ok  ] deterministic daily prices
   [ok  ] felling drops the trunk as it grew
+  [ok  ] branches and trunk are cut separately
+  [ok  ] resource fields fill to a quota and stop
   [ok  ] bucking splits wood and conserves volume
-  [ok  ] mining a rock yields ore
+  [ok  ] a chunk is pulled out whole when the pull is enough
+  [ok  ] hammering cracks a chunk apart piece by piece
+  [ok  ] the crusher breaks ore down faster than a hammer
   [ok  ] sawmill mills wood and conserves volume
   [ok  ] furnace smelts ore into billets
   [ok  ] workbench assembles from volumes
@@ -23,7 +27,7 @@
   [ok  ] hauler drives, carries and stays upright
   [ok  ] kill plane rescues fallen items
   [ok  ] per-plot cap is enforced
-      full base: 200 items live, avg 2.04 ms/frame, worst 7.06 ms (budget 16.67)
+      full base: 163 items live, avg 1.79 ms/frame, worst 5.54 ms (budget 16.67)
   [ok  ] full automated base stays in budget
 
-PASS - 330 checks
+PASS - 437 checks

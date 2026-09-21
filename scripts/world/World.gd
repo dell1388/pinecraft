@@ -20,6 +20,9 @@ var hud: GameHUD
 var build_system: BuildSystem
 var depot: SellZone
 var hauler: Hauler
+## One field per species, each keeping its own ring or patch stocked.
+var tree_fields: Array[ResourceField] = []
+var rock_fields: Array[ResourceField] = []
 
 var _rng := RandomNumberGenerator.new()
 var _autosave_timer: float = AUTOSAVE_SECONDS
@@ -133,56 +136,85 @@ func _build_terrain() -> void:
 		ground.add_child(wcs)
 	add_child(ground)
 
+## The forest is not a fixed list of trees: each species has a field that keeps
+## its own ring stocked up to a quota and stops there. Fell one and the field
+## grows another somewhere else in the ring, but never more than the quota, so
+## a cleared forest comes back and a full one stays put.
 func _build_forest() -> void:
 	var species := [
 		# Kept outside the largest plot tier so an expanded plot never swallows
 		# the forest or leaves trees standing inside a factory.
-		{"item": &"wood_pine", "min_r": 52.0, "max_r": 68.0, "health": 100.0,
-			"radius": [0.30, 0.40], "height": [6.0, 8.5], "taper": 0.60, "branches": 5},
-		{"item": &"wood_oak", "min_r": 64.0, "max_r": 84.0, "health": 190.0,
-			"radius": [0.38, 0.50], "height": [6.5, 9.0], "taper": 0.66, "branches": 6},
-		{"item": &"wood_ironwood", "min_r": 80.0, "max_r": 104.0, "health": 420.0,
-			"radius": [0.44, 0.58], "height": [7.0, 10.0], "taper": 0.72, "branches": 7},
+		{"item": &"wood_pine", "ring": [52.0, 68.0], "work": 620.0,
+			"radius": [0.30, 0.40], "height": [6.0, 8.5], "taper": 0.60, "branches": [4, 6]},
+		{"item": &"wood_oak", "ring": [64.0, 84.0], "work": 1000.0,
+			"radius": [0.38, 0.50], "height": [6.5, 9.0], "taper": 0.66, "branches": [5, 7]},
+		{"item": &"wood_ironwood", "ring": [80.0, 104.0], "work": 1900.0,
+			"radius": [0.44, 0.58], "height": [7.0, 10.0], "taper": 0.72, "branches": [6, 8]},
 	]
-	for i in tree_count:
-		var kind: Dictionary = species[i % species.size()]
-		var angle := _rng.randf_range(0.0, TAU)
-		var radius := _rng.randf_range(kind.min_r, kind.max_r)
-		var tree := ChoppableTree.new()
-		tree.manager = manager
-		tree.plot_id = 0
-		tree.max_health = float(kind.health)
-		tree.wood_item = kind.item
-		tree.branch_count = int(kind.branches)
-		tree.trunk_height = _rng.randf_range(kind.height[0], kind.height[1])
-		tree.trunk_radius = _rng.randf_range(kind.radius[0], kind.radius[1])
-		tree.trunk_taper = float(kind.taper)
-		tree.respawn_seconds = 35.0
-		tree.position = Vector3(cos(angle) * radius, 0, sin(angle) * radius)
-		add_child(tree)
+	var per_species: int = maxi(1, tree_count / species.size())
+	for i in species.size():
+		var kind: Dictionary = species[i]
+		var field := ResourceField.new()
+		field.name = "Forest_%s" % kind.item
+		field.quota = per_species
+		field.min_spacing = 4.2
+		field.refill_seconds = 6.0
+		field.setup([kind], _build_tree,
+			ResourceField.annulus(kind.ring[0], kind.ring[1]), _rng.randi())
+		add_child(field)
+		field.prefill()
+		tree_fields.append(field)
 
+func _build_tree(kind: Dictionary, form_seed: int) -> Node3D:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = form_seed
+	var tree := ChoppableTree.new()
+	tree.manager = manager
+	tree.plot_id = 0
+	tree.wood_item = kind.item
+	tree.seed_form(form_seed)
+	tree.branch_count = rng.randi_range(int(kind.branches[0]), int(kind.branches[1]))
+	tree.trunk_height = rng.randf_range(kind.height[0], kind.height[1])
+	tree.trunk_radius = rng.randf_range(kind.radius[0], kind.radius[1])
+	tree.trunk_taper = float(kind.taper)
+	tree.work_per_m2 = float(kind.work)
+	return tree
+
+## The quarry works the same way: a patch per ore, stocked to a quota.
 func _build_quarry() -> void:
+	# Chunk sizes straddle the player's pull: the small end of iron comes out of
+	# the ground whole, the big end has to be cracked up first.
 	var ores := [
-		{"item": &"ore_iron", "health": 140.0, "count": 4},
-		{"item": &"ore_copper", "health": 230.0, "count": 4},
-		{"item": &"ore_gold", "health": 520.0, "count": 3},
+		{"item": &"ore_iron", "volume": [0.35, 2.6], "embed": [0.30, 0.55]},
+		{"item": &"ore_copper", "volume": [0.30, 2.2], "embed": [0.35, 0.60]},
+		{"item": &"ore_gold", "volume": [0.20, 1.4], "embed": [0.45, 0.70]},
 	]
-	for i in rock_count:
-		var kind: Dictionary = ores[i % ores.size()]
-		var rock := OreRock.new()
-		rock.manager = manager
-		rock.plot_id = 0
-		rock.ore_item = kind.item
-		rock.max_health = float(kind.health)
-		rock.ore_count = int(kind.count)
-		rock.radius = _rng.randf_range(1.0, 1.6)
-		rock.respawn_seconds = 40.0
-		# Quarry is its own corner of the map, so mining is a trip.
-		rock.position = Vector3(
-			_rng.randf_range(-100.0, -56.0),
-			0,
-			_rng.randf_range(-34.0, 34.0) + float(i % 3) * 2.0)
-		add_child(rock)
+	var per_ore: int = maxi(1, rock_count / ores.size())
+	for i in ores.size():
+		var kind: Dictionary = ores[i]
+		var field := ResourceField.new()
+		field.name = "Quarry_%s" % kind.item
+		field.quota = per_ore
+		field.min_spacing = 4.0
+		field.refill_seconds = 8.0
+		# Its own corner of the map, so mining is a trip.
+		field.setup([kind], _build_rock,
+			ResourceField.rect(Vector3(-78.0, 0, 0), Vector2(22.0, 34.0)), _rng.randi())
+		add_child(field)
+		field.prefill()
+		rock_fields.append(field)
+
+func _build_rock(kind: Dictionary, form_seed: int) -> Node3D:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = form_seed
+	var rock := OreRock.new()
+	rock.manager = manager
+	rock.plot_id = 0
+	rock.ore_item = kind.item
+	rock.seed_form(form_seed)
+	rock.embed = rng.randf_range(kind.embed[0], kind.embed[1])
+	rock.volume = rng.randf_range(kind.volume[0], kind.volume[1])
+	return rock
 
 func _build_depot() -> void:
 	depot = SellZone.new()
@@ -225,6 +257,26 @@ func _make_player() -> Player:
 func _spawn_vehicle_for_load() -> Node3D:
 	spawn_vehicle()
 	return hauler
+
+## Every tree still standing, across all fields.
+func trees() -> Array[ChoppableTree]:
+	var out: Array[ChoppableTree] = []
+	for field in tree_fields:
+		for node in field.alive:
+			var tree := node as ChoppableTree
+			if tree != null and tree.standing():
+				out.append(tree)
+	return out
+
+## Every rock still intact, across all fields.
+func rocks() -> Array[OreRock]:
+	var out: Array[OreRock] = []
+	for field in rock_fields:
+		for node in field.alive:
+			var rock := node as OreRock
+			if rock != null:
+				out.append(rock)
+	return out
 
 func spawn_vehicle() -> void:
 	if hauler != null:

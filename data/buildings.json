@@ -108,6 +108,19 @@
         2,
         2
       ]
+    },
+    {
+      "id": "crusher",
+      "display_name": "Crusher",
+      "kind": "machine",
+      "cost": 700,
+      "size": [
+        3,
+        3,
+        3
+      ],
+      "machine": "crusher",
+      "unlock_cost": 400
     }
   ],
   "_machines_note": "mill and smelt conserve volume: everything that goes in comes back out as pieces with the exit hole's cross-section and whatever length that volume needs.",
@@ -163,8 +176,8 @@
       "intake": {
         "face": "top",
         "hole": [
-          0.85,
-          0.85
+          1.1,
+          1.1
         ],
         "height": 0.0
       },
@@ -182,7 +195,7 @@
       ],
       "max_piece_length": 0.9,
       "m3_per_second": 0.006,
-      "buffer_m3": 0.6,
+      "buffer_m3": 2.5,
       "conversion": {
         "ore_iron": "ingot_iron",
         "ore_copper": "ingot_copper",
@@ -223,6 +236,47 @@
         0.27,
         0.37,
         0.45
+      ]
+    },
+    {
+      "id": "crusher",
+      "display_name": "Crusher",
+      "mode": "mill",
+      "accepts": [
+        "ore"
+      ],
+      "intake": {
+        "face": "top",
+        "hole": [
+          1.3,
+          1.3
+        ],
+        "height": 0.0
+      },
+      "outlet": {
+        "face": "front",
+        "hole": [
+          0.45,
+          0.35
+        ],
+        "height": 0.5
+      },
+      "cross_section": [
+        0.3,
+        0.3
+      ],
+      "max_piece_length": 0.4,
+      "m3_per_second": 0.12,
+      "buffer_m3": 6.0,
+      "conversion": {
+        "ore_iron": "ore_iron",
+        "ore_copper": "ore_copper",
+        "ore_gold": "ore_gold"
+      },
+      "color": [
+        0.3,
+        0.32,
+        0.36
       ]
     }
   ]

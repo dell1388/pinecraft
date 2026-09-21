@@ -248,7 +248,7 @@ func _process(delta: float) -> void:
 			player.carried_volume(), player.capacity_m3(), player.carried_count(),
 			manager.active_count(), manager.per_plot_cap, plot.placed.size()],
 		"axe %s   pick %s   %d fps" % [
-			PlayerState.label(&"axe"), PlayerState.label(&"pickaxe"),
+			PlayerState.label(&"axe"), PlayerState.label(&"hammer"),
 			Engine.get_frames_per_second()],
 	]
 	if player.driving():

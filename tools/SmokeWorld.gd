@@ -17,8 +17,8 @@ func _ready() -> void:
 	print("world built: %d children, plot extent %.0fm, money $%d" % [
 		world.get_child_count(), world.plot.half_extent * 2.0, Economy.money])
 	# Content assertions: a scene that builds but is empty used to pass quietly.
-	_require(_count_of("ChoppableTree") >= 40, "forest is missing: %d trees" % _count_of("ChoppableTree"))
-	_require(_count_of("OreRock") >= 20, "quarry is missing: %d rocks" % _count_of("OreRock"))
+	_require(world.trees().size() >= 40, "forest is missing: %d trees" % world.trees().size())
+	_require(world.rocks().size() >= 20, "quarry is missing: %d rocks" % world.rocks().size())
 	_require(world.depot != null, "no sell depot")
 	_require(world.player != null and world.hud != null, "no player or HUD")
 
@@ -32,20 +32,20 @@ func _physics_process(_delta: float) -> void:
 	# Drive the world the way a player would: fell trees, mine, build, sell.
 	if frames == 30:
 		var felled := 0
-		for child in world.get_children():
-			var tree := child as ChoppableTree
-			if tree != null and felled < 6:
-				tree.chop(9999.0, tree.global_position + Vector3(0, 0, 3))
-				felled += 1
+		for tree in world.trees():
+			if felled >= 6:
+				break
+			tree.fell(tree.global_position + Vector3(0, 0, 3))
+			felled += 1
 		print("felled %d trees" % felled)
 		_require(felled > 0, "no trees could be felled")
 	if frames == 60:
 		var mined := 0
-		for child in world.get_children():
-			var rock := child as OreRock
-			if rock != null and mined < 5:
-				rock.mine(9999.0, rock.global_position + Vector3(3, 0, 0))
-				mined += 1
+		for rock in world.rocks():
+			if mined >= 5:
+				break
+			rock.shatter()
+			mined += 1
 		print("broke %d rocks -> %d loose items" % [mined, world.manager.active_count()])
 		_require(mined > 0, "no rocks could be mined")
 	if frames == 90:

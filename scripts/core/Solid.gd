@@ -17,6 +17,12 @@ static func box(size: Vector3) -> Dictionary:
 static func cylinder(r0: float, r1: float, length: float) -> Dictionary:
 	return {"shape": CYLINDER, "r0": maxf(0.01, r0), "r1": maxf(0.01, r1), "length": maxf(0.02, length)}
 
+## A cube of a given volume. Ore comes off a chunk as lumps, and a lump's only
+## real property is how much of it there is.
+static func cube(volume_m3: float) -> Dictionary:
+	var side: float = pow(maxf(0.000001, volume_m3), 1.0 / 3.0)
+	return box(Vector3(side, side, side))
+
 static func volume(d: Dictionary) -> float:
 	if d.get("shape", BOX) == CYLINDER:
 		var r0: float = d.r0
