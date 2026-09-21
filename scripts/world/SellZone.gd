@@ -53,7 +53,7 @@ func can_accept(_item_id: StringName) -> bool:
 	return true
 
 func accept_item(item: LooseItem) -> bool:
-	var value := Economy.sell(item.item_id, 1)
+	var value := Economy.sell(item.item_id, item.dims)
 	session_total += value
 	last_sale_text = "+$%d  %s" % [value, GameData.item_name(item.item_id)]
 	sold.emit(item.item_id, value)

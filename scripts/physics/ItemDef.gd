@@ -1,48 +1,85 @@
 class_name ItemDef
 extends Resource
 
-## Data-driven item definition. Loaded from data/items.json at runtime; the
-## defaults below exist so the stress-test scene can run standalone.
+## Data-driven item definition, loaded from data/items.json.
+##
+## An item is a solid with a density and a price per cubic metre. "Variable"
+## items (wood, lumber, billets) carry their own dimensions at runtime, so a
+## 4 m trunk and a 1 m log are the same item id at different sizes.
 
-@export var id: StringName = &"log_pine"
-@export var display_name: String = "Pine Log"
-@export var size: Vector3 = Vector3(0.35, 0.35, 1.6)
-@export var mass: float = 8.0
-@export var color: Color = Color(0.45, 0.30, 0.18)
-@export var base_value: int = 3
-@export var category: StringName = &"misc"
+@export var id: StringName = &"wood_pine"
+@export var display_name: String = "Pine Wood"
+@export var category: StringName = &"wood"
+@export var shape: StringName = Solid.CYLINDER
+@export var variable: bool = true
+@export var density: float = 150.0           ## kg per cubic metre (game-scaled)
+@export var value_per_m3: float = 22.0
+@export var fixed_value: int = 0             ## set for goods priced per piece
 @export var volatility: float = 0.25
+@export var color: Color = Color(0.47, 0.32, 0.19)
 
-static func make(p_id: StringName, p_name: String, p_size: Vector3, p_mass: float,
-		p_color: Color, p_value: int) -> ItemDef:
-	var d := ItemDef.new()
-	d.id = p_id
-	d.display_name = p_name
-	d.size = p_size
-	d.mass = p_mass
-	d.color = p_color
-	d.base_value = p_value
-	return d
+## Defaults used when a spawn does not specify dimensions.
+@export var default_size: Vector3 = Vector3(0.3, 0.3, 0.3)
+@export var radius: float = 0.18
+@export var length: float = 1.6
+@export var taper: float = 0.86
+@export var cross_section: Vector2 = Vector2(0.3, 0.3)
 
-static func defaults() -> Array[ItemDef]:
-	return [
-		make(&"log_pine", "Pine Log", Vector3(0.35, 0.35, 1.6), 8.0, Color(0.45, 0.30, 0.18), 3),
-		make(&"log_oak", "Oak Log", Vector3(0.42, 0.42, 1.7), 12.0, Color(0.36, 0.24, 0.14), 6),
-		make(&"plank", "Plank", Vector3(0.18, 0.08, 1.4), 3.0, Color(0.72, 0.55, 0.32), 9),
-		make(&"ore_iron", "Iron Ore", Vector3(0.45, 0.40, 0.45), 14.0, Color(0.52, 0.53, 0.58), 11),
-		make(&"ingot_iron", "Iron Ingot", Vector3(0.5, 0.18, 0.24), 9.0, Color(0.70, 0.72, 0.78), 26),
-	]
+func default_dims() -> Dictionary:
+	if shape == Solid.CYLINDER:
+		return Solid.cylinder(radius, radius * taper, length)
+	if variable:
+		return Solid.box(Vector3(cross_section.x, length, cross_section.y))
+	return Solid.box(default_size)
+
+func volume_of(dims: Dictionary) -> float:
+	return Solid.volume(dims)
+
+func mass_of(dims: Dictionary) -> float:
+	return maxf(0.5, density * Solid.volume(dims))
+
+## Price of one piece at the base rate, before the day's market multiplier.
+func base_value_of(dims: Dictionary) -> float:
+	if fixed_value > 0:
+		return float(fixed_value)
+	return value_per_m3 * Solid.volume(dims)
 
 static func from_dict(d: Dictionary) -> ItemDef:
-	var s: Array = d.get("size", [0.35, 0.35, 1.6])
-	var c: Array = d.get("color", [1.0, 1.0, 1.0])
-	var def := make(
-		StringName(d.get("id", "unknown")),
-		String(d.get("display_name", "Unknown")),
-		Vector3(s[0], s[1], s[2]),
-		float(d.get("mass", 5.0)),
-		Color(c[0], c[1], c[2]),
-		int(d.get("base_value", 1)))
+	var def := ItemDef.new()
+	def.id = StringName(d.get("id", "unknown"))
+	def.display_name = String(d.get("display_name", "Unknown"))
 	def.category = StringName(d.get("category", "misc"))
+	def.shape = StringName(d.get("shape", "box"))
+	def.variable = bool(d.get("variable", false))
+	def.density = float(d.get("density", 300.0))
+	def.value_per_m3 = float(d.get("value_per_m3", 0.0))
+	def.fixed_value = int(d.get("value", 0))
 	def.volatility = float(d.get("volatility", 0.25))
+	var c: Array = d.get("color", [0.6, 0.6, 0.6])
+	def.color = Color(c[0], c[1], c[2])
+	if d.has("size"):
+		var s: Array = d["size"]
+		def.default_size = Vector3(s[0], s[1], s[2])
+	if d.has("cross_section"):
+		var cs: Array = d["cross_section"]
+		def.cross_section = Vector2(cs[0], cs[1])
+	def.radius = float(d.get("radius", 0.18))
+	def.length = float(d.get("length", 1.6))
+	def.taper = float(d.get("taper", 1.0))
 	return def
+
+static func defaults() -> Array[ItemDef]:
+	# Minimal fallback so scenes can run without the data files present.
+	var wood := ItemDef.new()
+	var lumber := ItemDef.new()
+	lumber.id = &"lumber_pine"
+	lumber.display_name = "Pine Lumber"
+	lumber.category = &"lumber"
+	lumber.shape = Solid.BOX
+	lumber.variable = true
+	lumber.cross_section = Vector2(0.3, 0.3)
+	lumber.length = 1.55
+	lumber.density = 140.0
+	lumber.value_per_m3 = 72.0
+	lumber.color = Color(0.74, 0.57, 0.34)
+	return [wood, lumber]

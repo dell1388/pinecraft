@@ -44,7 +44,7 @@ func _ready() -> void:
 	add_child(hud)
 
 	if initial_logs > 0:
-		StressWorld.rain_items(manager, &"log_pine", initial_logs, _rng)
+		StressWorld.rain_items(manager, &"wood_pine", initial_logs, _rng)
 
 func _make_player() -> Player:
 	var p := Player.new()
@@ -70,9 +70,9 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		return
 	match key.keycode:
 		KEY_1:
-			StressWorld.rain_items(manager, &"log_pine", 100, _rng)
+			StressWorld.rain_items(manager, &"wood_pine", 100, _rng)
 		KEY_2:
-			StressWorld.rain_items(manager, &"log_pine", 500, _rng)
+			StressWorld.rain_items(manager, &"wood_pine", 500, _rng)
 		KEY_3:
 			manager.despawn_all()
 		KEY_4:
@@ -93,4 +93,4 @@ func _feed_conveyors(count: int) -> void:
 		for i in count:
 			var pos: Vector3 = entry.origin + entry.basis.z * (c.length * 0.5 - 0.8) \
 				+ Vector3(0, 1.2 + float(i) * 0.05, 0)
-			manager.spawn(&"log_pine", Transform3D(Basis(), pos), StressWorld.PLOT_ID)
+			manager.spawn(&"wood_pine", Transform3D(Basis(), pos), StressWorld.PLOT_ID)

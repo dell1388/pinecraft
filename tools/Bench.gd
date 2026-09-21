@@ -86,7 +86,7 @@ func _setup_scenario(s: Dictionary) -> void:
 	match s.kind:
 		"pile":
 			_manager.per_plot_cap = 4000      # cap disabled: we want raw scaling
-			StressWorld.rain_items(_manager, &"log_pine", int(s.count), _rng,
+			StressWorld.rain_items(_manager, &"wood_pine", int(s.count), _rng,
 				Vector3(0, 14, 0), 3.4, 0.5)
 		"conveyor":
 			var c := StressWorld.build_conveyor(_world, Vector3(0, 0.6, 0), 0.0, s.mode, 16.0, 3.0)
@@ -100,14 +100,14 @@ func _setup_scenario(s: Dictionary) -> void:
 			_manager.per_plot_cap = Tuning.LOOSE_ITEMS_PER_PLOT
 		"drag":
 			_manager.per_plot_cap = 4000
-			StressWorld.rain_items(_manager, &"log_pine", int(s.count), _rng,
+			StressWorld.rain_items(_manager, &"wood_pine", int(s.count), _rng,
 				Vector3(0, 12, 0), 3.2, 0.5)
 			_drag_targets.clear()
 			_drag_time = 0.0
 			for i in int(s.drag):
 				var ang := TAU * float(i) / float(s.drag)
 				var pos := Vector3(cos(ang) * 14.0, 3.0, sin(ang) * 14.0)
-				var item := _manager.spawn(&"log_pine", Transform3D(Basis(), pos), StressWorld.PLOT_ID)
+				var item := _manager.spawn(&"wood_pine", Transform3D(Basis(), pos), StressWorld.PLOT_ID)
 				if item != null:
 					item.set_state(LooseItem.State.CARRIED)
 					_drag_targets.append(item)
@@ -186,12 +186,12 @@ func _tick_scenario(_delta: float) -> void:
 		"churn":
 			# Continuous spawn/despawn: exercises pooling with zero allocation.
 			if _manager.active_count() < 150:
-				StressWorld.rain_items(_manager, &"log_pine", 10, _rng, Vector3(0, 10, 0), 2.0, 0.4)
+				StressWorld.rain_items(_manager, &"wood_pine", 10, _rng, Vector3(0, 10, 0), 2.0, 0.4)
 			elif _frames % 3 == 0:
-				StressWorld.rain_items(_manager, &"log_pine", 6, _rng, Vector3(0, 10, 0), 2.0, 0.4)
+				StressWorld.rain_items(_manager, &"wood_pine", 6, _rng, Vector3(0, 10, 0), 2.0, 0.4)
 		"overflow":
 			if _phase == Phase.WARM or _phase == Phase.MEASURE:
-				StressWorld.rain_items(_manager, &"log_pine", 8, _rng, Vector3(0, 12, 0), 3.0, 0.4)
+				StressWorld.rain_items(_manager, &"wood_pine", 8, _rng, Vector3(0, 12, 0), 3.0, 0.4)
 		"conveyor":
 			# Feed the belt at a steady rate rather than dumping a heap on it.
 			var every: int = int(_current.get("feed_every", 12))
@@ -199,7 +199,7 @@ func _tick_scenario(_delta: float) -> void:
 				var belt: Conveyor = _conveyors[0]
 				var entry: Transform3D = belt.global_transform
 				var pos: Vector3 = entry.origin + entry.basis.z * (belt.length * 0.5 - 1.0) + Vector3(0, 1.1, 0)
-				_manager.spawn(&"log_pine", Transform3D(Basis(), pos), StressWorld.PLOT_ID)
+				_manager.spawn(&"wood_pine", Transform3D(Basis(), pos), StressWorld.PLOT_ID)
 		"drag":
 			# Steer carried items along circular paths: the same velocity-driven
 			# drag the player uses, 20 of them at once, over a live pile.

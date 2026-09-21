@@ -6,7 +6,7 @@ extends Splitter
 ## through the item table, so a plot can sort planks from ingots without the
 ## player standing there.
 
-@export var filter_item: StringName = &"log_pine"
+@export var filter_item: StringName = &"wood_pine"
 @export var invert: bool = false
 
 const OUT_LEFT := 0
@@ -44,5 +44,5 @@ func to_dict() -> Dictionary:
 	return {"filter_item": String(filter_item), "invert": invert}
 
 func from_dict(d: Dictionary) -> void:
-	filter_item = StringName(d.get("filter_item", "log_pine"))
+	filter_item = StringName(d.get("filter_item", "wood_pine"))
 	invert = bool(d.get("invert", false))

@@ -11,13 +11,13 @@ signal contents_changed(bin: StorageBin)
 var def: BuildingDef
 var manager: LooseItemManager
 var plot_id: int = 0
-var contents: Dictionary = {}       ## StringName -> int
-var capacity: int = 60
+var contents: Array[Dictionary] = []   ## {id: StringName, dims: Dictionary}
+var capacity_m3: float = 6.0
 
 var _area: Area3D
 var _area_shape: CollisionShape3D
 var _output_point: Node3D
-var _dispensing: Array = []         ## queued [item_id] to pour out
+var _dispensing: Array[Dictionary] = []   ## queued {id, dims} to pour out
 var _dispense_timer: float = 0.0
 var _poll_timer: float = 0.0
 
@@ -25,13 +25,13 @@ func setup(p_manager: LooseItemManager, p_def: BuildingDef, p_plot_id: int = 0) 
 	manager = p_manager
 	def = p_def
 	building_id = p_def.id
-	capacity = p_def.capacity
+	capacity_m3 = float(p_def.capacity)
 	plot_id = p_plot_id
 
 func _ready() -> void:
 	if def == null:
 		def = GameData.building(building_id)
-		capacity = def.capacity
+		capacity_m3 = float(def.capacity)
 	var size: Vector3 = def.footprint_world(1.0)
 
 	var body := StaticBody3D.new()
@@ -73,18 +73,23 @@ func _ready() -> void:
 	set_physics_process(true)
 
 func count() -> int:
-	var n := 0
-	for k in contents:
-		n += int(contents[k])
-	return n
+	return contents.size()
+
+## Bins hold a volume, not a number of items, so one trunk fills more of a bin
+## than one billet does.
+func stored_m3() -> float:
+	var total := 0.0
+	for entry in contents:
+		total += Solid.volume(entry.dims)
+	return total
 
 func can_accept(_item_id: StringName) -> bool:
-	return count() < capacity
+	return stored_m3() < capacity_m3
 
 func accept_item(item: LooseItem) -> bool:
 	if not can_accept(item.item_id):
 		return false
-	contents[item.item_id] = int(contents.get(item.item_id, 0)) + 1
+	contents.append({"id": item.item_id, "dims": item.dims.duplicate()})
 	manager.despawn(item)
 	contents_changed.emit(self)
 	return true
@@ -99,14 +104,15 @@ func _on_body(body: Node) -> void:
 
 ## Queue everything (or one kind) to be poured back out of the front port.
 func dispense_all(item_id: StringName = &"") -> int:
+	var keep: Array[Dictionary] = []
 	var queued := 0
-	for k in contents.keys():
-		if item_id != &"" and k != item_id:
+	for entry in contents:
+		if item_id != &"" and entry.id != item_id:
+			keep.append(entry)
 			continue
-		for i in int(contents[k]):
-			_dispensing.append(k)
-			queued += 1
-		contents.erase(k)
+		_dispensing.append(entry)
+		queued += 1
+	contents = keep
 	contents_changed.emit(self)
 	return queued
 
@@ -122,26 +128,30 @@ func _physics_process(delta: float) -> void:
 	if _dispense_timer > 0.0:
 		return
 	_dispense_timer = 0.12       # paced so a full bin cannot spike the solver
-	var item_id: StringName = _dispensing.pop_front()
-	manager.spawn(item_id, _output_point.global_transform, plot_id,
-		-global_transform.basis.z * 1.5)
+	var entry: Dictionary = _dispensing.pop_front()
+	var origin := _output_point.global_transform
+	manager.spawn(entry.id, Transform3D(LooseItem.lying_basis(origin.basis.get_euler().y),
+		origin.origin), plot_id, -global_transform.basis.z * 1.5, entry.dims)
 
 func summary() -> String:
 	if contents.is_empty():
-		return "Storage: empty"
+		return "Storage: empty (0.0/%.1f m3)" % capacity_m3
+	var counts: Dictionary = {}
+	for entry in contents:
+		counts[entry.id] = int(counts.get(entry.id, 0)) + 1
 	var parts: Array[String] = []
-	for k in contents:
-		parts.append("%s x%d" % [GameData.item_name(k), int(contents[k])])
-	return "Storage (%d/%d): %s" % [count(), capacity, ", ".join(parts)]
+	for k in counts:
+		parts.append("%s x%d" % [GameData.item_name(k), int(counts[k])])
+	return "Storage (%.2f/%.1f m3): %s" % [stored_m3(), capacity_m3, ", ".join(parts)]
 
 func to_dict() -> Dictionary:
-	var d := {}
-	for k in contents:
-		d[String(k)] = int(contents[k])
-	return d
+	var out: Array = []
+	for entry in contents:
+		out.append({"id": String(entry.id), "dims": Solid.to_dict(entry.dims)})
+	return {"contents": out}
 
 func from_dict(d: Dictionary) -> void:
 	contents.clear()
-	for k in d:
-		contents[StringName(k)] = int(d[k])
+	for entry in d.get("contents", []):
+		contents.append({"id": StringName(entry.get("id", "")), "dims": Solid.from_dict(entry.get("dims", {}))})
 	contents_changed.emit(self)

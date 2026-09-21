@@ -72,15 +72,26 @@ func _read(file_name: String) -> Dictionary:
 ## Cross-checks every reference between the tables, so a typo in a data file
 ## surfaces at load instead of as a silent no-op three systems later.
 func _validate() -> void:
+	var categories: Dictionary = {}
+	for def: ItemDef in items.values():
+		categories[def.category] = true
 	for r: RecipeDef in recipes.values():
 		if not machines.has(r.machine):
 			load_errors.append("recipe '%s' targets unknown machine '%s'" % [r.id, r.machine])
-		for item_id in r.inputs:
-			if not items.has(item_id):
-				load_errors.append("recipe '%s' consumes unknown item '%s'" % [r.id, item_id])
-		for item_id in r.outputs:
-			if not items.has(item_id):
-				load_errors.append("recipe '%s' produces unknown item '%s'" % [r.id, item_id])
+		for category in r.inputs:
+			if not categories.has(category):
+				load_errors.append("recipe '%s' wants unknown category '%s'" % [r.id, category])
+		if not items.has(r.output):
+			load_errors.append("recipe '%s' produces unknown item '%s'" % [r.id, r.output])
+	for m: MachineDef in machines.values():
+		for category in m.accepts:
+			if not categories.has(category):
+				load_errors.append("machine '%s' accepts unknown category '%s'" % [m.id, category])
+		for input_id in m.conversion:
+			if not items.has(input_id):
+				load_errors.append("machine '%s' converts unknown item '%s'" % [m.id, input_id])
+			elif not items.has(m.conversion[input_id]):
+				load_errors.append("machine '%s' produces unknown item '%s'" % [m.id, m.conversion[input_id]])
 	for b: BuildingDef in buildings.values():
 		if b.kind == &"machine" and not machines.has(b.machine):
 			load_errors.append("building '%s' references unknown machine '%s'" % [b.id, b.machine])
@@ -105,20 +116,26 @@ func machine(id: StringName) -> MachineDef:
 func machine_recipes(machine_id: StringName) -> Array:
 	return recipes_by_machine.get(machine_id, [])
 
-## First recipe on `machine_id` whose inputs are all present in `buffer`.
-func first_ready_recipe(machine_id: StringName, buffer: Dictionary) -> RecipeDef:
+## First assembly recipe on `machine_id` whose inputs are covered by `stock`
+## (category -> cubic metres).
+func first_ready_recipe(machine_id: StringName, stock: Dictionary) -> RecipeDef:
 	for r: RecipeDef in machine_recipes(machine_id):
-		if r.satisfied_by(buffer):
+		if r.satisfied_by(stock):
 			return r
 	return null
 
-## True if any recipe on this machine uses the item at all (used to reject
-## items a machine cannot process instead of swallowing them).
+## Whether this machine has any use for the item at all. Used to reject items
+## rather than swallow them.
 func machine_accepts(machine_id: StringName, item_id: StringName) -> bool:
-	for r: RecipeDef in machine_recipes(machine_id):
-		if r.inputs.has(item_id):
-			return true
-	return false
+	var m: MachineDef = machines.get(machine_id)
+	var def: ItemDef = items.get(item_id)
+	if m == null or def == null:
+		return false
+	if not m.accepts_category(def.category):
+		return false
+	if m.mode == MachineDef.MODE_ASSEMBLE:
+		return true
+	return m.output_for(item_id) != &""
 
 func upgrade_levels(track_id: StringName) -> Array:
 	var track: Dictionary = upgrade_tracks.get(track_id, {})

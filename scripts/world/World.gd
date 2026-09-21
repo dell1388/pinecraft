@@ -137,9 +137,12 @@ func _build_forest() -> void:
 	var species := [
 		# Kept outside the largest plot tier so an expanded plot never swallows
 		# the forest or leaves trees standing inside a factory.
-		{"item": &"log_pine", "min_r": 52.0, "max_r": 68.0, "health": 100.0, "logs": 5},
-		{"item": &"log_oak", "min_r": 64.0, "max_r": 84.0, "health": 190.0, "logs": 6},
-		{"item": &"log_ironwood", "min_r": 80.0, "max_r": 104.0, "health": 420.0, "logs": 7},
+		{"item": &"wood_pine", "min_r": 52.0, "max_r": 68.0, "health": 100.0,
+			"radius": [0.30, 0.40], "height": [6.0, 8.5], "taper": 0.60, "branches": 5},
+		{"item": &"wood_oak", "min_r": 64.0, "max_r": 84.0, "health": 190.0,
+			"radius": [0.38, 0.50], "height": [6.5, 9.0], "taper": 0.66, "branches": 6},
+		{"item": &"wood_ironwood", "min_r": 80.0, "max_r": 104.0, "health": 420.0,
+			"radius": [0.44, 0.58], "height": [7.0, 10.0], "taper": 0.72, "branches": 7},
 	]
 	for i in tree_count:
 		var kind: Dictionary = species[i % species.size()]
@@ -149,10 +152,11 @@ func _build_forest() -> void:
 		tree.manager = manager
 		tree.plot_id = 0
 		tree.max_health = float(kind.health)
-		tree.log_item = kind.item
-		tree.log_count = int(kind.logs)
-		tree.trunk_height = _rng.randf_range(5.0, 8.5)
-		tree.trunk_radius = _rng.randf_range(0.35, 0.55)
+		tree.wood_item = kind.item
+		tree.branch_count = int(kind.branches)
+		tree.trunk_height = _rng.randf_range(kind.height[0], kind.height[1])
+		tree.trunk_radius = _rng.randf_range(kind.radius[0], kind.radius[1])
+		tree.trunk_taper = float(kind.taper)
 		tree.respawn_seconds = 35.0
 		tree.position = Vector3(cos(angle) * radius, 0, sin(angle) * radius)
 		add_child(tree)

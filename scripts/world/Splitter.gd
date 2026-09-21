@@ -117,7 +117,9 @@ func _physics_process(delta: float) -> void:
 			_release(i)
 			continue
 		local += to_target.normalized() * step
-		item.global_transform = global_transform * Transform3D(Basis(), local)
+		var dir_index: int = _dirs.get(item, 1)
+		var yaw: float = atan2(OUTPUT_DIRS[dir_index].x, OUTPUT_DIRS[dir_index].z)
+		item.global_transform = global_transform * Transform3D(LooseItem.lying_basis(yaw), local)
 
 func _release(index: int) -> void:
 	var item: LooseItem = _routing[index]

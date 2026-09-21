@@ -34,6 +34,11 @@ func stat(track: StringName, key: String, fallback: float = 0.0) -> float:
 	var d := stats(track)
 	return float(d.get(key, fallback))
 
+## A value stored on the track itself rather than on one of its levels.
+func track_value(track: StringName, key: String, fallback: float = 0.0) -> float:
+	var t: Dictionary = GameData.upgrade_tracks.get(track, {})
+	return float(t.get(key, fallback))
+
 func label(track: StringName) -> String:
 	return String(stats(track).get("label", String(track)))
 

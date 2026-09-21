@@ -10,7 +10,7 @@ extends Resource
 @export var size: Vector3i = Vector3i(2, 2, 2)
 @export var machine: StringName = &""
 @export var speed: float = 3.0
-@export var capacity: int = 60
+@export var capacity: float = 6.0
 @export var unlock_cost: int = 0            ## 0 = available from the start
 
 static func from_dict(d: Dictionary) -> BuildingDef:
@@ -23,7 +23,7 @@ static func from_dict(d: Dictionary) -> BuildingDef:
 	b.size = Vector3i(int(s[0]), int(s[1]), int(s[2]))
 	b.machine = StringName(d.get("machine", ""))
 	b.speed = float(d.get("speed", 3.0))
-	b.capacity = int(d.get("capacity", 60))
+	b.capacity = float(d.get("capacity", 6.0))
 	b.unlock_cost = int(d.get("unlock_cost", 0))
 	return b
 

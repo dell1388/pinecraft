@@ -8,7 +8,7 @@ extends CharacterBody3D
 ## kept from the stress test stays velocity-driven, because steering a body's
 ## velocity toward a hold point is stable at any mass where a joint is not.
 
-signal carry_changed(count: int, capacity: int)
+signal carry_changed(count: int, capacity_m3: float)
 signal interacted(message: String)
 
 @export var jump_velocity: float = 6.5
@@ -19,6 +19,11 @@ signal interacted(message: String)
 @export var carry_gain: float = 14.0
 @export var carry_max_speed: float = 14.0
 @export var throw_impulse: float = 9.0
+
+## Wood shorter than this cannot be split any further.
+const MIN_BUCK_LENGTH := 0.70
+## Axe work required per square metre of cut face.
+const BUCK_WORK_PER_M2 := 700.0
 
 var manager: LooseItemManager
 var plot: Plot
@@ -50,8 +55,22 @@ func set_ui_blocking(blocking: bool) -> void:
 	_ui_blocking = blocking
 	capture_mouse(not blocking)
 
-func capacity() -> int:
-	return int(PlayerState.stat(&"carry", "capacity", 1.0))
+## The rack is measured in cubic metres, not items: one trunk is a load, a
+## pocketful of billets is not.
+func capacity_m3() -> float:
+	return PlayerState.stat(&"carry", "capacity_m3", 0.18)
+
+## The largest single piece the rack will take. Anything bigger has to be
+## dragged, bucked smaller, or loaded onto the hauler.
+func max_piece_m3() -> float:
+	return PlayerState.track_value(&"carry", "max_piece_m3", 0.42)
+
+func carried_volume() -> float:
+	var total := 0.0
+	for item in held:
+		if is_instance_valid(item):
+			total += item.volume()
+	return total
 
 func carried_count() -> int:
 	return held.size()
@@ -134,7 +153,7 @@ func _physics_process(delta: float) -> void:
 	var walk := PlayerState.stat(&"boots", "walk", 5.5)
 	var sprint := PlayerState.stat(&"boots", "sprint", 8.5)
 	# Hauling a full rack slows you down: the reason to build belts.
-	var load_factor: float = 1.0 - 0.35 * (float(held.size()) / maxf(1.0, float(capacity())))
+	var load_factor: float = 1.0 - 0.35 * clampf(carried_volume() / maxf(0.01, capacity_m3()), 0.0, 1.0)
 	var speed: float = (sprint if Input.is_action_pressed("sprint") else walk) * load_factor
 
 	var input := Vector2(
@@ -192,7 +211,12 @@ func _update_prompt() -> void:
 		last_prompt = "[LMB] mine  (%d%%)" % int(r.health / r.max_health * 100.0)
 	elif target is LooseItem:
 		var i := target as LooseItem
-		last_prompt = "[RMB] pick up %s   [F] drag" % GameData.item_name(i.item_id)
+		var label := "%s  %.2f m  %.3f m3  %.0f kg" % [
+			GameData.item_name(i.item_id), i.length(), i.volume(), i.mass]
+		if i.is_wood() and i.length() > MIN_BUCK_LENGTH:
+			last_prompt = "[LMB] buck   [RMB] pick up   [F] drag\n" + label
+		else:
+			last_prompt = "[RMB] pick up   [F] drag\n" + label
 	elif target is Machine:
 		last_prompt = "[E] deposit   %s" % (target as Machine).status_line()
 	elif target is StorageBin:
@@ -223,12 +247,35 @@ func _swing() -> void:
 	elif target is OreRock:
 		_swing_cd = PlayerState.stat(&"pickaxe", "cooldown", 0.48)
 		(target as OreRock).mine(PlayerState.stat(&"pickaxe", "damage", 26.0), global_position)
+	elif target is LooseItem:
+		_buck(target as LooseItem)
+
+## Bucking: cutting felled wood down to a size you can move. Work needed scales
+## with the cross-section at the cut, so a fat trunk takes real swings and a
+## branch takes one or two - and a better axe cuts through more per swing.
+func _buck(item: LooseItem) -> void:
+	if not item.is_wood() or item.state != LooseItem.State.FREE:
+		return
+	_swing_cd = PlayerState.stat(&"axe", "cooldown", 0.4)
+	if item.length() <= MIN_BUCK_LENGTH:
+		interacted.emit("too short to cut - carry it or mill it")
+		return
+	var radius := Solid.max_radius(item.dims)
+	var work_needed: float = PI * radius * radius * BUCK_WORK_PER_M2
+	item.cut_progress += PlayerState.stat(&"axe", "damage", 34.0)
+	if item.cut_progress < work_needed:
+		interacted.emit("cutting: %d%%" % int(item.cut_progress / work_needed * 100.0))
+		return
+	var halves := manager.split_item(item, 0.5)
+	if halves.is_empty():
+		return
+	interacted.emit("cut in two: %.2f m each" % halves[0].length())
 
 # --- Carry rack ------------------------------------------------------------
 
 func _pick_up() -> void:
-	if held.size() >= capacity():
-		interacted.emit("carry rack full (%d)" % capacity())
+	if carried_volume() >= capacity_m3():
+		interacted.emit("carry rack full (%.2f m3)" % capacity_m3())
 		return
 	var hit := aim_hit()
 	var target := _owner_of(hit.get("collider")) if not hit.is_empty() else null
@@ -242,13 +289,18 @@ func _pick_up() -> void:
 func pick_up(item: LooseItem) -> bool:
 	if item == null or item.state != LooseItem.State.FREE:
 		return false
-	if held.size() >= capacity():
+	var volume := item.volume()
+	if volume > max_piece_m3():
+		interacted.emit("%s is too big to carry - buck it, drag it [F] or use the hauler" %
+			GameData.item_name(item.item_id))
+		return false
+	if carried_volume() + volume > capacity_m3():
 		return false
 	if item == dragged:
 		dragged = null
 	item.set_state(LooseItem.State.HELD)
 	held.append(item)
-	carry_changed.emit(held.size(), capacity())
+	carry_changed.emit(held.size(), capacity_m3())
 	return true
 
 func _nearest_free_item(radius: float) -> LooseItem:
@@ -271,30 +323,32 @@ func _drop(count: int) -> void:
 		if not is_instance_valid(item):
 			continue
 		var pos := global_position + Vector3(0, 1.2 + float(i) * 0.25, 0) + forward * 1.2
-		item.teleport(Transform3D(item.global_transform.basis, pos))
+		item.teleport(Transform3D(LooseItem.lying_basis(rotation.y), pos))
 		item.set_state(LooseItem.State.FREE)
 		item.linear_velocity = forward * 1.5 + Vector3.UP * 0.5
-	carry_changed.emit(held.size(), capacity())
+	carry_changed.emit(held.size(), capacity_m3())
 
 ## Slots are stacked in front of the chest; items are kinematic here, so this is
 ## a transform write and nothing else.
 func _update_rack() -> void:
 	if held.is_empty():
 		return
-	var base := global_transform
-	var forward := -base.basis.z
-	var right := base.basis.x
-	for i in held.size():
+	var forward := -global_transform.basis.z
+	var stack_height := 0.0
+	for i in range(held.size() - 1, -1, -1):
 		var item: LooseItem = held[i]
 		if not is_instance_valid(item) or item.state != LooseItem.State.HELD:
 			held.remove_at(i)
-			carry_changed.emit(held.size(), capacity())
+			carry_changed.emit(held.size(), capacity_m3())
 			return
-		var row := i / 2
-		var col := float(i % 2) - 0.5
-		var pos := global_position + Vector3(0, 0.75 + float(row) * 0.26, 0) \
-			+ forward * 0.95 + right * col * 0.42
-		item.global_transform = Transform3D(Basis.from_euler(Vector3(0, PI * 0.5, 0)), pos)
+	for i in held.size():
+		var item: LooseItem = held[i]
+		var thickness := item.resting_half_height() * 2.0
+		var pos := global_position + Vector3(0, 0.8 + stack_height + thickness * 0.5, 0) \
+			+ forward * 0.85
+		stack_height += thickness + 0.02
+		# Carried across the chest, so long pieces read as a shouldered load.
+		item.global_transform = Transform3D(LooseItem.lying_basis(rotation.y + PI * 0.5), pos)
 
 # --- Heavy drag (single item) ---------------------------------------------
 
@@ -385,7 +439,7 @@ func deposit_into(sink: Object) -> int:
 			held.append(item)
 			item.set_state(LooseItem.State.HELD)
 	if moved > 0:
-		carry_changed.emit(held.size(), capacity())
+		carry_changed.emit(held.size(), capacity_m3())
 	return moved
 
 func enter_vehicle(v: Node3D) -> void:

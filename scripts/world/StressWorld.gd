@@ -118,7 +118,8 @@ static func build_trees(parent: Node3D, manager: LooseItemManager, count: int,
 		t.manager = manager
 		t.plot_id = PLOT_ID
 		t.trunk_height = rng.randf_range(5.0, 8.0)
-		t.log_count = rng.randi_range(5, 8)
+		t.trunk_radius = rng.randf_range(0.30, 0.45)
+		t.branch_count = rng.randi_range(4, 6)
 		# Keep the middle clear so trees do not sit inside the funnel/pile.
 		var pos := Vector3.ZERO
 		for _attempt in 12:

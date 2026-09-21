@@ -1,37 +1,181 @@
 {
   "tracks": [
-    { "id": "axe", "display_name": "Axe", "levels": [
-      { "level": 1, "cost": 0,     "damage": 34.0, "cooldown": 0.42, "label": "Rusty Axe" },
-      { "level": 2, "cost": 150,   "damage": 55.0, "cooldown": 0.38, "label": "Steel Axe" },
-      { "level": 3, "cost": 700,   "damage": 90.0, "cooldown": 0.32, "label": "Timber Axe" },
-      { "level": 4, "cost": 3200,  "damage": 160.0,"cooldown": 0.26, "label": "Ironwood Cleaver" },
-      { "level": 5, "cost": 14000, "damage": 320.0,"cooldown": 0.20, "label": "Goldleaf Felling Axe" }
-    ]},
-    { "id": "pickaxe", "display_name": "Pickaxe", "levels": [
-      { "level": 1, "cost": 0,     "damage": 26.0, "cooldown": 0.48, "label": "Chipped Pick" },
-      { "level": 2, "cost": 400,   "damage": 48.0, "cooldown": 0.42, "label": "Steel Pick" },
-      { "level": 3, "cost": 1800,  "damage": 95.0, "cooldown": 0.34, "label": "Carbide Pick" },
-      { "level": 4, "cost": 9000,  "damage": 190.0,"cooldown": 0.26, "label": "Deepcore Drill" }
-    ]},
-    { "id": "carry", "display_name": "Carry Rack", "levels": [
-      { "level": 1, "cost": 0,     "capacity": 1, "label": "Bare Hands" },
-      { "level": 2, "cost": 120,   "capacity": 3, "label": "Shoulder Strap" },
-      { "level": 3, "cost": 650,   "capacity": 6, "label": "Hauling Frame" },
-      { "level": 4, "cost": 2600,  "capacity": 10,"label": "Log Harness" },
-      { "level": 5, "cost": 11000, "capacity": 16,"label": "Cargo Exo-Rig" }
-    ]},
-    { "id": "boots", "display_name": "Boots", "levels": [
-      { "level": 1, "cost": 0,    "walk": 5.5, "sprint": 8.5,  "label": "Worn Boots" },
-      { "level": 2, "cost": 300,  "walk": 6.5, "sprint": 10.5, "label": "Trail Boots" },
-      { "level": 3, "cost": 1500, "walk": 7.5, "sprint": 13.0, "label": "Spring Boots" },
-      { "level": 4, "cost": 7000, "walk": 8.5, "sprint": 16.0, "label": "Turbo Treads" }
-    ]}
+    {
+      "id": "axe",
+      "display_name": "Axe",
+      "levels": [
+        {
+          "level": 1,
+          "cost": 0,
+          "damage": 34.0,
+          "cooldown": 0.42,
+          "label": "Rusty Axe"
+        },
+        {
+          "level": 2,
+          "cost": 150,
+          "damage": 55.0,
+          "cooldown": 0.38,
+          "label": "Steel Axe"
+        },
+        {
+          "level": 3,
+          "cost": 700,
+          "damage": 90.0,
+          "cooldown": 0.32,
+          "label": "Timber Axe"
+        },
+        {
+          "level": 4,
+          "cost": 3200,
+          "damage": 160.0,
+          "cooldown": 0.26,
+          "label": "Ironwood Cleaver"
+        },
+        {
+          "level": 5,
+          "cost": 14000,
+          "damage": 320.0,
+          "cooldown": 0.2,
+          "label": "Goldleaf Felling Axe"
+        }
+      ]
+    },
+    {
+      "id": "pickaxe",
+      "display_name": "Pickaxe",
+      "levels": [
+        {
+          "level": 1,
+          "cost": 0,
+          "damage": 26.0,
+          "cooldown": 0.48,
+          "label": "Chipped Pick"
+        },
+        {
+          "level": 2,
+          "cost": 400,
+          "damage": 48.0,
+          "cooldown": 0.42,
+          "label": "Steel Pick"
+        },
+        {
+          "level": 3,
+          "cost": 1800,
+          "damage": 95.0,
+          "cooldown": 0.34,
+          "label": "Carbide Pick"
+        },
+        {
+          "level": 4,
+          "cost": 9000,
+          "damage": 190.0,
+          "cooldown": 0.26,
+          "label": "Deepcore Drill"
+        }
+      ]
+    },
+    {
+      "id": "carry",
+      "display_name": "Carry Rack",
+      "levels": [
+        {
+          "level": 1,
+          "cost": 0,
+          "label": "Bare Hands",
+          "capacity_m3": 0.18
+        },
+        {
+          "level": 2,
+          "cost": 120,
+          "label": "Shoulder Strap",
+          "capacity_m3": 0.45
+        },
+        {
+          "level": 3,
+          "cost": 650,
+          "label": "Hauling Frame",
+          "capacity_m3": 0.95
+        },
+        {
+          "level": 4,
+          "cost": 2600,
+          "label": "Log Harness",
+          "capacity_m3": 1.8
+        },
+        {
+          "level": 5,
+          "cost": 11000,
+          "label": "Cargo Exo-Rig",
+          "capacity_m3": 3.2
+        }
+      ],
+      "max_piece_m3": 0.42
+    },
+    {
+      "id": "boots",
+      "display_name": "Boots",
+      "levels": [
+        {
+          "level": 1,
+          "cost": 0,
+          "walk": 5.5,
+          "sprint": 8.5,
+          "label": "Worn Boots"
+        },
+        {
+          "level": 2,
+          "cost": 300,
+          "walk": 6.5,
+          "sprint": 10.5,
+          "label": "Trail Boots"
+        },
+        {
+          "level": 3,
+          "cost": 1500,
+          "walk": 7.5,
+          "sprint": 13.0,
+          "label": "Spring Boots"
+        },
+        {
+          "level": 4,
+          "cost": 7000,
+          "walk": 8.5,
+          "sprint": 16.0,
+          "label": "Turbo Treads"
+        }
+      ]
+    }
   ],
   "plot_expansions": [
-    { "tier": 0, "cost": 0,     "half_extent": 22.0, "item_cap": 200 },
-    { "tier": 1, "cost": 2000,  "half_extent": 30.0, "item_cap": 260 },
-    { "tier": 2, "cost": 9000,  "half_extent": 38.0, "item_cap": 320 },
-    { "tier": 3, "cost": 32000, "half_extent": 48.0, "item_cap": 400 }
+    {
+      "tier": 0,
+      "cost": 0,
+      "half_extent": 22.0,
+      "item_cap": 200
+    },
+    {
+      "tier": 1,
+      "cost": 2000,
+      "half_extent": 30.0,
+      "item_cap": 260
+    },
+    {
+      "tier": 2,
+      "cost": 9000,
+      "half_extent": 38.0,
+      "item_cap": 320
+    },
+    {
+      "tier": 3,
+      "cost": 32000,
+      "half_extent": 48.0,
+      "item_cap": 400
+    }
   ],
-  "vehicle": { "id": "hauler", "display_name": "Flatbed Hauler", "cost": 5000 }
+  "vehicle": {
+    "id": "hauler",
+    "display_name": "Flatbed Hauler",
+    "cost": 5000
+  }
 }

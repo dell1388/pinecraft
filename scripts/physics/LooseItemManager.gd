@@ -14,7 +14,6 @@ extends Node3D
 @export var per_plot_cap: int = Tuning.LOOSE_ITEMS_PER_PLOT
 @export var kill_plane_y: float = Tuning.KILL_PLANE_Y
 
-var _defs: Dictionary = {}                  # StringName -> ItemDef
 var _pool: Array[LooseItem] = []
 var _active: Array[LooseItem] = []          # all live items, any plot
 var _by_plot: Dictionary = {}               # int -> Array[LooseItem]
@@ -31,31 +30,11 @@ var stat_forced_sleeps: int = 0
 
 func _ready() -> void:
 	set_physics_process(true)
-	for def in ItemDef.defaults():
-		_defs[def.id] = def
-	load_item_data("res://data/items.json")
-
-## Data-driven item table. Falls back to the built-in defaults when the file is
-## missing, so the stress scene never depends on content being present.
-func load_item_data(path: String) -> void:
-	if not FileAccess.file_exists(path):
-		return
-	var text := FileAccess.get_file_as_string(path)
-	var parsed: Variant = JSON.parse_string(text)
-	if typeof(parsed) != TYPE_DICTIONARY or not parsed.has("items"):
-		push_warning("LooseItemManager: malformed item data at %s" % path)
-		return
-	for entry in parsed["items"]:
-		var def := ItemDef.from_dict(entry)
-		_defs[def.id] = def
 
 func register_plot(plot_id: int, spawn_point: Vector3) -> void:
 	_plot_spawns[plot_id] = spawn_point
 	if not _by_plot.has(plot_id):
 		_by_plot[plot_id] = [] as Array[LooseItem]
-
-func define_item(def: ItemDef) -> void:
-	_defs[def.id] = def
 
 func active_count() -> int:
 	return _active.size()
@@ -86,9 +65,10 @@ func awake_count() -> int:
 
 # --- Spawning --------------------------------------------------------------
 
+## `dims` overrides the item's default size (a felled trunk, a long board).
 func spawn(item_id: StringName, xform: Transform3D, plot_id: int = 0,
-		impulse: Vector3 = Vector3.ZERO) -> LooseItem:
-	var def: ItemDef = _defs.get(item_id)
+		impulse: Vector3 = Vector3.ZERO, dims: Dictionary = {}) -> LooseItem:
+	var def: ItemDef = GameData.item(item_id)
 	if def == null:
 		push_error("LooseItemManager: unknown item '%s'" % item_id)
 		return null
@@ -107,7 +87,7 @@ func spawn(item_id: StringName, xform: Transform3D, plot_id: int = 0,
 		stat_recycled += 1
 
 	var item: LooseItem = _acquire()
-	item.configure(def.id, def.size, def.mass, def.color)
+	item.configure(def, dims)
 	item.plot_id = plot_id
 	item.spawn_index = _spawn_counter
 	_spawn_counter += 1
@@ -135,6 +115,34 @@ func despawn(item: LooseItem) -> void:
 	if item.get_parent() != null:
 		remove_child(item)
 	_pool.append(item)
+
+## Cuts a piece in two across its long axis, conserving volume exactly. The
+## halves keep the original's orientation and are nudged apart so the solver
+## does not have to resolve them out of each other.
+func split_item(item: LooseItem, t: float = 0.5) -> Array[LooseItem]:
+	var out: Array[LooseItem] = []
+	if item == null or item.state == LooseItem.State.POOLED:
+		return out
+	var halves := Solid.split(item.dims, t)
+	var xform := item.global_transform
+	var axis := xform.basis.y.normalized()
+	var length := Solid.length_of(item.dims)
+	var plot := item.plot_id
+	var id := item.item_id
+	var velocity := item.linear_velocity
+	despawn(item)
+	var offsets := [
+		-axis * (length * 0.5 - Solid.length_of(halves[0]) * 0.5),
+		axis * (length * 0.5 - Solid.length_of(halves[1]) * 0.5),
+	]
+	for i in 2:
+		var piece := spawn(id, Transform3D(xform.basis, xform.origin + offsets[i]), plot,
+			Vector3.ZERO, halves[i])
+		if piece == null:
+			continue
+		piece.linear_velocity = velocity + (offsets[i].normalized() * 0.6)
+		out.append(piece)
+	return out
 
 func despawn_all() -> void:
 	for item in _active.duplicate():

@@ -135,9 +135,11 @@ func _market_text() -> String:
 		Economy.day, int(Economy.seconds_left_today())], ""]
 	for row in Economy.market_rows():
 		var arrow := "up  " if row.multiplier >= 1.0 else "down"
-		lines.append("  %-16s $%-5d  x%.2f %s" % [row.name, row.price, row.multiplier, arrow])
+		lines.append("  %-17s $%-7.0f /%-4s  x%.2f %s" % [
+			row.name, row.rate, row.unit, row.multiplier, arrow])
 	lines.append("")
-	lines.append("Prices redraw every day. Stockpile in bins while a price is low.")
+	lines.append("Wood, lumber and billets are priced by volume, so milling never")
+	lines.append("creates or destroys value - only the rate changes. Prices redraw daily.")
 	return "\n".join(lines)
 
 func _shop_text() -> String:
@@ -242,8 +244,8 @@ func _process(delta: float) -> void:
 	var lines: Array[String] = [
 		"$%d    day %d  (%d%%)    plot tier %d" % [
 			Economy.money, Economy.day, int(Economy.day_progress() * 100.0), plot.tier],
-		"carry %d/%d    loose %d/%d    buildings %d" % [
-			player.carried_count(), player.capacity(),
+		"carry %.2f/%.2f m3 (%d)    loose %d/%d    buildings %d" % [
+			player.carried_volume(), player.capacity_m3(), player.carried_count(),
 			manager.active_count(), manager.per_plot_cap, plot.placed.size()],
 		"axe %s   pick %s   %d fps" % [
 			PlayerState.label(&"axe"), PlayerState.label(&"pickaxe"),
@@ -251,7 +253,7 @@ func _process(delta: float) -> void:
 	]
 	if player.driving():
 		var truck := player.vehicle as Hauler
-		var cargo_text := "%d/%d" % [truck.cargo_count(), truck.cargo_capacity] if truck != null else "-"
+		var cargo_text := "%.1f/%.1f m3" % [truck.cargo_volume(), truck.cargo_capacity_m3] if truck != null else "-"
 		lines.append("driving - cargo %s (locked)   [X] unload  [Z] drop one  [V] exit  [C] recover" % cargo_text)
 	_status.text = "\n".join(lines)
 	_prompt.text = player.last_prompt

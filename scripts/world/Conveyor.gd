@@ -118,16 +118,23 @@ func _on_body_entered(body: Node) -> void:
 	var local := global_transform.affine_inverse() * item.global_position
 	# Belt runs along -Z; progress 0 is the input end (+Z).
 	var progress: float = clampf(length * 0.5 - local.z, 0.0, length)
-	if not _has_room(progress):
+	if not _has_room(progress, item):
 		return
 	item.set_state(LooseItem.State.CAPTURED)
 	total_captured += 1
 	_captured.append(item)
 	_progress[item] = progress
 
-func _has_room(progress: float) -> bool:
+## Spacing scales with what is actually on the belt: a 4 m trunk needs more room
+## than a billet, and two overlapping captured pieces would clip through each
+## other because captured items are kinematic.
+func _gap_for(item: LooseItem) -> float:
+	return maxf(min_spacing, item.length() * 0.55 + 0.35)
+
+func _has_room(progress: float, incoming: LooseItem) -> bool:
+	var gap := _gap_for(incoming)
 	for item in _captured:
-		if absf(float(_progress[item]) - progress) < min_spacing:
+		if absf(float(_progress[item]) - progress) < maxf(gap, _gap_for(item)):
 			return false
 	return true
 
@@ -152,9 +159,10 @@ func _physics_process(delta: float) -> void:
 			_release_at(i, true)
 			continue
 		_progress[item] = p
-		var half_h: float = item.get_aabb_half_height()
+		var half_h: float = item.resting_half_height()
 		var local := Vector3(0.0, DECK_THICKNESS * 0.5 + half_h + 0.01, length * 0.5 - p)
-		var basis := Basis()  # aligned with the belt: predictable, no tumbling
+		# Laid along the belt: predictable, no tumbling, no overhang sideways.
+		var basis := Basis(Vector3.RIGHT, PI * 0.5)
 		item.global_transform = global_transform * Transform3D(basis, local)
 
 func _release_at(index: int, impart_velocity: bool) -> void:

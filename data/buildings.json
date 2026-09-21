@@ -55,8 +55,8 @@
       "cost": 450,
       "size": [
         3,
-        2,
-        4
+        3,
+        7
       ],
       "machine": "sawmill"
     },
@@ -80,7 +80,7 @@
       "cost": 2200,
       "size": [
         4,
-        2,
+        3,
         4
       ],
       "machine": "workbench",
@@ -96,7 +96,7 @@
         2,
         2
       ],
-      "capacity": 60
+      "capacity": 6.0
     },
     {
       "id": "sell_chute",
@@ -110,38 +110,119 @@
       ]
     }
   ],
+  "_machines_note": "mill and smelt conserve volume: everything that goes in comes back out as pieces with the exit hole's cross-section and whatever length that volume needs.",
   "machines": [
     {
       "id": "sawmill",
       "display_name": "Sawmill",
-      "input_slots": 12,
-      "output_backlog": 12,
+      "mode": "mill",
+      "accepts": [
+        "wood"
+      ],
+      "intake": {
+        "face": "front",
+        "hole": [
+          0.72,
+          0.72
+        ],
+        "height": 0.95
+      },
+      "outlet": {
+        "face": "back",
+        "hole": [
+          0.36,
+          0.36
+        ],
+        "height": 0.6
+      },
+      "cross_section": [
+        0.3,
+        0.3
+      ],
+      "max_piece_length": 2.4,
+      "m3_per_second": 0.09,
+      "buffer_m3": 4.0,
+      "conversion": {
+        "wood_pine": "lumber_pine",
+        "wood_oak": "lumber_oak",
+        "wood_ironwood": "lumber_ironwood"
+      },
       "color": [
-        0.42,
-        0.34,
-        0.24
+        0.44,
+        0.35,
+        0.25
       ]
     },
     {
       "id": "furnace",
       "display_name": "Furnace",
-      "input_slots": 16,
-      "output_backlog": 10,
+      "mode": "smelt",
+      "accepts": [
+        "ore"
+      ],
+      "intake": {
+        "face": "top",
+        "hole": [
+          0.85,
+          0.85
+        ],
+        "height": 0.0
+      },
+      "outlet": {
+        "face": "right",
+        "hole": [
+          0.38,
+          0.26
+        ],
+        "height": 0.7
+      },
+      "cross_section": [
+        0.26,
+        0.14
+      ],
+      "max_piece_length": 0.9,
+      "m3_per_second": 0.006,
+      "buffer_m3": 0.6,
+      "conversion": {
+        "ore_iron": "ingot_iron",
+        "ore_copper": "ingot_copper",
+        "ore_gold": "ingot_gold"
+      },
       "color": [
-        0.32,
-        0.3,
-        0.34
+        0.33,
+        0.31,
+        0.35
       ]
     },
     {
       "id": "workbench",
       "display_name": "Workbench",
-      "input_slots": 24,
-      "output_backlog": 8,
+      "mode": "assemble",
+      "accepts": [
+        "lumber",
+        "metal"
+      ],
+      "intake": {
+        "face": "front",
+        "hole": [
+          0.9,
+          0.7
+        ],
+        "height": 1.1
+      },
+      "outlet": {
+        "face": "back",
+        "hole": [
+          0.8,
+          0.8
+        ],
+        "height": 0.8
+      },
+      "buffer_m3": 1.2,
       "color": [
-        0.26,
-        0.36,
-        0.44
+        0.27,
+        0.37,
+        0.45
       ]
     }
   ]

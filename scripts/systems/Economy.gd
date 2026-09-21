@@ -93,31 +93,45 @@ func price_multiplier(item_id: StringName) -> float:
 		_rebuild_prices()
 	return float(_price_cache.get(item_id, 1.0))
 
-## Today's unit price, always at least 1 so nothing is ever worthless.
-func price_of(item_id: StringName) -> int:
+## Price of one piece at today's rate. Variable items (wood, lumber, billets)
+## are priced by volume, so milling a trunk into boards is worth exactly what
+## the boards are worth - never more or less because of how it was cut.
+func price_of(item_id: StringName, dims: Dictionary = {}) -> int:
 	var def: ItemDef = GameData.item(item_id)
 	if def == null:
 		return 0
-	return maxi(1, int(round(float(def.base_value) * price_multiplier(item_id))))
+	var d := dims if not dims.is_empty() else def.default_dims()
+	return maxi(1, int(round(def.base_value_of(d) * price_multiplier(item_id))))
 
-func sell(item_id: StringName, count: int = 1) -> int:
-	var value := price_of(item_id) * count
+## Rate per cubic metre, for the market board.
+func rate_of(item_id: StringName) -> float:
+	var def: ItemDef = GameData.item(item_id)
+	if def == null:
+		return 0.0
+	if def.fixed_value > 0:
+		return float(def.fixed_value) * price_multiplier(item_id)
+	return def.value_per_m3 * price_multiplier(item_id)
+
+func sell(item_id: StringName, dims: Dictionary = {}) -> int:
+	var value := price_of(item_id, dims)
 	add_money(value)
-	items_sold += count
+	items_sold += 1
 	item_sold.emit(item_id, value)
 	return value
 
-## Sorted market board rows: [{id, name, price, multiplier}]
+## Sorted market board rows: [{id, name, rate, unit, multiplier}]
 func market_rows() -> Array:
 	var rows: Array = []
 	for def: ItemDef in GameData.items.values():
 		rows.append({
 			"id": def.id,
 			"name": def.display_name,
-			"price": price_of(def.id),
+			"rate": rate_of(def.id),
+			"unit": "each" if def.fixed_value > 0 else "m3",
+			"typical": price_of(def.id),
 			"multiplier": price_multiplier(def.id),
 		})
-	rows.sort_custom(func(a, b): return a.price < b.price)
+	rows.sort_custom(func(a, b): return a.rate < b.rate)
 	return rows
 
 func to_dict() -> Dictionary:

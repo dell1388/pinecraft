@@ -19,14 +19,16 @@ signal cargo_changed(count: int, capacity: int)
 @export var suspension_strength: float = 78000.0
 @export var suspension_damping: float = 7000.0
 @export var lateral_grip: float = 0.55
-@export var cargo_capacity: int = 48
+@export var cargo_capacity_m3: float = 8.0
+@export var wheel_radius: float = 0.45
+@export var wheel_width: float = 0.34
 
 var manager: LooseItemManager
 var plot_id: int = 0
 var driver: Node3D = null
-## The load, as plain item ids. There are no physics bodies aboard: see the
-## cargo section for why.
-var cargo_items: Array[StringName] = []
+## The load, as {id, dims}. There are no physics bodies aboard: see the cargo
+## section for why.
+var cargo_items: Array[Dictionary] = []
 ## Drive inputs, filled from the keyboard while a driver is aboard. Exposed so
 ## tests (and, later, any automation) can drive the hauler without a keyboard.
 var input_throttle: float = 0.0
@@ -44,6 +46,8 @@ const WHEEL_OFFSETS := [
 ]
 
 var _props: Array[MeshInstance3D] = []
+var _wheels: Array[MeshInstance3D] = []
+var _wheel_spin: float = 0.0
 var _cargo_area: Area3D
 var _cargo_shape: CollisionShape3D
 var _seat: Node3D
@@ -110,9 +114,89 @@ func _build() -> void:
 	_cargo_area.body_entered.connect(_on_cargo_body)
 	add_child(_cargo_area)
 
+	_build_dressing()
+
 	_seat = Node3D.new()
 	_seat.position = Vector3(0, 1.2, -1.9)
 	add_child(_seat)
+
+## Cab, deck boards and wheels. All mesh, no collision: the hull box above is
+## the only thing the solver sees, and the "wheels" are the four suspension
+## rays in _apply_suspension.
+func _build_dressing() -> void:
+	var paint := Color(0.55, 0.22, 0.18)
+	_add_mesh(BoxMesh.new(), Vector3(2.3, 0.95, 1.5), Vector3(0, 0.75, -1.55), paint.darkened(0.1))
+	_add_mesh(BoxMesh.new(), Vector3(2.0, 0.5, 0.12), Vector3(0, 1.0, -2.28), Color(0.28, 0.35, 0.40))
+	for side in [-1.0, 1.0]:
+		_add_mesh(BoxMesh.new(), Vector3(0.12, 0.45, 1.2), Vector3(side * 1.16, 1.0, -1.55),
+			Color(0.28, 0.35, 0.40))
+		_add_mesh(BoxMesh.new(), Vector3(0.22, 0.16, 0.1), Vector3(side * 0.9, 0.2, -2.52),
+			Color(0.95, 0.92, 0.72))
+	# Deck boards, so the bed does not read as one slab.
+	for i in 5:
+		_add_mesh(BoxMesh.new(), Vector3(2.3, 0.06, 0.62),
+			Vector3(0, 0.37, -0.55 + float(i) * 0.68), paint.darkened(0.3))
+
+	var tyre := Color(0.10, 0.10, 0.11)
+	for offset in WHEEL_OFFSETS:
+		var wheel := MeshInstance3D.new()
+		var cyl := CylinderMesh.new()
+		cyl.top_radius = wheel_radius
+		cyl.bottom_radius = wheel_radius
+		cyl.height = wheel_width
+		cyl.radial_segments = 16
+		wheel.mesh = cyl
+		wheel.position = Vector3(offset.x + signf(offset.x) * 0.12, offset.y, offset.z)
+		# Cylinders stand on Y; a wheel spins about X.
+		wheel.rotation = Vector3(0, 0, PI * 0.5)
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = tyre
+		mat.roughness = 0.95
+		wheel.material_override = mat
+		add_child(wheel)
+		_wheels.append(wheel)
+		var hub := MeshInstance3D.new()
+		var hub_mesh := CylinderMesh.new()
+		hub_mesh.top_radius = wheel_radius * 0.42
+		hub_mesh.bottom_radius = wheel_radius * 0.42
+		hub_mesh.height = wheel_width + 0.04
+		hub_mesh.radial_segments = 12
+		hub.mesh = hub_mesh
+		hub.position = wheel.position
+		hub.rotation = wheel.rotation
+		var hub_mat := StandardMaterial3D.new()
+		hub_mat.albedo_color = Color(0.72, 0.72, 0.75)
+		hub_mat.metallic = 0.5
+		hub_mat.roughness = 0.4
+		hub.material_override = hub_mat
+		add_child(hub)
+
+func _add_mesh(mesh: Mesh, size: Vector3, pos: Vector3, color: Color) -> void:
+	var mi := MeshInstance3D.new()
+	if mesh is BoxMesh:
+		(mesh as BoxMesh).size = size
+	mi.mesh = mesh
+	mi.position = pos
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.roughness = 0.85
+	mi.material_override = mat
+	add_child(mi)
+
+## Wheels turn with the ground speed and the front pair follows the steering,
+## which is what sells a vehicle as driven rather than slid.
+func _animate_wheels(delta: float) -> void:
+	if _wheels.is_empty():
+		return
+	var forward := -global_transform.basis.z
+	var speed := linear_velocity.dot(forward)
+	_wheel_spin += speed / maxf(0.05, wheel_radius) * delta
+	var steer := clampf(input_steer, -1.0, 1.0) * 0.5
+	for i in _wheels.size():
+		var wheel: MeshInstance3D = _wheels[i]
+		var is_front: bool = WHEEL_OFFSETS[i].z < 0.0
+		wheel.rotation = Vector3(0, steer if is_front else 0.0, PI * 0.5)
+		wheel.rotate_object_local(Vector3.UP, -_wheel_spin)
 
 func seat_transform() -> Transform3D:
 	return _seat.global_transform
@@ -128,8 +212,14 @@ func seat_transform() -> Transform3D:
 func cargo_count() -> int:
 	return cargo_items.size()
 
+func cargo_volume() -> float:
+	var total := 0.0
+	for entry in cargo_items:
+		total += Solid.volume(entry.dims)
+	return total
+
 func cargo_full() -> bool:
-	return cargo_items.size() >= cargo_capacity
+	return cargo_volume() >= cargo_capacity_m3
 
 ## Item-sink protocol, so the player can deposit into the bed with [E] and a
 ## conveyor can load the hauler like any other sink.
@@ -140,17 +230,21 @@ func accept_item(item: LooseItem) -> bool:
 	if cargo_full() or item == null:
 		return false
 	var id := item.item_id
+	var dims := item.dims.duplicate()
 	if manager != null:
 		manager.despawn(item)
-	return load_item(id)
+	return load_item(id, dims)
 
-## Adds one item to the load by id, without any physics object involved.
-func load_item(item_id: StringName) -> bool:
+## Adds one piece to the load, without any physics object involved.
+func load_item(item_id: StringName, dims: Dictionary = {}) -> bool:
 	if cargo_full():
 		return false
-	cargo_items.append(item_id)
-	_add_prop(item_id, cargo_items.size() - 1)
-	cargo_changed.emit(cargo_items.size(), cargo_capacity)
+	var def := GameData.item(item_id)
+	if def == null:
+		return false
+	cargo_items.append({"id": item_id, "dims": dims if not dims.is_empty() else def.default_dims()})
+	_rebuild_props()
+	cargo_changed.emit(cargo_items.size(), cargo_capacity_m3)
 	return true
 
 func _on_cargo_body(body: Node) -> void:
@@ -179,76 +273,98 @@ func unload(behind: bool = true) -> int:
 		return 0
 	var dir := global_transform.basis.z if behind else -global_transform.basis.z
 	var drop := global_position + dir * 3.4
+	var yaw := global_rotation.y
 	for i in n:
 		var pos := drop + Vector3(
 			randf_range(-0.6, 0.6), 1.2 + float(i) * 0.22, randf_range(-0.6, 0.6))
 		if manager != null:
-			manager.spawn(cargo_items[i], Transform3D(Basis(), pos), plot_id)
+			manager.spawn(cargo_items[i].id, Transform3D(LooseItem.lying_basis(yaw), pos),
+				plot_id, Vector3.ZERO, cargo_items[i].dims)
 	cargo_items.clear()
 	_clear_props()
-	cargo_changed.emit(0, cargo_capacity)
+	cargo_changed.emit(0, cargo_capacity_m3)
 	return n
 
 ## Drops exactly one item, for topping a machine up without emptying the truck.
 func unload_one() -> bool:
 	if cargo_items.is_empty():
 		return false
-	var item_id: StringName = cargo_items.pop_back()
+	var entry: Dictionary = cargo_items.pop_back()
 	var dir := global_transform.basis.z
 	if manager != null:
-		manager.spawn(item_id, Transform3D(Basis(),
-			global_position + dir * 3.4 + Vector3(0, 1.2, 0)), plot_id)
+		manager.spawn(entry.id, Transform3D(LooseItem.lying_basis(global_rotation.y),
+			global_position + dir * 3.4 + Vector3(0, 1.2, 0)), plot_id, Vector3.ZERO, entry.dims)
 	_rebuild_props()
-	cargo_changed.emit(cargo_items.size(), cargo_capacity)
+	cargo_changed.emit(cargo_items.size(), cargo_capacity_m3)
 	return true
 
 func cargo_summary() -> String:
 	if cargo_items.is_empty():
 		return "empty"
 	var counts: Dictionary = {}
-	for id in cargo_items:
-		counts[id] = int(counts.get(id, 0)) + 1
+	for entry in cargo_items:
+		counts[entry.id] = int(counts.get(entry.id, 0)) + 1
 	var parts: Array[String] = []
 	for id in counts:
 		parts.append("%s x%d" % [GameData.item_name(id), int(counts[id])])
-	return ", ".join(parts)
+	return "%.2f/%.1f m3: %s" % [cargo_volume(), cargo_capacity_m3, ", ".join(parts)]
 
 # --- Cargo visuals ---------------------------------------------------------
 
-## Slot for the n-th item: three across the bed, two rows deep, stacked upward.
-func _slot(index: int) -> Transform3D:
-	var col := index % 3
-	var row := (index / 3) % 2
-	var layer := index / 6
-	return Transform3D(
-		Basis.from_euler(Vector3(0, PI * 0.5, 0)),
-		Vector3(float(col - 1) * 0.72, 0.55 + float(layer) * 0.3, -0.2 + float(row) * 1.2))
+## Load is packed for real: short pieces lie across the bed in three columns,
+## long ones run fore-and-aft down the middle, and each column stacks by the
+## actual thickness of what is in it.
+func _rebuild_props() -> void:
+	_clear_props()
+	var columns := [-0.75, 0.05, 0.85]
+	var heights := [0.0, 0.0, 0.0]
+	var long_height := 0.0
+	for entry in cargo_items:
+		var dims: Dictionary = entry.dims
+		var def := GameData.item(entry.id)
+		if def == null:
+			continue
+		var bounds := Solid.bounds(dims)
+		var thickness: float = maxf(bounds.x, bounds.z)
+		if bounds.y <= 2.1:
+			var col := 0
+			for i in 3:
+				if heights[i] < heights[col]:
+					col = i
+			var pos := Vector3(0.0, 0.42 + heights[col] + thickness * 0.5, columns[col])
+			heights[col] += thickness + 0.02
+			_add_prop(def, dims, Transform3D(LooseItem.lying_basis(PI * 0.5), pos))
+		else:
+			var pos_long := Vector3(0.0, 0.42 + long_height + thickness * 0.5, 0.3)
+			long_height += thickness + 0.02
+			_add_prop(def, dims, Transform3D(LooseItem.lying_basis(0.0), pos_long))
 
-func _add_prop(item_id: StringName, index: int) -> void:
-	var def := GameData.item(item_id)
-	if def == null:
-		return
-	var mesh := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = def.size
-	mesh.mesh = bm
+func _add_prop(def: ItemDef, dims: Dictionary, xform: Transform3D) -> void:
+	var mi := MeshInstance3D.new()
+	if dims.get("shape", Solid.BOX) == Solid.CYLINDER:
+		var cm := CylinderMesh.new()
+		cm.bottom_radius = float(dims.r0)
+		cm.top_radius = float(dims.r1)
+		cm.height = float(dims.length)
+		cm.radial_segments = 10
+		mi.mesh = cm
+	else:
+		var bm := BoxMesh.new()
+		bm.size = dims.size
+		mi.mesh = bm
+	mi.transform = xform
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = def.color
-	mesh.material_override = mat
-	mesh.transform = _slot(index)
-	add_child(mesh)
-	_props.append(mesh)
+	mat.roughness = 0.9
+	mi.material_override = mat
+	add_child(mi)
+	_props.append(mi)
 
 func _clear_props() -> void:
 	for prop in _props:
 		if is_instance_valid(prop):
 			prop.queue_free()
 	_props.clear()
-
-func _rebuild_props() -> void:
-	_clear_props()
-	for i in cargo_items.size():
-		_add_prop(cargo_items[i], i)
 
 # --- Driving ---------------------------------------------------------------
 
@@ -261,6 +377,7 @@ func _physics_process(delta: float) -> void:
 		_poll = 0.2 if driver == null else 0.1
 		secure_load()
 
+	_animate_wheels(delta)
 	_apply_suspension(delta)
 	if driver != null:
 		_read_input()
@@ -331,8 +448,8 @@ func recover() -> void:
 
 func to_dict() -> Dictionary:
 	var ids: Array = []
-	for id in cargo_items:
-		ids.append(String(id))
+	for entry in cargo_items:
+		ids.append({"id": String(entry.id), "dims": Solid.to_dict(entry.dims)})
 	return {"position": [global_position.x, global_position.y, global_position.z],
 		"yaw": global_rotation.y, "cargo": ids}
 
@@ -342,7 +459,8 @@ func from_dict(d: Dictionary) -> void:
 		Transform3D(Basis.from_euler(Vector3(0, float(d.get("yaw", 0.0)), 0)),
 			Vector3(p[0], p[1], p[2])))
 	cargo_items.clear()
-	for id in d.get("cargo", []):
-		cargo_items.append(StringName(id))
+	for entry in d.get("cargo", []):
+		cargo_items.append({"id": StringName(entry.get("id", "")),
+			"dims": Solid.from_dict(entry.get("dims", {}))})
 	_rebuild_props()
-	cargo_changed.emit(cargo_items.size(), cargo_capacity)
+	cargo_changed.emit(cargo_items.size(), cargo_capacity_m3)

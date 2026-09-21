@@ -1,31 +1,34 @@
 class_name LooseItem
 extends RigidBody3D
 
-## A single loose physics object (log, plank, ore chunk...).
+## A single loose physical piece: a log, a length of lumber, a billet, a crate.
 ##
-## Kept deliberately dumb: no _physics_process, no _integrate_forces. Every
-## per-frame concern (velocity clamping, CCD toggling, kill-plane rescue) is
-## driven by LooseItemManager so that 500 of these cost one GDScript loop
-## instead of 500 script callbacks per step.
+## Its shape is data, not a model file: a box or a tapered cylinder whose long
+## axis is local +Y. Mass comes from the item's density times its real volume,
+## so a 4 m trunk weighs what a 4 m trunk should and the sawmill that conserves
+## volume also conserves mass and price.
+##
+## Kept deliberately dumb: no _physics_process, no _integrate_forces. Velocity
+## clamping, CCD toggling and kill-plane rescue are driven by LooseItemManager
+## so that 500 of these cost one loop instead of 500 script callbacks per step.
 
-## FREE     - fully simulated
-## CARRIED  - dynamic, but velocity-steered by the player (heavy drag)
-## HELD     - kinematic, snapped to a slot on the player's carry rack
-## CAPTURED - kinematic, owned by a belt/splitter
-## POOLED   - detached from the tree, no body in the physics space
 enum State { FREE, CARRIED, HELD, CAPTURED, POOLED }
 
 signal state_changed(item: LooseItem, from: State, to: State)
 
-var item_id: StringName = &"log_pine"
+var item_id: StringName = &"wood_pine"
+var category: StringName = &"wood"
+var dims: Dictionary = {}
 var plot_id: int = 0
 var state: State = State.FREE
-var spawn_index: int = 0            ## monotonic, used for oldest-first recycling
+var spawn_index: int = 0
 var ccd_active: bool = false
-var quiet_time: float = 0.0     ## seconds spent below the manager's quiet thresholds
+var quiet_time: float = 0.0
+var cut_progress: float = 0.0     ## axe work done on this piece since the last cut
 
 var _shape: CollisionShape3D
 var _mesh: MeshInstance3D
+var _extras: Array[MeshInstance3D] = []
 
 func _init() -> void:
 	collision_layer = Layers.LOOSE
@@ -39,23 +42,91 @@ func _init() -> void:
 	linear_damp = 0.1
 	angular_damp = 0.4
 
-func configure(id: StringName, size: Vector3, item_mass: float, color: Color) -> void:
-	item_id = id
-	mass = item_mass
+func configure(def: ItemDef, p_dims: Dictionary = {}) -> void:
+	item_id = def.id
+	category = def.category
+	dims = p_dims if not p_dims.is_empty() else def.default_dims()
+	mass = def.mass_of(dims)
+	cut_progress = 0.0
+	clear_extras()
+	# Round stock rolls; a little extra spin damping stops a felled trunk
+	# rolling across the plot forever without making it feel glued down.
+	angular_damp = 0.9 if dims.get("shape", Solid.BOX) == Solid.CYLINDER else 0.4
+	_build_shape()
+	_build_mesh(def.color)
+
+func _build_shape() -> void:
 	if _shape == null:
 		_shape = CollisionShape3D.new()
-		# Primitive box: cheapest possible convex, and stacks predictably.
-		_shape.shape = BoxShape3D.new()
 		add_child(_shape)
-	(_shape.shape as BoxShape3D).size = size
+	if dims.get("shape", Solid.BOX) == Solid.CYLINDER:
+		var cyl := _shape.shape as CylinderShape3D
+		if cyl == null:
+			cyl = CylinderShape3D.new()
+			_shape.shape = cyl
+		# Collision is a straight cylinder at the widest radius: one primitive,
+		# and never thinner than the mesh it stands in for.
+		cyl.radius = Solid.max_radius(dims)
+		cyl.height = float(dims.length)
+	else:
+		var box := _shape.shape as BoxShape3D
+		if box == null:
+			box = BoxShape3D.new()
+			_shape.shape = box
+		box.size = dims.size
+
+func _build_mesh(color: Color) -> void:
 	if _mesh == null:
 		_mesh = MeshInstance3D.new()
-		_mesh.mesh = BoxMesh.new()
 		add_child(_mesh)
-	(_mesh.mesh as BoxMesh).size = size
+	if dims.get("shape", Solid.BOX) == Solid.CYLINDER:
+		var cm := _mesh.mesh as CylinderMesh
+		if cm == null:
+			cm = CylinderMesh.new()
+			cm.radial_segments = 10
+			cm.rings = 1
+			_mesh.mesh = cm
+		cm.bottom_radius = float(dims.r0)
+		cm.top_radius = float(dims.r1)
+		cm.height = float(dims.length)
+	else:
+		var bm := _mesh.mesh as BoxMesh
+		if bm == null:
+			bm = BoxMesh.new()
+			_mesh.mesh = bm
+		bm.size = dims.size
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = color
+	mat.roughness = 0.9
 	_mesh.material_override = mat
+
+## Decorative meshes carried by this piece (cut branch stubs on a felled trunk).
+## Visual only: the collider stays one primitive.
+func add_extra_mesh(mesh: Mesh, xform: Transform3D, color: Color) -> void:
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.transform = xform
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.roughness = 0.9
+	mi.material_override = mat
+	add_child(mi)
+	_extras.append(mi)
+
+func clear_extras() -> void:
+	for e in _extras:
+		if is_instance_valid(e):
+			e.queue_free()
+	_extras.clear()
+
+func volume() -> float:
+	return Solid.volume(dims)
+
+func length() -> float:
+	return Solid.length_of(dims)
+
+func is_wood() -> bool:
+	return category == &"wood"
 
 func set_state(next: State) -> void:
 	if next == state:
@@ -67,8 +138,6 @@ func set_state(next: State) -> void:
 			freeze = false
 			sleeping = false
 		State.CARRIED:
-			# Carried items stay dynamic but are velocity-driven by the player,
-			# which cannot explode the solver the way a stiff joint can.
 			freeze = false
 			sleeping = false
 			angular_damp = 6.0
@@ -82,10 +151,9 @@ func set_state(next: State) -> void:
 			sleeping = true
 	quiet_time = 0.0
 	if next != State.CARRIED:
-		angular_damp = 0.4
+		angular_damp = 0.9 if dims.get("shape", Solid.BOX) == Solid.CYLINDER else 0.4
 	state_changed.emit(self, prev, next)
 
-## Zero out motion. Used on spawn, pool release and kill-plane rescue.
 func reset_motion() -> void:
 	linear_velocity = Vector3.ZERO
 	angular_velocity = Vector3.ZERO
@@ -94,14 +162,22 @@ func reset_motion() -> void:
 		ccd_active = false
 
 func teleport(xform: Transform3D) -> void:
-	# PhysicsServer-level move so Jolt does not integrate a huge delta.
 	PhysicsServer3D.body_set_state(get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM, xform)
 	global_transform = xform
 	reset_motion()
 
-## Half of the item's vertical extent, used by machines that place items by
-## transform rather than letting them settle.
+## Half the vertical extent, used by machines that place items by transform.
 func get_aabb_half_height() -> float:
-	if _shape != null and _shape.shape is BoxShape3D:
-		return (_shape.shape as BoxShape3D).size.y * 0.5
-	return 0.25
+	return Solid.bounds(dims).y * 0.5
+
+## Vertical half-extent once the piece is lying on its side, which is how belts,
+## racks and vehicle beds carry things.
+func resting_half_height() -> float:
+	if dims.get("shape", Solid.BOX) == Solid.CYLINDER:
+		return Solid.max_radius(dims)
+	return (dims.size as Vector3).z * 0.5
+
+## A basis that lays this piece down with its long axis horizontal, pointing
+## along `yaw` (radians around +Y).
+static func lying_basis(yaw: float = 0.0) -> Basis:
+	return Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, PI * 0.5)
