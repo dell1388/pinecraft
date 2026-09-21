@@ -1,0 +1,16 @@
+{
+  "_note": "What sits on the store's shelves. A box's price is not written here: an upgrade box costs whatever the next level of its track costs, and a machine crate costs that building's unlock price, so the shelf follows the rest of the data instead of duplicating it.",
+  "products": [
+    { "box": "box_axe",       "kind": "upgrade", "target": "axe" },
+    { "box": "box_hammer",    "kind": "upgrade", "target": "hammer" },
+    { "box": "box_rack",      "kind": "upgrade", "target": "carry" },
+    { "box": "box_boots",     "kind": "upgrade", "target": "boots" },
+    { "box": "box_sawmill",   "kind": "unlock",  "target": "sawmill" },
+    { "box": "box_furnace",   "kind": "unlock",  "target": "furnace" },
+    { "box": "box_crusher",   "kind": "unlock",  "target": "crusher" },
+    { "box": "box_workbench", "kind": "unlock",  "target": "workbench" },
+    { "box": "box_filter",    "kind": "unlock",  "target": "filter" },
+    { "box": "box_belt",      "kind": "unlock",  "target": "conveyor_fast" },
+    { "box": "box_hauler",    "kind": "unlock",  "target": "vehicle_pad" }
+  ]
+}

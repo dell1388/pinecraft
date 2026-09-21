@@ -50,11 +50,13 @@ func _run_all() -> void:
 	await _test(&"save/load round-trip", test_save_load)
 	await _test(&"plot expansion raises bounds and cap", test_expansion)
 	await _test(&"tool upgrades apply and charge", test_upgrades)
+	await _test(&"the store sells boxes over a counter", test_store)
 	await _test(&"carry rack limits and deposits", test_carry)
 	await _test(&"lift and drag limits are weight limits", test_handling_limits)
 	await _test(&"ownership is tracked and saved", test_ownership)
 	await _test(&"hauler drives, carries and stays upright", test_hauler)
 	await _test(&"a pad spawns one vehicle and replaces it", test_vehicle_pad)
+	await _test(&"winch and crane respect their power ratings", test_vehicle_rig)
 	await _test(&"kill plane rescues fallen items", test_kill_plane)
 	await _test(&"per-plot cap is enforced", test_cap)
 	await _test(&"full automated base stays in budget", test_full_base)
@@ -153,7 +155,10 @@ func test_data_integrity() -> void:
 	check(conversions >= 6, "expected a real conversion table across the machines")
 	for def: ItemDef in GameData.items.values():
 		check(def.density > 0.0, "item %s has no density" % def.id)
-		check(def.value_per_m3 > 0.0 or def.fixed_value > 0, "item %s has no price" % def.id)
+		# Store stock has no sale price on purpose: the yard will not buy it and
+		# its shelf price comes from the track or building it delivers.
+		if def.sellable:
+			check(def.value_per_m3 > 0.0 or def.fixed_value > 0, "item %s has no price" % def.id)
 		var dims := def.default_dims()
 		check(Solid.volume(dims) > 0.0, "item %s has no volume" % def.id)
 		check(def.mass_of(dims) > 0.0, "item %s weighs nothing" % def.id)
@@ -1011,6 +1016,100 @@ func test_upgrades() -> void:
 	check(not PlayerState.try_upgrade(&"axe"), "bought past the last level")
 	check_eq(PlayerState.next_cost(&"axe"), -1, "maxed track still reports a cost")
 
+## Spec: stock sits in boxes on shelves, is carried to the counter and paid for
+## there, and walking out with something unpaid makes it disappear.
+func test_store() -> void:
+	_setup()
+	var shop := Store.new()
+	shop.setup(manager, plot, 0)
+	shop.position = Vector3(0, 0, 0)
+	world.add_child(shop)
+	await step(4)
+	Economy.from_dict({"money": 100000, "day": 1})
+
+	check(shop.slots.size() > 0, "the store has no shelf slots")
+	var stocked := 0
+	for slot in shop.slots:
+		if slot.item != null:
+			stocked += 1
+	check(stocked > 0, "the shelves are empty")
+
+	# Find the axe box and check it is priced off the upgrade track, not twice.
+	var axe_slot: Dictionary = {}
+	for slot in shop.slots:
+		if slot.box == &"box_axe":
+			axe_slot = slot
+	check(not axe_slot.is_empty(), "the store does not stock an axe")
+	check_eq(shop.price_of(axe_slot), PlayerState.next_cost(&"axe"),
+		"the boxed axe is not priced off its track")
+
+	var box: LooseItem = axe_slot.item
+	check(box != null, "no axe box on the shelf")
+	check(not box.owned, "shelf stock starts out owned")
+
+	# Taking it off the shelf is not buying it.
+	var player := _make_player()
+	world.add_child(player)
+	await step(2)
+	check(player.pick_up(box), "could not pick the box off the shelf")
+	check(not box.owned, "carrying a box off the shelf made it the player's")
+
+	# Paying for it at the counter does.
+	var money_before := Economy.money
+	var price := shop.price_of(axe_slot)
+	var carried: Array[LooseItem] = []
+	for item in player.held:
+		carried.append(item)
+	player.held.clear()
+	for item in carried:
+		item.set_state(LooseItem.State.FREE)
+	var receipt := shop.buy(carried)
+	check_eq(int(receipt.bought), 1, "the till bought %d box(es)" % int(receipt.bought))
+	check_eq(int(receipt.spent), price, "the till charged the wrong amount")
+	check_eq(Economy.money, money_before - price, "money did not move by the price")
+	check(box.owned, "a paid box is still not the player's")
+
+	# Opening the paid box delivers what is inside.
+	var level_before := PlayerState.level(&"axe")
+	var said := shop.open_box(box)
+	check(said != "that one has not been paid for", "the box refused to open after payment")
+	check_eq(PlayerState.level(&"axe"), level_before + 1, "opening the box did not upgrade the axe")
+	await step(4)
+	check_eq(box.state, LooseItem.State.POOLED, "the opened box is still lying about")
+
+	# The shelf restocks, at the new price.
+	shop.restock()
+	check(axe_slot.item != null, "the shelf did not restock")
+	check_eq(shop.price_of(axe_slot), PlayerState.next_cost(&"axe"),
+		"the restocked box is not priced off the upgraded track")
+
+	# An unpaid box will not open.
+	var fresh: LooseItem = axe_slot.item
+	check_eq(shop.open_box(fresh), "that one has not been paid for",
+		"an unpaid box opened anyway")
+
+	# And carried out of the shop, it goes back to the shelf. Identity is no
+	# use for checking this: the despawned box is pooled and the replacement
+	# reuses the very same node, so the test asks where the stock is instead.
+	var outside := shop.global_position + Vector3(0, 1, 60)
+	fresh.teleport(Transform3D(Basis(), outside))
+	check(not shop.contains(outside), "the test position is still inside the store")
+	await step(40)
+	var stranded := 0
+	for item in manager.free_items():
+		if item.item_id == &"box_axe" and not shop.contains(item.global_position):
+			stranded += 1
+	check_eq(stranded, 0, "unpaid stock survived being carried out of the shop")
+	check(axe_slot.item != null, "the shelf did not put a replacement out")
+	if axe_slot.item != null:
+		check(shop.contains((axe_slot.item as LooseItem).global_position),
+			"the replacement box is not in the shop")
+
+	# Land is sold at the desk.
+	var tier_before := plot.tier
+	var land := shop.buy_land()
+	check(plot.tier == tier_before + 1, "the desk did not sell a parcel (%s)" % land)
+
 func test_carry() -> void:
 	_setup()
 	var player := _make_player()
@@ -1291,6 +1390,88 @@ func test_vehicle_pad() -> void:
 	await step(10)
 	check(not pad.has_vehicle(), "the pad still has a truck after a recall")
 	check(_haulers_in(world) == 0, "a recall left %d trucks behind" % _haulers_in(world))
+
+## Spec: every machine has a set power, beyond which it has no effect. The crane
+## will not lift past its rating and the winch will not pull past its own.
+func test_vehicle_rig() -> void:
+	_setup(false)
+	var truck := Hauler.new()
+	truck.setup(manager, 0)
+	truck.position = Vector3(0, 1.5, 0)
+	world.add_child(truck)
+	await step(40)
+	var rig := truck.rig
+	check(rig != null, "the hauler has no rig")
+	rig.crane_power_kg = 800.0
+	rig.winch_power_kg = 3000.0
+	rig.reach = 14.0
+
+	# Inside the rating: the crane takes it, and the load goes kinematic so it
+	# cannot fight the solver while it is being placed.
+	var light := spawn(&"wood_pine", truck.global_position + Vector3(3, 1, 0),
+		Solid.cylinder(0.3, 0.3, 3.0))
+	check(light.mass < 800.0, "light test piece is %.0f kg" % light.mass)
+	check_eq(rig.grab(light), "", "the crane refused a piece inside its rating")
+	check(rig.holding(), "the crane does not think it is holding anything")
+	check_eq(light.state, LooseItem.State.HELD, "a crane load is still loose in the solver")
+	check(light.owned, "lifting a piece with the crane did not make it the player's")
+
+	# The crane drives the object: WASD in, object moves, boom follows.
+	var before := light.global_position
+	rig.steer(Vector3(1, 0, 0), 0.0, 0, 0.5)
+	check(light.global_position.distance_to(before) > 0.1, "steering did not move the load")
+	var height := light.global_position.y
+	rig.steer(Vector3.ZERO, 1.0, 0, 0.5)
+	check(light.global_position.y > height, "raising the load did not lift it")
+	var yaw := rig.hold_yaw
+	rig.steer(Vector3.ZERO, 0.0, 1, 0.1)
+	check_near(absf(rig.hold_yaw - yaw), PI * 0.5, 0.0001, "a turn was not a quarter turn")
+
+	# It cannot be walked past the boom's reach.
+	for i in 400:
+		rig.steer(Vector3(1, 0, 0), 0.0, 0, 0.1)
+	check(rig.head_point().distance_to(light.global_position) <= rig.reach + 0.01,
+		"the load went past the crane's reach")
+
+	rig.drop()
+	check(not rig.holding(), "dropping left the crane holding on")
+	check_eq(light.state, LooseItem.State.FREE, "a dropped load is still kinematic")
+
+	# Past the rating: refused outright, not lifted slowly.
+	var heavy := spawn(&"wood_ironwood", truck.global_position + Vector3(3, 1, 2),
+		Solid.cylinder(0.5, 0.5, 4.0))
+	check(heavy.mass > 800.0, "heavy test piece is only %.0f kg" % heavy.mass)
+	check(rig.grab(heavy) != "", "the crane lifted a piece past its rating")
+	check(not rig.holding(), "a refused lift still left the crane holding something")
+
+	# Out of reach is refused too, whatever it weighs.
+	var distant := spawn(&"wood_pine", truck.global_position + Vector3(40, 1, 0),
+		Solid.cylinder(0.2, 0.2, 1.0))
+	check(rig.grab(distant) != "", "the crane reached 40 m")
+
+	# The winch takes a load up to its rating and no further.
+	check_eq(rig.attach_winch(heavy, heavy.global_position), "",
+		"the winch refused a load inside its rating")
+	check(rig.anchored, "the winch does not think it is hooked on")
+	check(rig.winch_can_pull(), "the winch will not pull a load inside its rating")
+	rig.release_winch()
+
+	rig.winch_power_kg = 100.0
+	check(rig.attach_winch(heavy, heavy.global_position) != "",
+		"the winch hooked a load past its rating")
+	check(not rig.anchored, "a refused hook still left the winch attached")
+
+	# And a hooked load past the rating simply does not move.
+	rig.winch_power_kg = 100000.0
+	check_eq(rig.attach_winch(heavy, heavy.global_position), "", "re-hooking failed")
+	rig.winch_power_kg = 10.0
+	check(not rig.winch_can_pull(), "an over-rated load still counts as pullable")
+	var stood := heavy.global_position
+	for i in 30:
+		rig.reel(1.0 / 60.0)
+	await step(4)
+	check(heavy.global_position.distance_to(stood) < 0.5,
+		"the winch dragged a load %.0f times past its rating" % (heavy.mass / 10.0))
 
 func _haulers_in(node: Node) -> int:
 	var n := 0

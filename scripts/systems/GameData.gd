@@ -15,6 +15,7 @@ var plot_expansions: Array = []
 var vehicle_def: Dictionary = {}
 var price_config: Dictionary = {}
 var quest_config: Dictionary = {}
+var store_config: Dictionary = {}
 
 var load_errors: Array[String] = []
 
@@ -58,6 +59,7 @@ func load_all() -> void:
 
 	price_config = _read("prices.json")
 	quest_config = _read("quests.json")
+	store_config = _read("store.json")
 	_validate()
 
 func _read(file_name: String) -> Dictionary:
@@ -101,6 +103,16 @@ func _validate() -> void:
 			load_errors.append("quest '%s' wants unknown item '%s'" % [quest.get("id", "?"), q_item])
 		if q_item == &"" and not categories.has(q_cat):
 			load_errors.append("quest '%s' wants unknown category '%s'" % [quest.get("id", "?"), q_cat])
+	for entry in store_products():
+		var box := StringName(entry.get("box", ""))
+		var target := StringName(entry.get("target", ""))
+		if not items.has(box):
+			load_errors.append("store sells unknown box '%s'" % box)
+		if String(entry.get("kind", "")) == "upgrade":
+			if not upgrade_tracks.has(target):
+				load_errors.append("store box '%s' upgrades unknown track '%s'" % [box, target])
+		elif not buildings.has(target):
+			load_errors.append("store box '%s' unlocks unknown building '%s'" % [box, target])
 	for b: BuildingDef in buildings.values():
 		if b.kind == &"machine" and not machines.has(b.machine):
 			load_errors.append("building '%s' references unknown machine '%s'" % [b.id, b.machine])
@@ -145,6 +157,9 @@ func machine_accepts(machine_id: StringName, item_id: StringName) -> bool:
 	if m.mode == MachineDef.MODE_ASSEMBLE:
 		return true
 	return m.output_for(item_id) != &""
+
+func store_products() -> Array:
+	return store_config.get("products", [])
 
 func quest_pool() -> Array:
 	return quest_config.get("quests", [])

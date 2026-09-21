@@ -11,6 +11,10 @@ const BINDINGS := {
 	"move_right": [KEY_D],
 	"jump": [KEY_SPACE],
 	"sprint": [KEY_SHIFT],
+	# Spec: Shift and Control work elevation while a machine is moving an
+	# object, so "sprint" doubles as raise and this is lower.
+	"lower": [KEY_CTRL],
+	"reel": [KEY_G],
 }
 
 static func ensure() -> void:

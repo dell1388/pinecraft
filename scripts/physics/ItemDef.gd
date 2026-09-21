@@ -19,6 +19,9 @@ extends Resource
 ## Whether the yard will buy this. False for things that are containers for
 ## something else, like an unopened crate of tools from the store.
 @export var sellable: bool = true
+## Whether picking this up is enough to own it. False for store stock, which
+## has to go over the counter first.
+@export var must_buy: bool = false
 @export var color: Color = Color(0.47, 0.32, 0.19)
 
 ## Defaults used when a spawn does not specify dimensions.
@@ -59,6 +62,7 @@ static func from_dict(d: Dictionary) -> ItemDef:
 	def.fixed_value = int(d.get("value", 0))
 	def.volatility = float(d.get("volatility", 0.25))
 	def.sellable = bool(d.get("sellable", true))
+	def.must_buy = bool(d.get("must_buy", false))
 	var c: Array = d.get("color", [0.6, 0.6, 0.6])
 	def.color = Color(c[0], c[1], c[2])
 	if d.has("size"):

@@ -6,6 +6,7 @@ extends Node3D
 
 const MAP_HALF := 110.0
 const DEPOT_POSITION := Vector3(0, 0, 54)
+const STORE_POSITION := Vector3(-34, 0, 48)
 const AUTOSAVE_SECONDS := 60.0
 const STARTING_MONEY := 250
 
@@ -20,6 +21,7 @@ var hud: GameHUD
 var build_system: BuildSystem
 var depot: SellYard
 var quests: QuestLog
+var store: Store
 var hauler: Hauler
 ## One field per species, each keeping its own ring or patch stocked.
 var tree_fields: Array[ResourceField] = []
@@ -54,11 +56,13 @@ func _ready() -> void:
 	_build_forest()
 	_build_quarry()
 	_build_depot()
+	_build_store()
 
 	player = _make_player()
 	add_child(player)
 	player.manager = manager
 	player.plot = plot
+	player.store = store
 
 	build_system = BuildSystem.new()
 	build_system.setup(plot, player.camera, player)
@@ -241,6 +245,16 @@ func _build_depot() -> void:
 	mat.albedo_color = Color(0.9, 0.78, 0.2)
 	sign_mesh.material_override = mat
 	add_child(sign_mesh)
+
+## Spec: a store you walk into, with stock in boxes on shelves and a counter to
+## carry them to.
+func _build_store() -> void:
+	store = Store.new()
+	store.name = "Store"
+	store.setup(manager, plot, 0)
+	store.position = STORE_POSITION
+	store.rotation.y = PI
+	add_child(store)
 
 func _make_player() -> Player:
 	var p := Player.new()

@@ -24,14 +24,16 @@
   [ok  ] save/load round-trip
   [ok  ] plot expansion raises bounds and cap
   [ok  ] tool upgrades apply and charge
+  [ok  ] the store sells boxes over a counter
   [ok  ] carry rack limits and deposits
   [ok  ] lift and drag limits are weight limits
   [ok  ] ownership is tracked and saved
   [ok  ] hauler drives, carries and stays upright
   [ok  ] a pad spawns one vehicle and replaces it
+  [ok  ] winch and crane respect their power ratings
   [ok  ] kill plane rescues fallen items
   [ok  ] per-plot cap is enforced
-      full base: 166 items live, avg 2.21 ms/frame, worst 7.37 ms (budget 16.67)
+      full base: 168 items live, avg 1.80 ms/frame, worst 4.95 ms (budget 16.67)
   [ok  ] full automated base stays in budget
 
-PASS - 507 checks
+PASS - 609 checks

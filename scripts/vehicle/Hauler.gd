@@ -51,6 +51,7 @@ var _wheel_spin: float = 0.0
 var _cargo_area: Area3D
 var _cargo_shape: CollisionShape3D
 var _seat: Node3D
+var rig: VehicleRig
 var _grounded: int = 0
 var _poll: float = 0.0
 
@@ -115,6 +116,12 @@ func _build() -> void:
 	add_child(_cargo_area)
 
 	_build_dressing()
+
+	# Spec: most vehicles carry a winch, many carry a crane. The hauler has both.
+	rig = VehicleRig.new()
+	rig.name = "Rig"
+	rig.setup(self)
+	add_child(rig)
 
 	_seat = Node3D.new()
 	_seat.position = Vector3(0, 1.2, -1.9)

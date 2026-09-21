@@ -19,6 +19,9 @@ signal interacted(message: String)
 @export var carry_gain: float = 14.0
 @export var carry_max_speed: float = 14.0
 @export var throw_impulse: float = 9.0
+## Spec: driving is third-person on the vehicle.
+@export var chase_distance: float = 9.0
+@export var chase_height: float = 2.8
 
 ## Wood shorter than this cannot be split any further.
 const MIN_BUCK_LENGTH := 0.70
@@ -27,6 +30,7 @@ const BUCK_WORK_PER_M2 := 700.0
 
 var manager: LooseItemManager
 var plot: Plot
+var store: Store
 var build_system: BuildSystem
 var vehicle: Node3D = null              ## set while driving
 
@@ -90,6 +94,18 @@ func carried_count() -> int:
 func driving() -> bool:
 	return vehicle != null
 
+## The winch and crane on the vehicle being driven, if it has any.
+func rig() -> VehicleRig:
+	if vehicle == null:
+		return null
+	return vehicle.get("rig") as VehicleRig
+
+## True while the crane has hold of something, which is when the player is
+## driving the load rather than the truck.
+func steering_load() -> bool:
+	var r := rig()
+	return r != null and r.holding()
+
 # --- Input -----------------------------------------------------------------
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -130,6 +146,8 @@ func _on_mouse_button(event: InputEventMouseButton) -> void:
 				build_system.cycle(1)
 
 func _on_key(event: InputEventKey) -> void:
+	if driving() and _on_driving_key(event):
+		return
 	match event.keycode:
 		KEY_E:
 			_interact()
@@ -149,12 +167,58 @@ func _on_key(event: InputEventKey) -> void:
 			if build_system != null and build_system.active:
 				build_system.rotate_ghost()
 
+## Keys that only mean something with a vehicle under you. Returns true when the
+## key was used here, so it does not also do its on-foot job.
+func _on_driving_key(event: InputEventKey) -> bool:
+	var r := rig()
+	if r == null:
+		return false
+	match event.keycode:
+		KEY_F:
+			if r.holding():
+				r.drop()
+				interacted.emit("load released")
+			else:
+				var hit := aim_hit()
+				var item := _owner_of(hit.get("collider")) as LooseItem if not hit.is_empty() else null
+				interacted.emit(_said(r.grab(item), "crane has it"))
+			return true
+		KEY_E:
+			if r.anchored:
+				r.release_winch()
+				interacted.emit("winch unhooked")
+			else:
+				var hit := aim_hit()
+				if hit.is_empty():
+					interacted.emit("nothing in front of the winch")
+				else:
+					interacted.emit(_said(
+						r.attach_winch(_owner_of(hit.collider) as Node3D, hit.position),
+						"winch hooked on"))
+			return true
+		KEY_R:
+			if r.holding():
+				_load_spin = 1
+				return true
+		KEY_T:
+			if r.holding():
+				_load_spin = -1
+				return true
+	return false
+
+## Tool calls report a problem as text and success as an empty string; this
+## turns that into something to show the player either way.
+func _said(problem: String, success: String) -> String:
+	return success if problem == "" else problem
+
 # --- Movement --------------------------------------------------------------
 
 func _physics_process(delta: float) -> void:
 	_swing_cd = maxf(0.0, _swing_cd - delta)
 	if driving():
 		_update_rack()
+		_update_vehicle_controls(delta)
+		_update_chase_camera(delta)
 		return
 
 	if not is_on_floor():
@@ -184,6 +248,46 @@ func _physics_process(delta: float) -> void:
 	_update_drag()
 	_update_prompt()
 
+## Spec: the camera is third-person on the vehicle while driving, and fixed on
+## the object while the crane is moving one.
+func _update_chase_camera(_delta: float) -> void:
+	var focus: Node3D = vehicle
+	var r := rig()
+	if r != null and r.holding():
+		focus = r.held
+	if focus == null or not is_instance_valid(focus):
+		return
+	var pivot := focus.global_position + Vector3(0, chase_height, 0)
+	var basis := Basis.from_euler(Vector3(camera.rotation.x, rotation.y, 0.0))
+	camera.global_transform = Transform3D(basis, pivot + basis.z * chase_distance)
+
+## Spec: while the crane holds something the player drives the object - WASD
+## slides it, Shift and Control raise and lower it, R and T turn it.
+func _update_vehicle_controls(delta: float) -> void:
+	var r := rig()
+	if r == null:
+		return
+	if Input.is_action_pressed("reel"):
+		r.reel(delta)
+	if not r.holding():
+		return
+	var input := Vector2(
+		Input.get_axis("move_left", "move_right"),
+		Input.get_axis("move_forward", "move_back"))
+	# Lateral movement is read in the camera's frame, so "forward" is whichever
+	# way the player is looking at the load from.
+	var flat := Basis.from_euler(Vector3(0, rotation.y, 0))
+	var move := (flat * Vector3(input.x, 0.0, input.y))
+	var lift := 0.0
+	if Input.is_action_pressed("sprint"):
+		lift += 1.0
+	if Input.is_action_pressed("lower"):
+		lift -= 1.0
+	r.steer(move, lift, _load_spin, delta)
+	_load_spin = 0
+
+var _load_spin: int = 0
+
 # --- Aiming ----------------------------------------------------------------
 
 func aim_hit() -> Dictionary:
@@ -201,6 +305,7 @@ func _owner_of(collider: Object) -> Node:
 		if node is ChoppableTree or node is OreRock or node is LooseItem \
 				or node is Machine or node is StorageBin or node is SellZone \
 				or node is SellYard or node is Schematic or node is VehiclePad \
+				or node is Store \
 				or node is Conveyor or node is Filter or node is Splitter \
 				or node is Hauler:
 			return node
@@ -250,6 +355,10 @@ func _update_prompt() -> void:
 		last_prompt = "[E] sell carried items"
 	elif target is SellYard:
 		last_prompt = (target as SellYard).status_line()
+	elif target is Store:
+		var shop := target as Store
+		var role := shop.role_at(hit.position)
+		last_prompt = shop.status_line(role) if role != &"" else "the store"
 	elif target is VehiclePad:
 		last_prompt = (target as VehiclePad).status_line()
 	elif target is Schematic:
@@ -343,11 +452,17 @@ func pick_up(item: LooseItem) -> bool:
 		return false
 	if item == dragged:
 		dragged = null
-	item.owned = true
+	item.owned = item.owned or not _must_buy(item)
 	item.set_state(LooseItem.State.HELD)
 	held.append(item)
 	carry_changed.emit(held.size(), capacity_m3())
 	return true
+
+## Store stock has to be paid for before it is yours, so carrying it off a
+## shelf does not make it yours the way picking up a log does.
+func _must_buy(item: LooseItem) -> bool:
+	var def := GameData.item(item.item_id)
+	return def != null and def.must_buy
 
 func _nearest_free_item(radius: float) -> LooseItem:
 	if manager == null:
@@ -428,7 +543,7 @@ func _grab_drag_item(item: LooseItem) -> bool:
 		interacted.emit("%.0f kg will not budge (limit %.0f kg) - cut it down or winch it" % [
 			item.mass, move_limit_kg()])
 		return false
-	item.owned = true
+	item.owned = item.owned or not _must_buy(item)
 	dragged = item
 	item.set_state(LooseItem.State.CARRIED)
 	return true
@@ -479,6 +594,14 @@ func _interact() -> void:
 			f.cycle_filter(1)
 		interacted.emit(f.status_line())
 		return
+	if target is Store:
+		_use_store(target as Store, hit.get("position", global_position))
+		return
+	if target is LooseItem and store != null:
+		var said := store.open_box(target as LooseItem)
+		if said != "that is not a box":
+			interacted.emit(said)
+			return
 	if target is VehiclePad:
 		var pad := target as VehiclePad
 		var had := pad.has_vehicle()
@@ -532,9 +655,39 @@ func deposit_into(sink: Object) -> int:
 		carry_changed.emit(held.size(), capacity_m3())
 	return moved
 
+## The till buys whatever is on the counter, including whatever the player is
+## still holding; the desk sells land.
+func _use_store(shop: Store, point: Vector3) -> void:
+	match shop.role_at(point):
+		&"desk":
+			interacted.emit(shop.buy_land())
+		&"till":
+			var carried := held.duplicate()
+			held.clear()
+			for item in carried:
+				item.set_state(LooseItem.State.FREE)
+			carry_changed.emit(0, capacity_m3())
+			var receipt := shop.buy(carried)
+			if int(receipt.bought) > 0:
+				interacted.emit("bought %d box(es) for $%d" % [
+					int(receipt.bought), int(receipt.spent)])
+			elif not (receipt.refused as Array).is_empty():
+				interacted.emit(String((receipt.refused as Array)[0]))
+			else:
+				interacted.emit("nothing on the counter to pay for")
+		_:
+			interacted.emit("bring a box to the counter")
+
 func enter_vehicle(v: Node3D) -> void:
 	vehicle = v
 	velocity = Vector3.ZERO
 
 func exit_vehicle() -> void:
+	var r := rig()
+	if r != null:
+		r.drop()
+		r.release_winch()
 	vehicle = null
+	camera.position = Vector3(0, 1.65, 0)
+	camera.rotation.y = 0.0
+	camera.rotation.z = 0.0

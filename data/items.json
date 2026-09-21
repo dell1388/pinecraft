@@ -1,37 +1,521 @@
 {
   "_note": "Items are solids, not icons. Variable items carry their own dimensions at runtime; mass is density x volume and price is value_per_m3 x volume, so a machine that conserves volume also conserves mass and value.",
   "items": [
-    { "id": "wood_pine",      "display_name": "Pine Wood",      "category": "wood",   "shape": "cylinder", "variable": true,
-      "radius": 0.18, "length": 1.60, "taper": 0.86, "density": 150, "value_per_m3": 22,  "color": [0.47, 0.32, 0.19], "volatility": 0.25 },
-    { "id": "wood_oak",       "display_name": "Oak Wood",       "category": "wood",   "shape": "cylinder", "variable": true,
-      "radius": 0.21, "length": 1.70, "taper": 0.88, "density": 210, "value_per_m3": 48,  "color": [0.38, 0.25, 0.15], "volatility": 0.28 },
-    { "id": "wood_ironwood",  "display_name": "Ironwood",       "category": "wood",   "shape": "cylinder", "variable": true,
-      "radius": 0.23, "length": 1.75, "taper": 0.90, "density": 320, "value_per_m3": 120, "color": [0.29, 0.23, 0.21], "volatility": 0.35 },
-
-    { "id": "lumber_pine",    "display_name": "Pine Lumber",    "category": "lumber", "shape": "box", "variable": true,
-      "cross_section": [0.30, 0.30], "length": 1.55, "density": 140, "value_per_m3": 72,  "color": [0.74, 0.57, 0.34], "volatility": 0.22 },
-    { "id": "lumber_oak",     "display_name": "Oak Lumber",     "category": "lumber", "shape": "box", "variable": true,
-      "cross_section": [0.30, 0.30], "length": 1.55, "density": 200, "value_per_m3": 150, "color": [0.64, 0.46, 0.25], "volatility": 0.24 },
-    { "id": "lumber_ironwood","display_name": "Ironwood Lumber","category": "lumber", "shape": "box", "variable": true,
-      "cross_section": [0.30, 0.30], "length": 1.55, "density": 300, "value_per_m3": 360, "color": [0.42, 0.36, 0.32], "volatility": 0.30 },
-
-    { "id": "ore_iron",       "display_name": "Iron Ore",       "category": "ore",    "shape": "box", "variable": false,
-      "size": [0.30, 0.24, 0.28], "density": 900,  "value_per_m3": 600,  "color": [0.52, 0.53, 0.58], "volatility": 0.30 },
-    { "id": "ore_copper",     "display_name": "Copper Ore",     "category": "ore",    "shape": "box", "variable": false,
-      "size": [0.29, 0.24, 0.27], "density": 900,  "value_per_m3": 820,  "color": [0.66, 0.42, 0.25], "volatility": 0.34 },
-    { "id": "ore_gold",       "display_name": "Gold Ore",       "category": "ore",    "shape": "box", "variable": false,
-      "size": [0.27, 0.22, 0.26], "density": 1100, "value_per_m3": 2400, "color": [0.78, 0.66, 0.24], "volatility": 0.45 },
-
-    { "id": "ingot_iron",     "display_name": "Iron Billet",    "category": "metal",  "shape": "box", "variable": true,
-      "cross_section": [0.26, 0.14], "length": 0.55, "density": 1400, "value_per_m3": 1500, "color": [0.70, 0.72, 0.78], "volatility": 0.26 },
-    { "id": "ingot_copper",   "display_name": "Copper Billet",  "category": "metal",  "shape": "box", "variable": true,
-      "cross_section": [0.26, 0.14], "length": 0.55, "density": 1350, "value_per_m3": 2100, "color": [0.85, 0.52, 0.28], "volatility": 0.28 },
-    { "id": "ingot_gold",     "display_name": "Gold Billet",    "category": "metal",  "shape": "box", "variable": true,
-      "cross_section": [0.26, 0.14], "length": 0.55, "density": 1900, "value_per_m3": 5600, "color": [0.95, 0.80, 0.25], "volatility": 0.40 },
-
-    { "id": "crate",          "display_name": "Shipping Crate", "category": "goods",  "shape": "box", "variable": false,
-      "size": [0.70, 0.70, 0.70], "density": 60, "value": 150, "color": [0.58, 0.40, 0.22], "volatility": 0.18 },
-    { "id": "toolkit",        "display_name": "Toolkit",        "category": "goods",  "shape": "box", "variable": false,
-      "size": [0.55, 0.30, 0.35], "density": 210, "value": 320, "color": [0.30, 0.45, 0.62], "volatility": 0.22 }
+    {
+      "id": "wood_pine",
+      "display_name": "Pine Wood",
+      "category": "wood",
+      "shape": "cylinder",
+      "variable": true,
+      "radius": 0.18,
+      "length": 1.6,
+      "taper": 0.86,
+      "density": 150,
+      "value_per_m3": 22,
+      "color": [
+        0.47,
+        0.32,
+        0.19
+      ],
+      "volatility": 0.25
+    },
+    {
+      "id": "wood_oak",
+      "display_name": "Oak Wood",
+      "category": "wood",
+      "shape": "cylinder",
+      "variable": true,
+      "radius": 0.21,
+      "length": 1.7,
+      "taper": 0.88,
+      "density": 210,
+      "value_per_m3": 48,
+      "color": [
+        0.38,
+        0.25,
+        0.15
+      ],
+      "volatility": 0.28
+    },
+    {
+      "id": "wood_ironwood",
+      "display_name": "Ironwood",
+      "category": "wood",
+      "shape": "cylinder",
+      "variable": true,
+      "radius": 0.23,
+      "length": 1.75,
+      "taper": 0.9,
+      "density": 320,
+      "value_per_m3": 120,
+      "color": [
+        0.29,
+        0.23,
+        0.21
+      ],
+      "volatility": 0.35
+    },
+    {
+      "id": "lumber_pine",
+      "display_name": "Pine Lumber",
+      "category": "lumber",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.3,
+        0.3
+      ],
+      "length": 1.55,
+      "density": 140,
+      "value_per_m3": 72,
+      "color": [
+        0.74,
+        0.57,
+        0.34
+      ],
+      "volatility": 0.22
+    },
+    {
+      "id": "lumber_oak",
+      "display_name": "Oak Lumber",
+      "category": "lumber",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.3,
+        0.3
+      ],
+      "length": 1.55,
+      "density": 200,
+      "value_per_m3": 150,
+      "color": [
+        0.64,
+        0.46,
+        0.25
+      ],
+      "volatility": 0.24
+    },
+    {
+      "id": "lumber_ironwood",
+      "display_name": "Ironwood Lumber",
+      "category": "lumber",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.3,
+        0.3
+      ],
+      "length": 1.55,
+      "density": 300,
+      "value_per_m3": 360,
+      "color": [
+        0.42,
+        0.36,
+        0.32
+      ],
+      "volatility": 0.3
+    },
+    {
+      "id": "ore_iron",
+      "display_name": "Iron Ore",
+      "category": "ore",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.3,
+        0.24,
+        0.28
+      ],
+      "density": 900,
+      "value_per_m3": 600,
+      "color": [
+        0.52,
+        0.53,
+        0.58
+      ],
+      "volatility": 0.3
+    },
+    {
+      "id": "ore_copper",
+      "display_name": "Copper Ore",
+      "category": "ore",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.29,
+        0.24,
+        0.27
+      ],
+      "density": 900,
+      "value_per_m3": 820,
+      "color": [
+        0.66,
+        0.42,
+        0.25
+      ],
+      "volatility": 0.34
+    },
+    {
+      "id": "ore_gold",
+      "display_name": "Gold Ore",
+      "category": "ore",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.27,
+        0.22,
+        0.26
+      ],
+      "density": 1100,
+      "value_per_m3": 2400,
+      "color": [
+        0.78,
+        0.66,
+        0.24
+      ],
+      "volatility": 0.45
+    },
+    {
+      "id": "ingot_iron",
+      "display_name": "Iron Billet",
+      "category": "metal",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.26,
+        0.14
+      ],
+      "length": 0.55,
+      "density": 1400,
+      "value_per_m3": 1500,
+      "color": [
+        0.7,
+        0.72,
+        0.78
+      ],
+      "volatility": 0.26
+    },
+    {
+      "id": "ingot_copper",
+      "display_name": "Copper Billet",
+      "category": "metal",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.26,
+        0.14
+      ],
+      "length": 0.55,
+      "density": 1350,
+      "value_per_m3": 2100,
+      "color": [
+        0.85,
+        0.52,
+        0.28
+      ],
+      "volatility": 0.28
+    },
+    {
+      "id": "ingot_gold",
+      "display_name": "Gold Billet",
+      "category": "metal",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.26,
+        0.14
+      ],
+      "length": 0.55,
+      "density": 1900,
+      "value_per_m3": 5600,
+      "color": [
+        0.95,
+        0.8,
+        0.25
+      ],
+      "volatility": 0.4
+    },
+    {
+      "id": "crate",
+      "display_name": "Shipping Crate",
+      "category": "goods",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.7,
+        0.7,
+        0.7
+      ],
+      "density": 60,
+      "value": 150,
+      "color": [
+        0.58,
+        0.4,
+        0.22
+      ],
+      "volatility": 0.18
+    },
+    {
+      "id": "toolkit",
+      "display_name": "Toolkit",
+      "category": "goods",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.55,
+        0.3,
+        0.35
+      ],
+      "density": 210,
+      "value": 320,
+      "color": [
+        0.3,
+        0.45,
+        0.62
+      ],
+      "volatility": 0.22
+    },
+    {
+      "id": "box_axe",
+      "display_name": "Boxed Axe",
+      "category": "package",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.62,
+        0.42,
+        0.34
+      ],
+      "density": 90,
+      "value_per_m3": 0,
+      "color": [
+        0.72,
+        0.36,
+        0.22
+      ],
+      "volatility": 0.0,
+      "sellable": false,
+      "must_buy": true
+    },
+    {
+      "id": "box_hammer",
+      "display_name": "Boxed Hammer",
+      "category": "package",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.58,
+        0.4,
+        0.34
+      ],
+      "density": 90,
+      "value_per_m3": 0,
+      "color": [
+        0.6,
+        0.38,
+        0.26
+      ],
+      "volatility": 0.0,
+      "sellable": false,
+      "must_buy": true
+    },
+    {
+      "id": "box_rack",
+      "display_name": "Boxed Carry Rack",
+      "category": "package",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.7,
+        0.5,
+        0.44
+      ],
+      "density": 90,
+      "value_per_m3": 0,
+      "color": [
+        0.4,
+        0.52,
+        0.3
+      ],
+      "volatility": 0.0,
+      "sellable": false,
+      "must_buy": true
+    },
+    {
+      "id": "box_boots",
+      "display_name": "Boxed Boots",
+      "category": "package",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.5,
+        0.36,
+        0.38
+      ],
+      "density": 90,
+      "value_per_m3": 0,
+      "color": [
+        0.32,
+        0.44,
+        0.62
+      ],
+      "volatility": 0.0,
+      "sellable": false,
+      "must_buy": true
+    },
+    {
+      "id": "box_sawmill",
+      "display_name": "Crated Sawmill",
+      "category": "package",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.9,
+        0.72,
+        0.7
+      ],
+      "density": 90,
+      "value_per_m3": 0,
+      "color": [
+        0.52,
+        0.4,
+        0.26
+      ],
+      "volatility": 0.0,
+      "sellable": false,
+      "must_buy": true
+    },
+    {
+      "id": "box_furnace",
+      "display_name": "Crated Furnace",
+      "category": "package",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.86,
+        0.76,
+        0.72
+      ],
+      "density": 90,
+      "value_per_m3": 0,
+      "color": [
+        0.38,
+        0.34,
+        0.4
+      ],
+      "volatility": 0.0,
+      "sellable": false,
+      "must_buy": true
+    },
+    {
+      "id": "box_crusher",
+      "display_name": "Crated Crusher",
+      "category": "package",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.88,
+        0.74,
+        0.72
+      ],
+      "density": 90,
+      "value_per_m3": 0,
+      "color": [
+        0.34,
+        0.36,
+        0.42
+      ],
+      "volatility": 0.0,
+      "sellable": false,
+      "must_buy": true
+    },
+    {
+      "id": "box_workbench",
+      "display_name": "Crated Workbench",
+      "category": "package",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.92,
+        0.7,
+        0.74
+      ],
+      "density": 90,
+      "value_per_m3": 0,
+      "color": [
+        0.3,
+        0.42,
+        0.5
+      ],
+      "volatility": 0.0,
+      "sellable": false,
+      "must_buy": true
+    },
+    {
+      "id": "box_filter",
+      "display_name": "Crated Filter",
+      "category": "package",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.66,
+        0.5,
+        0.48
+      ],
+      "density": 90,
+      "value_per_m3": 0,
+      "color": [
+        0.46,
+        0.44,
+        0.34
+      ],
+      "volatility": 0.0,
+      "sellable": false,
+      "must_buy": true
+    },
+    {
+      "id": "box_belt",
+      "display_name": "Crated Fast Belt",
+      "category": "package",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.8,
+        0.44,
+        0.44
+      ],
+      "density": 90,
+      "value_per_m3": 0,
+      "color": [
+        0.44,
+        0.46,
+        0.3
+      ],
+      "volatility": 0.0,
+      "sellable": false,
+      "must_buy": true
+    },
+    {
+      "id": "box_hauler",
+      "display_name": "Crated Hauler Pad",
+      "category": "package",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        1.1,
+        0.86,
+        0.94
+      ],
+      "density": 90,
+      "value_per_m3": 0,
+      "color": [
+        0.62,
+        0.3,
+        0.24
+      ],
+      "volatility": 0.0,
+      "sellable": false,
+      "must_buy": true
+    }
   ]
 }
