@@ -13,11 +13,14 @@
   [ok  ] workbench assembles from volumes
   [ok  ] machines reject items they cannot use
   [ok  ] sell zone pays today's price
+  [ok  ] the yard buys what the player owns in it
+  [ok  ] orders pay out on delivery
   [ok  ] storage bin stores and dispenses
   [ok  ] conveyor feeds a machine directly
   [ok  ] splitter routes round-robin
   [ok  ] filter sorts items by type
   [ok  ] building placement, cost and removal
+  [ok  ] plans fill with material and turn solid
   [ok  ] save/load round-trip
   [ok  ] plot expansion raises bounds and cap
   [ok  ] tool upgrades apply and charge
@@ -25,9 +28,10 @@
   [ok  ] lift and drag limits are weight limits
   [ok  ] ownership is tracked and saved
   [ok  ] hauler drives, carries and stays upright
+  [ok  ] a pad spawns one vehicle and replaces it
   [ok  ] kill plane rescues fallen items
   [ok  ] per-plot cap is enforced
-      full base: 163 items live, avg 1.79 ms/frame, worst 5.54 ms (budget 16.67)
+      full base: 166 items live, avg 2.21 ms/frame, worst 7.37 ms (budget 16.67)
   [ok  ] full automated base stays in budget
 
-PASS - 437 checks
+PASS - 507 checks

@@ -7,9 +7,10 @@ signal upgraded(track: StringName, level: int)
 signal unlocked(building_id: StringName)
 signal vehicle_purchased()
 
+const VEHICLE_PAD := &"vehicle_pad"
+
 var levels: Dictionary = {}              ## StringName -> int
 var unlocked_buildings: Array[StringName] = []
-var owns_vehicle: bool = false
 
 func _ready() -> void:
 	reset()
@@ -22,7 +23,6 @@ func reset() -> void:
 	for def: BuildingDef in GameData.buildings.values():
 		if def.unlock_cost <= 0:
 			unlocked_buildings.append(def.id)
-	owns_vehicle = false
 
 func level(track: StringName) -> int:
 	return int(levels.get(track, 1))
@@ -82,12 +82,18 @@ func available_buildings() -> Array[BuildingDef]:
 	out.sort_custom(func(a, b): return a.cost < b.cost)
 	return out
 
+## A hauler is bought by unlocking its pad; the pad is then placed like any
+## other building and the truck appears on it.
+func owns_vehicle() -> bool:
+	return is_unlocked(VEHICLE_PAD)
+
+func vehicle_cost() -> int:
+	var def := GameData.building(VEHICLE_PAD)
+	return def.unlock_cost if def != null else 5000
+
 func try_buy_vehicle() -> bool:
-	if owns_vehicle:
+	if not try_unlock(VEHICLE_PAD):
 		return false
-	if not Economy.try_spend(int(GameData.vehicle_def.get("cost", 5000))):
-		return false
-	owns_vehicle = true
 	vehicle_purchased.emit()
 	return true
 
@@ -98,7 +104,7 @@ func to_dict() -> Dictionary:
 	var ub: Array = []
 	for b in unlocked_buildings:
 		ub.append(String(b))
-	return {"levels": lv, "unlocked": ub, "owns_vehicle": owns_vehicle}
+	return {"levels": lv, "unlocked": ub}
 
 func from_dict(d: Dictionary) -> void:
 	reset()
@@ -109,4 +115,6 @@ func from_dict(d: Dictionary) -> void:
 		unlocked_buildings.clear()
 		for b in ub:
 			unlocked_buildings.append(StringName(b))
-	owns_vehicle = bool(d.get("owns_vehicle", false))
+	# Older saves recorded the truck as a flag rather than as an unlocked pad.
+	if bool(d.get("owns_vehicle", false)) and not is_unlocked(VEHICLE_PAD):
+		unlocked_buildings.append(VEHICLE_PAD)

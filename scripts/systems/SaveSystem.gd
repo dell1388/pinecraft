@@ -10,7 +10,8 @@ const VERSION := 2
 ## on their land: a trunk they felled and left in the forest is part of the
 ## world, and the world regenerates.
 static func save_game(plot: Plot, player: Node3D = null, path: String = SAVE_PATH,
-		manager: LooseItemManager = null, vehicle: Node3D = null) -> bool:
+		manager: LooseItemManager = null, vehicle: Node3D = null,
+		quests: QuestLog = null) -> bool:
 	var doc := {
 		"version": VERSION,
 		"saved_at": Time.get_datetime_string_from_system(true),
@@ -20,6 +21,8 @@ static func save_game(plot: Plot, player: Node3D = null, path: String = SAVE_PAT
 	}
 	if manager != null:
 		doc["loose"] = _loose_to_array(manager, plot)
+	if quests != null:
+		doc["quests"] = quests.to_dict()
 	if vehicle != null and vehicle.has_method("to_dict"):
 		doc["vehicle"] = vehicle.call("to_dict")
 	if player != null:
@@ -42,7 +45,8 @@ static func has_save(path: String = SAVE_PATH) -> bool:
 ## exists at all is itself part of the save, so the world hands us the means to
 ## make one rather than making one up front.
 static func load_game(plot: Plot, player: Node3D = null, path: String = SAVE_PATH,
-		manager: LooseItemManager = null, vehicle_spawner: Callable = Callable()) -> bool:
+		manager: LooseItemManager = null, vehicle_spawner: Callable = Callable(),
+		quests: QuestLog = null) -> bool:
 	if not FileAccess.file_exists(path):
 		return false
 	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
@@ -61,9 +65,13 @@ static func load_game(plot: Plot, player: Node3D = null, path: String = SAVE_PAT
 		for stale in manager.owned_items(plot.global_position, plot.half_extent * 1.4142):
 			manager.despawn(stale)
 		_loose_from_array(manager, doc.get("loose", []), plot.plot_id)
-	if PlayerState.owns_vehicle and vehicle_spawner.is_valid():
+	if quests != null:
+		quests.from_dict(doc.get("quests", {}))
+	# Pads restore their own trucks as part of the plot, so a save only needs
+	# the spawner for a game that predates pads.
+	if PlayerState.owns_vehicle() and vehicle_spawner.is_valid() and doc.has("vehicle"):
 		var vehicle: Object = vehicle_spawner.call()
-		if vehicle != null and doc.has("vehicle") and vehicle.has_method("from_dict"):
+		if vehicle != null and vehicle.has_method("from_dict"):
 			vehicle.call("from_dict", doc["vehicle"])
 	if player != null and doc.has("player_position"):
 		var p: Array = doc["player_position"]

@@ -57,9 +57,17 @@ func stock_value() -> int:
 	return total
 
 ## Spec: speaking to the shopkeep makes every owned material in the yard
-## disappear and pays the equivalent in cash.
-func sell_all() -> Dictionary:
+## disappear and pays the equivalent in cash. `carried` is whatever the player
+## is holding as they ask, which goes over the counter without being put down.
+func sell_all(carried: Array[LooseItem] = []) -> Dictionary:
 	var items := stock()
+	for item in carried:
+		if not is_instance_valid(item) or items.has(item):
+			continue
+		var def := GameData.item(item.item_id)
+		if def != null and not def.sellable:
+			continue
+		items.append(item)
 	if items.is_empty():
 		last_receipt = "nothing of yours in the yard"
 		return {"count": 0, "total": 0, "bonus": 0}

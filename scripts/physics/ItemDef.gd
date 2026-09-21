@@ -16,6 +16,9 @@ extends Resource
 @export var value_per_m3: float = 22.0
 @export var fixed_value: int = 0             ## set for goods priced per piece
 @export var volatility: float = 0.25
+## Whether the yard will buy this. False for things that are containers for
+## something else, like an unopened crate of tools from the store.
+@export var sellable: bool = true
 @export var color: Color = Color(0.47, 0.32, 0.19)
 
 ## Defaults used when a spawn does not specify dimensions.
@@ -55,6 +58,7 @@ static func from_dict(d: Dictionary) -> ItemDef:
 	def.value_per_m3 = float(d.get("value_per_m3", 0.0))
 	def.fixed_value = int(d.get("value", 0))
 	def.volatility = float(d.get("volatility", 0.25))
+	def.sellable = bool(d.get("sellable", true))
 	var c: Array = d.get("color", [0.6, 0.6, 0.6])
 	def.color = Color(c[0], c[1], c[2])
 	if d.has("size"):

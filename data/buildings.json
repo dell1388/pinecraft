@@ -121,6 +121,62 @@
       ],
       "machine": "crusher",
       "unlock_cost": 400
+    },
+    {
+      "id": "schematic_block",
+      "display_name": "Plan: Block",
+      "size": [
+        1,
+        1,
+        1
+      ],
+      "cost": 10,
+      "kind": "schematic"
+    },
+    {
+      "id": "schematic_slab",
+      "display_name": "Plan: Slab",
+      "size": [
+        2,
+        1,
+        2
+      ],
+      "cost": 20,
+      "kind": "schematic"
+    },
+    {
+      "id": "schematic_wall",
+      "display_name": "Plan: Wall",
+      "size": [
+        3,
+        2,
+        1
+      ],
+      "cost": 30,
+      "kind": "schematic"
+    },
+    {
+      "id": "schematic_pillar",
+      "display_name": "Plan: Pillar",
+      "size": [
+        1,
+        3,
+        1
+      ],
+      "cost": 20,
+      "kind": "schematic"
+    },
+    {
+      "id": "vehicle_pad",
+      "display_name": "Hauler Pad",
+      "kind": "pad",
+      "cost": 200,
+      "size": [
+        4,
+        1,
+        6
+      ],
+      "unlock_cost": 5000
     }
   ],
   "_machines_note": "mill and smelt conserve volume: everything that goes in comes back out as pieces with the exit hole's cross-section and whatever length that volume needs.",

@@ -39,11 +39,14 @@ func _run_all() -> void:
 	await _test(&"workbench assembles from volumes", test_workbench)
 	await _test(&"machines reject items they cannot use", test_machine_rejects)
 	await _test(&"sell zone pays today's price", test_sell_zone)
+	await _test(&"the yard buys what the player owns in it", test_sell_yard)
+	await _test(&"orders pay out on delivery", test_quests)
 	await _test(&"storage bin stores and dispenses", test_storage)
 	await _test(&"conveyor feeds a machine directly", test_conveyor_to_machine)
 	await _test(&"splitter routes round-robin", test_splitter)
 	await _test(&"filter sorts items by type", test_filter)
 	await _test(&"building placement, cost and removal", test_building)
+	await _test(&"plans fill with material and turn solid", test_schematic)
 	await _test(&"save/load round-trip", test_save_load)
 	await _test(&"plot expansion raises bounds and cap", test_expansion)
 	await _test(&"tool upgrades apply and charge", test_upgrades)
@@ -51,6 +54,7 @@ func _run_all() -> void:
 	await _test(&"lift and drag limits are weight limits", test_handling_limits)
 	await _test(&"ownership is tracked and saved", test_ownership)
 	await _test(&"hauler drives, carries and stays upright", test_hauler)
+	await _test(&"a pad spawns one vehicle and replaces it", test_vehicle_pad)
 	await _test(&"kill plane rescues fallen items", test_kill_plane)
 	await _test(&"per-plot cap is enforced", test_cap)
 	await _test(&"full automated base stays in budget", test_full_base)
@@ -627,6 +631,109 @@ func test_sell_zone() -> void:
 	check_eq(Economy.money, price, "sell zone paid the wrong amount")
 	check_eq(manager.active_count(), 0, "sold item was not removed")
 
+## Spec: material left in the yard is bought when the player asks the shopkeep -
+## all of it, and only what the player actually owns.
+func test_sell_yard() -> void:
+	_setup()
+	var quests := QuestLog.new()
+	quests.setup(GameData.quest_pool(), GameData.quest_slots())
+	world.add_child(quests)
+	var yard := SellYard.new()
+	yard.setup(manager, quests)
+	yard.extents = Vector3(12.0, 4.0, 12.0)
+	yard.position = Vector3(0, 0, 40)
+	world.add_child(yard)
+	await step(4)
+	Economy.from_dict({"money": 0, "day": 3})
+
+	var dims := Solid.cylinder(0.2, 0.18, 1.2)
+	var mine_a := spawn(&"wood_pine", yard.position + Vector3(2, 1, 1), dims)
+	var mine_b := spawn(&"wood_pine", yard.position + Vector3(-2, 1, -1), dims)
+	mine_a.owned = true
+	mine_b.owned = true
+	# Somebody else's wood in the yard, and my wood outside it: neither sells.
+	var not_mine := spawn(&"wood_pine", yard.position + Vector3(1, 1, 3), dims)
+	var outside := spawn(&"wood_pine", yard.position + Vector3(0, 1, 40), dims)
+	outside.owned = true
+	await step(4)
+
+	check_eq(yard.stock().size(), 2, "the yard counted the wrong stock")
+	var expected := Economy.price_of(&"wood_pine", dims) * 2
+	check_eq(yard.stock_value(), expected, "the yard quoted the wrong price")
+
+	var receipt := yard.sell_all()
+	check_eq(int(receipt.count), 2, "the shopkeep bought the wrong number of pieces")
+	check_eq(int(receipt.total), expected, "the shopkeep paid the wrong amount")
+	check_eq(Economy.money, expected + int(receipt.bonus), "money does not match the receipt")
+	await step(4)
+	check(not is_instance_valid(not_mine) or not_mine.state != LooseItem.State.POOLED,
+		"the shopkeep bought wood that was not the player's")
+	check_eq(yard.stock().size(), 0, "stock remained in the yard after selling")
+	check(outside.state == LooseItem.State.FREE, "wood outside the yard was sold")
+
+	# Nothing left to sell is not an error, it is just nothing.
+	var empty := yard.sell_all()
+	check_eq(int(empty.count), 0, "the shopkeep bought something from an empty yard")
+
+## Spec: orders reward delivering a quantity of a named material.
+func test_quests() -> void:
+	_setup()
+	var quests := QuestLog.new()
+	quests.setup(GameData.quest_pool(), GameData.quest_slots())
+	world.add_child(quests)
+	await step(2)
+	check_eq(quests.active.size(), GameData.quest_slots(), "the log did not fill its slots")
+
+	# Aim at the pine order specifically, so the test does not depend on which
+	# orders happen to be drawn.
+	quests.active = [{
+		"id": &"test_order", "title": "Test order", "item": &"wood_pine",
+		"category": &"", "volume": 1.0, "delivered": 0.0, "reward": 500,
+	}]
+	Economy.from_dict({"money": 0, "day": 1})
+
+	# Material that does not match does not count.
+	check_eq(quests.deliver(&"wood_oak", &"wood", 5.0), 0, "an order paid for the wrong material")
+	check_near(float(quests.active[0].delivered), 0.0, 0.0001, "the wrong material advanced an order")
+
+	# A part delivery advances it without paying.
+	check_eq(quests.deliver(&"wood_pine", &"wood", 0.4), 0, "an order paid before it was filled")
+	check_near(float(quests.active[0].delivered), 0.4, 0.0001, "a part delivery was not credited")
+	check_eq(Economy.money, 0, "money moved on a part delivery")
+
+	# Finishing it pays out and draws a replacement.
+	var paid := quests.deliver(&"wood_pine", &"wood", 0.7)
+	check_eq(paid, 500, "a filled order paid $%d" % paid)
+	check_eq(Economy.money, 500, "the reward did not reach the player")
+	check_eq(quests.active.size(), GameData.quest_slots(), "the log did not refill after a payout")
+	for quest in quests.active:
+		check(quest.id != &"test_order", "the filled order is still running")
+
+	# Category orders take anything in the category.
+	quests.active = [{
+		"id": &"cat_order", "title": "Category order", "item": &"",
+		"category": &"lumber", "volume": 0.5, "delivered": 0.0, "reward": 300,
+	}]
+	check_eq(quests.deliver(&"lumber_oak", &"lumber", 0.6), 300,
+		"a category order did not take matching lumber")
+
+	# Progress survives a save.
+	quests.active = [{
+		"id": &"pine_order", "title": "Pine order", "item": &"wood_pine",
+		"category": &"", "volume": 4.0, "delivered": 1.75, "reward": 400,
+	}]
+	var path := "user://test_quests.json"
+	check(SaveSystem.save_game(plot, null, path, null, null, quests), "saving failed")
+	quests.active.clear()
+	check(SaveSystem.load_game(plot, null, path, null, Callable(), quests), "loading failed")
+	var found := false
+	for quest in quests.active:
+		if quest.id == &"pine_order":
+			found = true
+			check_near(float(quest.delivered), 1.75, 0.0001, "order progress did not survive a save")
+	check(found, "the running order was not restored")
+	SaveSystem.delete_save(path)
+
 func test_storage() -> void:
 	_setup()
 	var bin := StorageBin.new()
@@ -769,6 +876,62 @@ func test_building() -> void:
 	# Rotation must swap the footprint.
 	var rotated := Plot.rotated_footprint(Vector3i(3, 2, 4), 1)
 	check_eq(rotated, Vector3i(4, 2, 3), "rotating a footprint did not swap x/z")
+
+## Spec: a plan is filled by touching material to it, the first material fed to
+## it is the only one it will take, and it turns solid when it is full.
+func test_schematic() -> void:
+	_setup()
+	Economy.from_dict({"money": 50000, "day": 1})
+	var node := plot.place(GameData.building(&"schematic_slab"), Vector2i(0, 0), 0)
+	var plan := node as Schematic
+	check(plan != null, "the slab plan was not placed")
+	await step(4)
+
+	# A 2 x 1 x 2 plan holds four cubic metres and starts as a drawing.
+	check_near(plan.capacity_m3(), 4.0, 0.0001, "the plan wants the wrong volume")
+	check(not plan.solid, "an empty plan is already solid")
+	check_eq(plan.material, &"", "an empty plan already has a material")
+	check(plan.can_accept(&"lumber_pine"), "an empty plan refused lumber")
+	check(plan.can_accept(&"ingot_iron"), "an empty plan refused metal")
+
+	# The first piece in decides what it is made of.
+	var first := spawn(&"lumber_pine", Vector3(0, 6, 0), Solid.box(Vector3(0.5, 2.0, 0.5)))
+	check_near(first.volume(), 0.5, 0.0001, "test piece is the wrong size")
+	check(plan.accept_item(first), "the plan refused the first piece")
+	check_eq(plan.material, &"lumber_pine", "the plan did not take its material from the first piece")
+	check_near(plan.filled_m3, 0.5, 0.0001, "the plan filled by the wrong amount")
+	check(not plan.solid, "a plan one eighth full turned solid")
+
+	# And from then on it takes nothing else.
+	check(not plan.can_accept(&"lumber_oak"), "a pine plan accepted oak")
+	var wrong := spawn(&"lumber_oak", Vector3(0, 6, 0), Solid.box(Vector3(0.5, 2.0, 0.5)))
+	check(not plan.accept_item(wrong), "a pine plan swallowed oak")
+	check_near(plan.filled_m3, 0.5, 0.0001, "a refused piece still filled the plan")
+
+	# Fill it the rest of the way, with the last piece deliberately too big.
+	var second := spawn(&"lumber_pine", Vector3(0, 6, 0), Solid.box(Vector3(1.0, 3.0, 1.0)))
+	check(plan.accept_item(second), "the plan refused more of its own material")
+	check_near(plan.filled_m3, 3.5, 0.0001, "the plan did not take the whole piece")
+
+	var oversized := spawn(&"lumber_pine", Vector3(0, 6, 0), Solid.box(Vector3(1.0, 2.0, 1.0)))
+	var oversized_volume := oversized.volume()
+	check(oversized_volume > plan.remaining_m3(), "the oversized piece is not actually oversized")
+	check(plan.accept_item(oversized), "the plan refused the last piece")
+	await step(4)
+	check(plan.solid, "a full plan did not turn solid")
+	check_near(plan.filled_m3, 4.0, 0.0001, "a full plan holds the wrong volume")
+	# The offcut comes back rather than vanishing into the wall.
+	check_near(loose_volume(&"lumber_pine"), oversized_volume - 0.5, 0.0001,
+		"the offcut from the last piece was not returned")
+	check(not plan.can_accept(&"lumber_pine"), "a finished plan still takes material")
+
+	# Pulling it down gives the material back, not cash.
+	var before := loose_volume(&"lumber_pine")
+	var reclaimed := plan.reclaim()
+	await step(4)
+	check_near(reclaimed, 4.0, 0.0001, "reclaiming returned the wrong volume")
+	check_near(loose_volume(&"lumber_pine") - before, 4.0, 0.0001,
+		"the material did not come back out of the plan")
 
 func test_save_load() -> void:
 	_setup()
@@ -1091,6 +1254,50 @@ func test_hauler() -> void:
 	check(truck.can_accept(&"lumber_pine"), "hauler refuses items while it has room")
 	truck.cargo_capacity_m3 = 0.001
 	check(not truck.can_accept(&"lumber_pine"), "hauler accepts items when full")
+
+## Spec: a pad spawns one copy of its vehicle; triggering it again removes the
+## old one first.
+func test_vehicle_pad() -> void:
+	_setup()
+	Economy.from_dict({"money": 50000, "day": 1})
+	plot.vehicle_host = world
+	check(PlayerState.try_buy_vehicle(), "could not buy the hauler")
+	check(PlayerState.owns_vehicle(), "buying the hauler did not register")
+	var node := plot.place(GameData.building(&"vehicle_pad"), Vector2i(2, 2), 0)
+	var pad := node as VehiclePad
+	check(pad != null, "the pad was not placed")
+	await step(4)
+	check(not pad.has_vehicle(), "a fresh pad already has a truck on it")
+
+	var first := pad.spawn()
+	await step(10)
+	check(first != null, "the pad spawned nothing")
+	check(pad.has_vehicle(), "the pad does not know about the truck it spawned")
+	check(_haulers_in(world) == 1, "spawning made %d trucks" % _haulers_in(world))
+	if first != null:
+		check(first.global_position.distance_to(pad.global_position) < 4.0,
+			"the truck did not appear on its pad")
+		# Drive it away, so a respawn has something to clean up at a distance.
+		first.global_position = pad.global_position + Vector3(20, 1.4, 20)
+
+	var second := pad.spawn()
+	await step(10)
+	check(second != null, "the pad would not spawn a replacement")
+	check(second != first, "the pad handed back the same truck")
+	check(not is_instance_valid(first), "the old truck was left standing after a respawn")
+	check(_haulers_in(world) == 1, "after a respawn there are %d trucks" % _haulers_in(world))
+
+	check(pad.recall(), "recalling the truck did nothing")
+	await step(10)
+	check(not pad.has_vehicle(), "the pad still has a truck after a recall")
+	check(_haulers_in(world) == 0, "a recall left %d trucks behind" % _haulers_in(world))
+
+func _haulers_in(node: Node) -> int:
+	var n := 0
+	for child in node.get_children():
+		if child is Hauler and not child.is_queued_for_deletion():
+			n += 1
+	return n
 
 func test_kill_plane() -> void:
 	_setup()

@@ -159,7 +159,8 @@ func _shop_text() -> String:
 		plot.tier, plot.half_extent * 2.0,
 		"MAX" if expand_cost < 0 else "$%d" % expand_cost])
 	lines.append("  [6] buy hauler -> %s" % (
-		"owned" if PlayerState.owns_vehicle else "$%d" % int(GameData.vehicle_def.get("cost", 5000))))
+		"owned - place its pad in build mode" if PlayerState.owns_vehicle()
+		else "$%d" % PlayerState.vehicle_cost()))
 	lines.append("")
 	lines.append("Unlock buildings:")
 	var locked_keys := ["7", "8", "9", "0"]

@@ -14,6 +14,7 @@ var upgrade_tracks: Dictionary = {} ## StringName -> Array[Dictionary]
 var plot_expansions: Array = []
 var vehicle_def: Dictionary = {}
 var price_config: Dictionary = {}
+var quest_config: Dictionary = {}
 
 var load_errors: Array[String] = []
 
@@ -56,6 +57,7 @@ func load_all() -> void:
 	vehicle_def = u_data.get("vehicle", {})
 
 	price_config = _read("prices.json")
+	quest_config = _read("quests.json")
 	_validate()
 
 func _read(file_name: String) -> Dictionary:
@@ -92,6 +94,13 @@ func _validate() -> void:
 				load_errors.append("machine '%s' converts unknown item '%s'" % [m.id, input_id])
 			elif not items.has(m.conversion[input_id]):
 				load_errors.append("machine '%s' produces unknown item '%s'" % [m.id, m.conversion[input_id]])
+	for quest in quest_pool():
+		var q_item := StringName(quest.get("item", ""))
+		var q_cat := StringName(quest.get("category", ""))
+		if q_item != &"" and not items.has(q_item):
+			load_errors.append("quest '%s' wants unknown item '%s'" % [quest.get("id", "?"), q_item])
+		if q_item == &"" and not categories.has(q_cat):
+			load_errors.append("quest '%s' wants unknown category '%s'" % [quest.get("id", "?"), q_cat])
 	for b: BuildingDef in buildings.values():
 		if b.kind == &"machine" and not machines.has(b.machine):
 			load_errors.append("building '%s' references unknown machine '%s'" % [b.id, b.machine])
@@ -136,6 +145,12 @@ func machine_accepts(machine_id: StringName, item_id: StringName) -> bool:
 	if m.mode == MachineDef.MODE_ASSEMBLE:
 		return true
 	return m.output_for(item_id) != &""
+
+func quest_pool() -> Array:
+	return quest_config.get("quests", [])
+
+func quest_slots() -> int:
+	return int(quest_config.get("active_slots", 3))
 
 func upgrade_levels(track_id: StringName) -> Array:
 	var track: Dictionary = upgrade_tracks.get(track_id, {})

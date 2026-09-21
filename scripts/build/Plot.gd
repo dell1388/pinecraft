@@ -5,6 +5,7 @@ extends Node3D
 ## rules for placing, removing, saving and expanding them.
 
 signal buildings_changed(plot: Plot)
+signal vehicle_spawned(vehicle: Node3D)
 signal expanded(tier: int, half_extent: float)
 
 const CELL := 1.0
@@ -12,6 +13,9 @@ const CELL := 1.0
 @export var plot_id: int = 0
 
 var manager: LooseItemManager
+## Where a pad parents the vehicle it spawns. A truck cannot be a child of the
+## pad it came off, or it could never drive away from it.
+var vehicle_host: Node3D
 var tier: int = 0
 var half_extent: float = 22.0
 var placed: Array[Dictionary] = []      ## {def, cell, yaw, node}
@@ -192,6 +196,15 @@ func _instantiate(def: BuildingDef) -> Node3D:
 			var z := SellZone.new()
 			z.setup(manager, def)
 			return z
+		&"schematic":
+			var sc := Schematic.new()
+			sc.setup(manager, def, plot_id)
+			return sc
+		&"pad":
+			var pad := VehiclePad.new()
+			pad.setup(manager, def, plot_id, vehicle_host if vehicle_host != null else self)
+			pad.vehicle_spawned.connect(func(_p, v): vehicle_spawned.emit(v))
+			return pad
 	push_error("Plot: unknown building kind '%s'" % def.kind)
 	return null
 
@@ -201,6 +214,12 @@ func remove(node: Node3D) -> bool:
 		if placed[i].node != node:
 			continue
 		var def: BuildingDef = placed[i].def
+		var schematic := node as Schematic
+		if schematic != null:
+			schematic.reclaim()
+		var pad := node as VehiclePad
+		if pad != null:
+			pad.recall()
 		Economy.add_money(def.cost / 2)
 		placed.remove_at(i)
 		node.queue_free()
@@ -243,6 +262,14 @@ func find_sink_near(world_pos: Vector3, radius: float = 1.2) -> Object:
 			if node != null and node.has_method("accept_item"):
 				return node
 	return null
+
+func pads() -> Array[VehiclePad]:
+	var out: Array[VehiclePad] = []
+	for rec in placed:
+		var pad := rec.node as VehiclePad
+		if pad != null:
+			out.append(pad)
+	return out
 
 func machines() -> Array[Machine]:
 	var out: Array[Machine] = []

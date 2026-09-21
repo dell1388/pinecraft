@@ -18,7 +18,8 @@ var plot: Plot
 var player: Player
 var hud: GameHUD
 var build_system: BuildSystem
-var depot: SellZone
+var depot: SellYard
+var quests: QuestLog
 var hauler: Hauler
 ## One field per species, each keeping its own ring or patch stocked.
 var tree_fields: Array[ResourceField] = []
@@ -41,7 +42,14 @@ func _ready() -> void:
 	plot = Plot.new()
 	plot.name = "Plot"
 	plot.setup(manager, 0)
+	plot.vehicle_host = self
+	plot.vehicle_spawned.connect(_on_vehicle_spawned)
 	add_child(plot)
+
+	quests = QuestLog.new()
+	quests.name = "Quests"
+	quests.setup(GameData.quest_pool(), GameData.quest_slots())
+	add_child(quests)
 
 	_build_forest()
 	_build_quarry()
@@ -62,16 +70,14 @@ func _ready() -> void:
 	add_child(hud)
 
 	if SaveSystem.has_save():
-		if SaveSystem.load_game(plot, player, SaveSystem.SAVE_PATH, manager, _spawn_vehicle_for_load):
+		if SaveSystem.load_game(plot, player, SaveSystem.SAVE_PATH, manager, _spawn_vehicle_for_load, quests):
 			hud.log_message("save loaded")
 	else:
 		# A starting float, so the first sawmill is a few tree-loads away
 		# rather than an hour of hauling.
 		Economy.add_money(STARTING_MONEY)
-		hud.log_message("start: $%d. Fell trees, haul logs to the gold pad at z=%d." % [
+		hud.log_message("start: $%d. Fell trees, bring the wood to the yard at z=%d and ask the shopkeep." % [
 			STARTING_MONEY, int(DEPOT_POSITION.z)])
-	if PlayerState.owns_vehicle:
-		spawn_vehicle()
 	set_physics_process(true)
 
 # --- World construction ----------------------------------------------------
@@ -216,10 +222,13 @@ func _build_rock(kind: Dictionary, form_seed: int) -> Node3D:
 	rock.volume = rng.randf_range(kind.volume[0], kind.volume[1])
 	return rock
 
+## The buyer's yard: material left inside the fence is bought when the player
+## asks the shopkeep, not the moment it touches the ground.
 func _build_depot() -> void:
-	depot = SellZone.new()
-	depot.setup(manager)
-	depot.extents = Vector3(8.0, 2.5, 8.0)
+	depot = SellYard.new()
+	depot.name = "SellYard"
+	depot.setup(manager, quests)
+	depot.extents = Vector3(18.0, 4.0, 18.0)
 	depot.position = DEPOT_POSITION
 	add_child(depot)
 
@@ -252,8 +261,8 @@ func _make_player() -> Player:
 	p.add_child(cam)
 	return p
 
-## Handed to the save system so a loaded game gets its truck back before the
-## truck's own state is applied.
+## Handed to the save system so a game saved before pads existed still gets its
+## truck back.
 func _spawn_vehicle_for_load() -> Node3D:
 	spawn_vehicle()
 	return hauler
@@ -278,13 +287,23 @@ func rocks() -> Array[OreRock]:
 				out.append(rock)
 	return out
 
+## The truck comes off a pad now, so this only covers the case where the player
+## owns one and has no pad standing - a game saved before pads existed.
 func spawn_vehicle() -> void:
-	if hauler != null:
+	if hauler != null and is_instance_valid(hauler):
+		return
+	for pad in plot.pads():
+		hauler = pad.spawn() as Hauler
 		return
 	hauler = Hauler.new()
 	hauler.setup(manager, 0)
 	hauler.position = Vector3(10, 1.5, 16)
 	add_child(hauler)
+
+func _on_vehicle_spawned(vehicle: Node3D) -> void:
+	if player != null and player.driving():
+		player.exit_vehicle()
+	hauler = vehicle as Hauler
 
 # --- Runtime ---------------------------------------------------------------
 
@@ -299,7 +318,7 @@ func _physics_process(delta: float) -> void:
 	_autosave_timer -= delta
 	if _autosave_timer <= 0.0:
 		_autosave_timer = AUTOSAVE_SECONDS
-		SaveSystem.save_game(plot, player, SaveSystem.SAVE_PATH, manager, hauler)
+		SaveSystem.save_game(plot, player, SaveSystem.SAVE_PATH, manager, hauler, quests)
 
 func _unhandled_key_input(event: InputEvent) -> void:
 	var key := event as InputEventKey
@@ -308,10 +327,10 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	match key.keycode:
 		KEY_F5:
 			hud.log_message("saved" if SaveSystem.save_game(
-				plot, player, SaveSystem.SAVE_PATH, manager, hauler) else "save failed")
+				plot, player, SaveSystem.SAVE_PATH, manager, hauler, quests) else "save failed")
 		KEY_F9:
 			hud.log_message("loaded" if SaveSystem.load_game(
-				plot, player, SaveSystem.SAVE_PATH, manager, _spawn_vehicle_for_load) else "no save found")
+				plot, player, SaveSystem.SAVE_PATH, manager, _spawn_vehicle_for_load, quests) else "no save found")
 		KEY_F8:
 			_new_game()
 		KEY_V:

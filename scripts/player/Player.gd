@@ -200,6 +200,7 @@ func _owner_of(collider: Object) -> Node:
 	while node != null:
 		if node is ChoppableTree or node is OreRock or node is LooseItem \
 				or node is Machine or node is StorageBin or node is SellZone \
+				or node is SellYard or node is Schematic or node is VehiclePad \
 				or node is Conveyor or node is Filter or node is Splitter \
 				or node is Hauler:
 			return node
@@ -247,6 +248,13 @@ func _update_prompt() -> void:
 		last_prompt = "[E] deposit / [E+shift] empty   %s" % (target as StorageBin).summary()
 	elif target is SellZone:
 		last_prompt = "[E] sell carried items"
+	elif target is SellYard:
+		last_prompt = (target as SellYard).status_line()
+	elif target is VehiclePad:
+		last_prompt = (target as VehiclePad).status_line()
+	elif target is Schematic:
+		var plan := target as Schematic
+		last_prompt = ("%s" if plan.solid else "[E] add material   %s") % plan.status_line()
 	elif target is Filter:
 		last_prompt = "[E] change filter   %s" % (target as Filter).status_line()
 	elif target is Hauler:
@@ -470,6 +478,25 @@ func _interact() -> void:
 		else:
 			f.cycle_filter(1)
 		interacted.emit(f.status_line())
+		return
+	if target is VehiclePad:
+		var pad := target as VehiclePad
+		var had := pad.has_vehicle()
+		pad.spawn()
+		interacted.emit("hauler respawned" if had else "hauler delivered")
+		return
+	if target is SellYard:
+		var yard := target as SellYard
+		# Whatever is on the rack goes over the counter with the rest, so the
+		# player does not have to put it down first.
+		var carried := held.duplicate()
+		held.clear()
+		for item in carried:
+			item.owned = true
+			item.set_state(LooseItem.State.FREE)
+		carry_changed.emit(0, capacity_m3())
+		yard.sell_all(carried)
+		interacted.emit(yard.last_receipt)
 		return
 	if target is StorageBin and Input.is_action_pressed("sprint"):
 		var n := (target as StorageBin).dispense_all()
