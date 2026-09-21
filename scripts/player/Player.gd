@@ -60,10 +60,22 @@ func set_ui_blocking(blocking: bool) -> void:
 func capacity_m3() -> float:
 	return PlayerState.stat(&"carry", "capacity_m3", 0.18)
 
-## The largest single piece the rack will take. Anything bigger has to be
-## dragged, bucked smaller, or loaded onto the hauler.
-func max_piece_m3() -> float:
-	return PlayerState.track_value(&"carry", "max_piece_m3", 0.42)
+## The longest single piece the rack will take. Anything longer has to be
+## dragged, bucked shorter, or loaded onto the hauler - a 6 m pole does not go
+## on a shoulder at any weight.
+func max_piece_length() -> float:
+	return PlayerState.track_value(&"carry", "max_piece_m", 2.6)
+
+## What the player can pick up and carry. Bulk is one limit; weight is the
+## other, and a short length of ironwood hits the weight limit long before it
+## fills the rack.
+func lift_limit_kg() -> float:
+	return PlayerState.stat(&"carry", "lift_kg", 100.0)
+
+## What the player can shift without lifting it: the heavy drag, which is how
+## anything between the lift limit and a tonne gets moved by hand.
+func move_limit_kg() -> float:
+	return PlayerState.track_value(&"carry", "move_kg", 1000.0)
 
 func carried_volume() -> float:
 	var total := 0.0
@@ -213,10 +225,16 @@ func _update_prompt() -> void:
 		var i := target as LooseItem
 		var label := "%s  %.2f m  %.3f m3  %.0f kg" % [
 			GameData.item_name(i.item_id), i.length(), i.volume(), i.mass]
+		var verbs: Array[String] = []
 		if i.is_wood() and i.length() > MIN_BUCK_LENGTH:
-			last_prompt = "[LMB] buck   [RMB] pick up   [F] drag\n" + label
+			verbs.append("[LMB] buck")
+		if i.mass <= lift_limit_kg() and i.length() <= max_piece_length():
+			verbs.append("[RMB] pick up")
+		if i.mass <= move_limit_kg():
+			verbs.append("[F] drag")
 		else:
-			last_prompt = "[RMB] pick up   [F] drag\n" + label
+			verbs.append("too heavy to move")
+		last_prompt = "   ".join(verbs) + "\n" + label
 	elif target is Machine:
 		last_prompt = "[E] deposit   %s" % (target as Machine).status_line()
 	elif target is StorageBin:
@@ -290,14 +308,19 @@ func pick_up(item: LooseItem) -> bool:
 	if item == null or item.state != LooseItem.State.FREE:
 		return false
 	var volume := item.volume()
-	if volume > max_piece_m3():
-		interacted.emit("%s is too big to carry - buck it, drag it [F] or use the hauler" %
-			GameData.item_name(item.item_id))
+	if item.length() > max_piece_length():
+		interacted.emit("%.1f m is too long to shoulder (limit %.1f m) - buck it or drag it [F]" % [
+			item.length(), max_piece_length()])
+		return false
+	if item.mass > lift_limit_kg():
+		interacted.emit("%.0f kg is too heavy to lift (limit %.0f kg) - drag it [F]" % [
+			item.mass, lift_limit_kg()])
 		return false
 	if carried_volume() + volume > capacity_m3():
 		return false
 	if item == dragged:
 		dragged = null
+	item.owned = true
 	item.set_state(LooseItem.State.HELD)
 	held.append(item)
 	carry_changed.emit(held.size(), capacity_m3())
@@ -356,11 +379,21 @@ func _grab_drag() -> void:
 	var hit := aim_hit()
 	if hit.is_empty():
 		return
-	var item := _owner_of(hit.collider) as LooseItem
+	_grab_drag_item(_owner_of(hit.collider) as LooseItem)
+
+## Takes hold of one piece for the heavy drag. Refuses anything past the move
+## limit: that is what a winch or a crane is for.
+func _grab_drag_item(item: LooseItem) -> bool:
 	if item == null or item.state != LooseItem.State.FREE:
-		return
+		return false
+	if item.mass > move_limit_kg():
+		interacted.emit("%.0f kg will not budge (limit %.0f kg) - cut it down or winch it" % [
+			item.mass, move_limit_kg()])
+		return false
+	item.owned = true
 	dragged = item
 	item.set_state(LooseItem.State.CARRIED)
+	return true
 
 func _release_dragged() -> void:
 	if dragged == null:

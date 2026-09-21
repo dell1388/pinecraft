@@ -386,7 +386,7 @@ func _finish_job() -> void:
 		var xform := Transform3D(
 			LooseItem.lying_basis(origin.basis.get_euler().y),
 			origin.origin + Vector3(0, float(i) * 0.05, 0) + forward * float(i) * 0.12)
-		var spawned := manager.spawn(output_id, xform, plot_id, forward * 1.2, pieces[i])
+		var spawned := manager.spawn(output_id, xform, plot_id, forward * 1.2, pieces[i], true)
 		if spawned == null:
 			break
 		volume_out += spawned.volume()

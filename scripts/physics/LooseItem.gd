@@ -22,6 +22,10 @@ var dims: Dictionary = {}
 var plot_id: int = 0
 var state: State = State.FREE
 var spawn_index: int = 0
+## Whether this piece belongs to the player: picked up, bought, or made by a
+## machine on their plot. Owned pieces are what the yard buys and what a save
+## remembers; a trunk lying in the forest is neither.
+var owned: bool = false
 var ccd_active: bool = false
 var quiet_time: float = 0.0
 var cut_progress: float = 0.0     ## axe work done on this piece since the last cut
@@ -48,6 +52,7 @@ func configure(def: ItemDef, p_dims: Dictionary = {}) -> void:
 	dims = p_dims if not p_dims.is_empty() else def.default_dims()
 	mass = def.mass_of(dims)
 	cut_progress = 0.0
+	owned = false
 	clear_extras()
 	# Round stock rolls; a little extra spin damping stops a felled trunk
 	# rolling across the plot forever without making it feel glued down.

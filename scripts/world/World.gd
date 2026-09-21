@@ -59,7 +59,7 @@ func _ready() -> void:
 	add_child(hud)
 
 	if SaveSystem.has_save():
-		if SaveSystem.load_game(plot, player):
+		if SaveSystem.load_game(plot, player, SaveSystem.SAVE_PATH, manager, _spawn_vehicle_for_load):
 			hud.log_message("save loaded")
 	else:
 		# A starting float, so the first sawmill is a few tree-loads away
@@ -220,6 +220,12 @@ func _make_player() -> Player:
 	p.add_child(cam)
 	return p
 
+## Handed to the save system so a loaded game gets its truck back before the
+## truck's own state is applied.
+func _spawn_vehicle_for_load() -> Node3D:
+	spawn_vehicle()
+	return hauler
+
 func spawn_vehicle() -> void:
 	if hauler != null:
 		return
@@ -241,7 +247,7 @@ func _physics_process(delta: float) -> void:
 	_autosave_timer -= delta
 	if _autosave_timer <= 0.0:
 		_autosave_timer = AUTOSAVE_SECONDS
-		SaveSystem.save_game(plot, player)
+		SaveSystem.save_game(plot, player, SaveSystem.SAVE_PATH, manager, hauler)
 
 func _unhandled_key_input(event: InputEvent) -> void:
 	var key := event as InputEventKey
@@ -249,9 +255,11 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		return
 	match key.keycode:
 		KEY_F5:
-			hud.log_message("saved" if SaveSystem.save_game(plot, player) else "save failed")
+			hud.log_message("saved" if SaveSystem.save_game(
+				plot, player, SaveSystem.SAVE_PATH, manager, hauler) else "save failed")
 		KEY_F9:
-			hud.log_message("loaded" if SaveSystem.load_game(plot, player) else "no save found")
+			hud.log_message("loaded" if SaveSystem.load_game(
+				plot, player, SaveSystem.SAVE_PATH, manager, _spawn_vehicle_for_load) else "no save found")
 		KEY_F8:
 			_new_game()
 		KEY_V:

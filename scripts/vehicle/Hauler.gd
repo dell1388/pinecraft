@@ -279,7 +279,7 @@ func unload(behind: bool = true) -> int:
 			randf_range(-0.6, 0.6), 1.2 + float(i) * 0.22, randf_range(-0.6, 0.6))
 		if manager != null:
 			manager.spawn(cargo_items[i].id, Transform3D(LooseItem.lying_basis(yaw), pos),
-				plot_id, Vector3.ZERO, cargo_items[i].dims)
+				plot_id, Vector3.ZERO, cargo_items[i].dims, true)
 	cargo_items.clear()
 	_clear_props()
 	cargo_changed.emit(0, cargo_capacity_m3)
@@ -293,7 +293,8 @@ func unload_one() -> bool:
 	var dir := global_transform.basis.z
 	if manager != null:
 		manager.spawn(entry.id, Transform3D(LooseItem.lying_basis(global_rotation.y),
-			global_position + dir * 3.4 + Vector3(0, 1.2, 0)), plot_id, Vector3.ZERO, entry.dims)
+			global_position + dir * 3.4 + Vector3(0, 1.2, 0)), plot_id, Vector3.ZERO,
+			entry.dims, true)
 	_rebuild_props()
 	cargo_changed.emit(cargo_items.size(), cargo_capacity_m3)
 	return true

@@ -44,6 +44,8 @@ func _run_all() -> void:
 	await _test(&"plot expansion raises bounds and cap", test_expansion)
 	await _test(&"tool upgrades apply and charge", test_upgrades)
 	await _test(&"carry rack limits and deposits", test_carry)
+	await _test(&"lift and drag limits are weight limits", test_handling_limits)
+	await _test(&"ownership is tracked and saved", test_ownership)
 	await _test(&"hauler drives, carries and stays upright", test_hauler)
 	await _test(&"kill plane rescues fallen items", test_kill_plane)
 	await _test(&"per-plot cap is enforced", test_cap)
@@ -671,7 +673,7 @@ func test_carry() -> void:
 	PlayerState.levels[&"carry"] = 5
 	var trunk := spawn(&"wood_pine", Vector3(4, 1, 1), Solid.cylinder(0.34, 0.2, 6.0))
 	check(not player.pick_up(trunk), "the rack accepted a 6 m trunk")
-	check(trunk.volume() > player.max_piece_m3(), "test trunk is not actually oversized")
+	check(trunk.length() > player.max_piece_length(), "test trunk is not actually oversized")
 
 	var moved := player.deposit_into(mill)
 	check_eq(moved, 2, "depositing into the sawmill moved %d pieces" % moved)
@@ -683,6 +685,113 @@ func test_carry() -> void:
 	player._drop(1)
 	await step(10)
 	check_eq(third.state, LooseItem.State.FREE, "dropped item is not free again")
+
+## Spec: the player lifts up to 100 kg and moves up to 1000 kg. Both limits are
+## about weight, so the same shape in a denser wood stops being liftable.
+func test_handling_limits() -> void:
+	_setup()
+	var player := _make_player()
+	world.add_child(player)
+	await step(4)
+	check_near(player.lift_limit_kg(), 100.0, 0.001, "starting lift limit is not 100 kg")
+	check_near(player.move_limit_kg(), 1000.0, 0.001, "drag limit is not 1000 kg")
+
+	# One rack level for the rest, with bulk and length kept inside their own
+	# limits so weight is the only thing that can refuse a piece.
+	PlayerState.levels[&"carry"] = 4
+	var lift := player.lift_limit_kg()
+	check_near(lift, 420.0, 0.001, "level 4 lift limit is wrong")
+
+	# Pine at 150 kg/m3: 1.39 m3 is 208 kg, inside every limit.
+	var light := spawn(&"wood_pine", Vector3(1, 1, 0), Solid.cylinder(0.42, 0.42, 2.5))
+	check(light.mass < lift, "light test piece is %.0f kg, expected under %.0f" % [light.mass, lift])
+	check(light.volume() < player.capacity_m3(), "light test piece does not fit the rack by bulk")
+	check(light.length() < player.max_piece_length(), "light test piece is too long for the rack")
+	check(player.pick_up(light), "a %.0f kg piece would not go on the rack" % light.mass)
+	player._drop(1)
+	await step(4)
+
+	# Ironwood at 320 kg/m3: the same shape is 443 kg - over the lift limit,
+	# well under the drag limit, so it has to be dragged rather than carried.
+	var heavy := spawn(&"wood_ironwood", Vector3(3, 1, 0), Solid.cylinder(0.42, 0.42, 2.5))
+	check(heavy.mass > lift and heavy.mass < 1000.0,
+		"heavy test piece is %.0f kg, expected between %.0f and 1000" % [heavy.mass, lift])
+	check(heavy.length() <= player.max_piece_length(), "heavy test piece is refused on length")
+	check(heavy.volume() <= player.capacity_m3(), "heavy test piece is refused on bulk")
+	check(not player.pick_up(heavy), "the rack lifted %.0f kg past a %.0f kg limit" % [heavy.mass, lift])
+	player.dragged = null
+	player._grab_drag_item(heavy)
+	check_eq(heavy.state, LooseItem.State.CARRIED, "a draggable piece was refused")
+	check(heavy.owned, "dragging a piece did not make it the player's")
+	player._release_dragged()
+	await step(2)
+
+	# A full ironwood trunk is past a tonne: neither lifted nor dragged.
+	var trunk := spawn(&"wood_ironwood", Vector3(6, 1, 0), Solid.cylinder(0.58, 0.42, 10.0))
+	check(trunk.mass > 1000.0, "test trunk is %.0f kg, expected over 1000" % trunk.mass)
+	check(not player.pick_up(trunk), "the rack lifted a %.0f kg trunk" % trunk.mass)
+	player._grab_drag_item(trunk)
+	check(player.dragged == null, "a %.0f kg trunk was dragged past a 1000 kg limit" % trunk.mass)
+
+## Spec: an object is owned once the player picks it up or buys it, and owned
+## objects on the property are saved with the game.
+func test_ownership() -> void:
+	_setup()
+	var player := _make_player()
+	world.add_child(player)
+	await step(4)
+	PlayerState.levels[&"carry"] = 4
+
+	var small := Solid.cylinder(0.20, 0.18, 1.2)
+	var wild := spawn(&"wood_pine", Vector3(1, 1, 1), small)
+	check(not wild.owned, "a freshly spawned piece is already owned")
+	check(player.pick_up(wild), "could not pick the test piece up")
+	check(wild.owned, "picking a piece up did not make it the player's")
+	player._drop(1)
+	await step(6)
+	check(wild.owned, "putting a piece down gave it away again")
+
+	# Cutting your own wood leaves you owning both halves.
+	var halves := manager.split_item(wild, 0.5)
+	check_eq(halves.size(), 2, "split did not produce two pieces")
+	for half in halves:
+		check(half.owned, "a cut half was not owned")
+
+	# A machine on your plot makes your material.
+	var mill := Machine.new()
+	mill.setup(manager, GameData.building(&"sawmill"), 0)
+	mill.position = Vector3(0, 0, -12)
+	world.add_child(mill)
+	await step(4)
+	mill.accept_item(spawn(&"wood_pine", Vector3(0, 1, -12), Solid.cylinder(0.2, 0.2, 1.0)))
+	for i in 240:
+		await step(1)
+		if mill.total_produced > 0:
+			break
+	check(mill.total_produced > 0, "sawmill produced nothing")
+	var milled := 0
+	for item in manager.free_items():
+		if item.item_id == &"lumber_pine":
+			milled += 1
+			check(item.owned, "lumber milled on the player's plot was not owned")
+	check(milled > 0, "no lumber came out of the mill")
+
+	# Owned material on the plot survives a save round-trip; wild material does not.
+	var owned_before := manager.owned_items(plot.global_position, plot.half_extent * 1.4142).size()
+	check(owned_before > 0, "nothing owned on the plot to save")
+	var stray := spawn(&"wood_oak", Vector3(2, 1, 4), small)
+	check(not stray.owned, "stray test piece should not be owned")
+	var path := "user://test_owned.json"
+	check(SaveSystem.save_game(plot, null, path, manager), "saving failed")
+	check(SaveSystem.load_game(plot, null, path, manager), "loading failed")
+	await step(4)
+	var owned_after := manager.owned_items(plot.global_position, plot.half_extent * 1.4142).size()
+	check_eq(owned_after, owned_before, "owned item count changed over a save round-trip")
+	var doc: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+	check(typeof(doc) == TYPE_DICTIONARY and doc.has("loose"), "save has no loose-item section")
+	if typeof(doc) == TYPE_DICTIONARY:
+		check_eq((doc["loose"] as Array).size(), owned_before, "wrong number of pieces written")
+	SaveSystem.delete_save(path)
 
 func test_hauler() -> void:
 	_setup(false)

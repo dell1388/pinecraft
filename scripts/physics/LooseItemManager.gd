@@ -56,6 +56,18 @@ func free_items() -> Array[LooseItem]:
 			out.append(item)
 	return out
 
+## Every loose piece the player owns, optionally only those within `radius` of
+## a point. Used by the save file and by the sell yard.
+func owned_items(centre: Vector3 = Vector3.ZERO, radius: float = -1.0) -> Array[LooseItem]:
+	var out: Array[LooseItem] = []
+	for item in _active:
+		if not item.owned or item.state == LooseItem.State.POOLED:
+			continue
+		if radius >= 0.0 and item.global_position.distance_to(centre) > radius:
+			continue
+		out.append(item)
+	return out
+
 func awake_count() -> int:
 	var n := 0
 	for item in _active:
@@ -67,7 +79,8 @@ func awake_count() -> int:
 
 ## `dims` overrides the item's default size (a felled trunk, a long board).
 func spawn(item_id: StringName, xform: Transform3D, plot_id: int = 0,
-		impulse: Vector3 = Vector3.ZERO, dims: Dictionary = {}) -> LooseItem:
+		impulse: Vector3 = Vector3.ZERO, dims: Dictionary = {},
+		owned: bool = false) -> LooseItem:
 	var def: ItemDef = GameData.item(item_id)
 	if def == null:
 		push_error("LooseItemManager: unknown item '%s'" % item_id)
@@ -88,6 +101,7 @@ func spawn(item_id: StringName, xform: Transform3D, plot_id: int = 0,
 
 	var item: LooseItem = _acquire()
 	item.configure(def, dims)
+	item.owned = owned
 	item.plot_id = plot_id
 	item.spawn_index = _spawn_counter
 	_spawn_counter += 1
@@ -129,6 +143,7 @@ func split_item(item: LooseItem, t: float = 0.5) -> Array[LooseItem]:
 	var length := Solid.length_of(item.dims)
 	var plot := item.plot_id
 	var id := item.item_id
+	var owned := item.owned
 	var velocity := item.linear_velocity
 	despawn(item)
 	var offsets := [
@@ -137,7 +152,7 @@ func split_item(item: LooseItem, t: float = 0.5) -> Array[LooseItem]:
 	]
 	for i in 2:
 		var piece := spawn(id, Transform3D(xform.basis, xform.origin + offsets[i]), plot,
-			Vector3.ZERO, halves[i])
+			Vector3.ZERO, halves[i], owned)
 		if piece == null:
 			continue
 		piece.linear_velocity = velocity + (offsets[i].normalized() * 0.6)

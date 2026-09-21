@@ -89,7 +89,7 @@ func can_accept(_item_id: StringName) -> bool:
 func accept_item(item: LooseItem) -> bool:
 	if not can_accept(item.item_id):
 		return false
-	contents.append({"id": item.item_id, "dims": item.dims.duplicate()})
+	contents.append({"id": item.item_id, "dims": item.dims.duplicate(), "owned": item.owned})
 	manager.despawn(item)
 	contents_changed.emit(self)
 	return true
@@ -131,7 +131,8 @@ func _physics_process(delta: float) -> void:
 	var entry: Dictionary = _dispensing.pop_front()
 	var origin := _output_point.global_transform
 	manager.spawn(entry.id, Transform3D(LooseItem.lying_basis(origin.basis.get_euler().y),
-		origin.origin), plot_id, -global_transform.basis.z * 1.5, entry.dims)
+		origin.origin), plot_id, -global_transform.basis.z * 1.5, entry.dims,
+		bool(entry.get("owned", false)))
 
 func summary() -> String:
 	if contents.is_empty():
@@ -147,11 +148,14 @@ func summary() -> String:
 func to_dict() -> Dictionary:
 	var out: Array = []
 	for entry in contents:
-		out.append({"id": String(entry.id), "dims": Solid.to_dict(entry.dims)})
+		out.append({"id": String(entry.id), "dims": Solid.to_dict(entry.dims),
+			"owned": bool(entry.get("owned", false))})
 	return {"contents": out}
 
 func from_dict(d: Dictionary) -> void:
 	contents.clear()
 	for entry in d.get("contents", []):
-		contents.append({"id": StringName(entry.get("id", "")), "dims": Solid.from_dict(entry.get("dims", {}))})
+		contents.append({"id": StringName(entry.get("id", "")),
+			"dims": Solid.from_dict(entry.get("dims", {})),
+			"owned": bool(entry.get("owned", false))})
 	contents_changed.emit(self)

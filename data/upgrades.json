@@ -83,34 +83,40 @@
           "level": 1,
           "cost": 0,
           "label": "Bare Hands",
-          "capacity_m3": 0.18
+          "capacity_m3": 0.18,
+          "lift_kg": 100.0
         },
         {
           "level": 2,
           "cost": 120,
           "label": "Shoulder Strap",
-          "capacity_m3": 0.45
+          "capacity_m3": 0.45,
+          "lift_kg": 160.0
         },
         {
           "level": 3,
           "cost": 650,
           "label": "Hauling Frame",
-          "capacity_m3": 0.95
+          "capacity_m3": 0.95,
+          "lift_kg": 260.0
         },
         {
           "level": 4,
           "cost": 2600,
           "label": "Log Harness",
-          "capacity_m3": 1.8
+          "capacity_m3": 1.8,
+          "lift_kg": 420.0
         },
         {
           "level": 5,
           "cost": 11000,
           "label": "Cargo Exo-Rig",
-          "capacity_m3": 3.2
+          "capacity_m3": 3.2,
+          "lift_kg": 700.0
         }
       ],
-      "max_piece_m3": 0.42
+      "move_kg": 1000.0,
+      "max_piece_m": 2.6
     },
     {
       "id": "boots",
@@ -143,6 +149,40 @@
           "walk": 8.5,
           "sprint": 16.0,
           "label": "Turbo Treads"
+        }
+      ]
+    },
+    {
+      "id": "hammer",
+      "display_name": "Hammer",
+      "levels": [
+        {
+          "level": 1,
+          "cost": 0,
+          "head_kg": 3.0,
+          "cooldown": 0.55,
+          "label": "Club Hammer"
+        },
+        {
+          "level": 2,
+          "cost": 500,
+          "head_kg": 6.0,
+          "cooldown": 0.5,
+          "label": "Sledge"
+        },
+        {
+          "level": 3,
+          "cost": 2400,
+          "head_kg": 11.0,
+          "cooldown": 0.44,
+          "label": "Splitting Maul"
+        },
+        {
+          "level": 4,
+          "cost": 11000,
+          "head_kg": 20.0,
+          "cooldown": 0.38,
+          "label": "Drop Hammer"
         }
       ]
     }
