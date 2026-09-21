@@ -151,6 +151,128 @@
           "label": "Turbo Treads"
         }
       ]
+    },
+    {
+      "id": "sawmill",
+      "display_name": "Sawmill",
+      "levels": [
+        {
+          "level": 1,
+          "cost": 0,
+          "hole_scale": 1.0,
+          "rate_scale": 1.0,
+          "label": "Bench Saw"
+        },
+        {
+          "level": 2,
+          "cost": 900,
+          "hole_scale": 1.45,
+          "rate_scale": 1.35,
+          "label": "Breakdown Saw"
+        },
+        {
+          "level": 3,
+          "cost": 4200,
+          "hole_scale": 2.05,
+          "rate_scale": 1.8,
+          "label": "Head Rig"
+        },
+        {
+          "level": 4,
+          "cost": 16000,
+          "hole_scale": 2.8,
+          "rate_scale": 2.4,
+          "label": "Gang Mill"
+        }
+      ]
+    },
+    {
+      "id": "furnace",
+      "display_name": "Furnace",
+      "levels": [
+        {
+          "level": 1,
+          "cost": 0,
+          "hole_scale": 1.0,
+          "rate_scale": 1.0,
+          "label": "Bloomery"
+        },
+        {
+          "level": 2,
+          "cost": 1400,
+          "hole_scale": 1.4,
+          "rate_scale": 1.45,
+          "label": "Cupola"
+        },
+        {
+          "level": 3,
+          "cost": 6000,
+          "hole_scale": 1.9,
+          "rate_scale": 2.1,
+          "label": "Blast Furnace"
+        },
+        {
+          "level": 4,
+          "cost": 24000,
+          "hole_scale": 2.5,
+          "rate_scale": 3.0,
+          "label": "Arc Furnace"
+        }
+      ]
+    },
+    {
+      "id": "crusher",
+      "display_name": "Crusher",
+      "levels": [
+        {
+          "level": 1,
+          "cost": 0,
+          "hole_scale": 1.0,
+          "rate_scale": 1.0,
+          "label": "Jaw Crusher"
+        },
+        {
+          "level": 2,
+          "cost": 1100,
+          "hole_scale": 1.4,
+          "rate_scale": 1.5,
+          "label": "Cone Crusher"
+        },
+        {
+          "level": 3,
+          "cost": 5200,
+          "hole_scale": 1.95,
+          "rate_scale": 2.2,
+          "label": "Impact Mill"
+        }
+      ]
+    },
+    {
+      "id": "workbench",
+      "display_name": "Workbench",
+      "levels": [
+        {
+          "level": 1,
+          "cost": 0,
+          "hole_scale": 1.0,
+          "rate_scale": 1.0,
+          "label": "Hand Bench"
+        },
+        {
+          "level": 2,
+          "cost": 3000,
+          "hole_scale": 1.45,
+          "rate_scale": 1.4,
+          "label": "Power Bench"
+        },
+        {
+          "level": 3,
+          "cost": 12000,
+          "hole_scale": 2.0,
+          "rate_scale": 1.9,
+          "label": "Assembly Line"
+        }
+      ]
     }
   ],
   "plot_expansions": [

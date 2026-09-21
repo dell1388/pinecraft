@@ -4,9 +4,10 @@ extends Node3D
 ## The game scene: terrain, forest, quarry, the player's plot, the sell depot,
 ## the player and the HUD, plus save/load and vehicle handling.
 
-const MAP_HALF := 110.0
-const DEPOT_POSITION := Vector3(0, 0, 54)
-const STORE_POSITION := Vector3(-34, 0, 48)
+const MAP_HALF := 300.0
+const DEPOT_POSITION := Vector3(0, 0, 70)
+const STORE_POSITION := Vector3(-52, 0, 62)
+const QUARRY_CENTRE := Vector3(-150, 0, -40)
 const AUTOSAVE_SECONDS := 60.0
 const STARTING_MONEY := 250
 
@@ -22,6 +23,7 @@ var build_system: BuildSystem
 var depot: SellYard
 var quests: QuestLog
 var store: Store
+var terrain: Terrain
 var hauler: Hauler
 ## One field per species, each keeping its own ring or patch stocked.
 var tree_fields: Array[ResourceField] = []
@@ -45,6 +47,7 @@ func _ready() -> void:
 	plot.name = "Plot"
 	plot.setup(manager, 0)
 	plot.vehicle_host = self
+	plot.terrain = terrain
 	plot.vehicle_spawned.connect(_on_vehicle_spawned)
 	add_child(plot)
 
@@ -104,47 +107,59 @@ func _build_environment() -> void:
 	env_node.environment = env
 	add_child(env_node)
 
+## Spec: a large, simple, polygonal map with several biomes, rivers to ford or
+## bridge, and roads that are quicker to drive. The build sites are levelled out
+## of it first, so a factory floor is never on a slope.
 func _build_terrain() -> void:
-	var ground := StaticBody3D.new()
-	ground.name = "Terrain"
-	ground.collision_layer = Layers.WORLD
-	ground.collision_mask = 0
-	var pm := PhysicsMaterial.new()
-	pm.friction = 0.85
-	ground.physics_material_override = pm
+	terrain = Terrain.new()
+	terrain.name = "Terrain"
+	terrain.half_extent = MAP_HALF
+	terrain.noise_seed = 20260921
 
-	var cs := CollisionShape3D.new()
-	var box := BoxShape3D.new()
-	box.size = Vector3(MAP_HALF * 2.0, 2.0, MAP_HALF * 2.0)
-	cs.shape = box
-	# Terrain top sits 5 cm below the plot slab, so the plot reads as a pad and
-	# the two floors never fight over the same contact plane.
-	cs.position = Vector3(0, -1.05, 0)
-	ground.add_child(cs)
+	# Two rivers off the high ground, each with a couple of places shallow
+	# enough to drive through. Everywhere else wants a bridge.
+	terrain.rivers = [
+		{"width": 10.0, "depth": 3.4, "fords": [{"at": 120.0, "width": 26.0},
+			{"at": 300.0, "width": 22.0}],
+			"path": [Vector3(-260, 0, -250), Vector3(-170, 0, -160), Vector3(-110, 0, -95),
+				Vector3(-82, 0, -20), Vector3(-96, 0, 60), Vector3(-60, 0, 150),
+				Vector3(10, 0, 285)]},
+		{"width": 8.0, "depth": 2.8, "fords": [{"at": 90.0, "width": 24.0}],
+			"path": [Vector3(280, 0, -180), Vector3(170, 0, -120), Vector3(80, 0, -95),
+				Vector3(-40, 0, -110), Vector3(-180, 0, -170)]},
+	]
+	# Roads joining the places worth driving between.
+	terrain.roads = [
+		[Vector3(0, 0, 0), Vector3(0, 0, 30), DEPOT_POSITION,
+			Vector3(-20, 0, 66), STORE_POSITION],
+		[Vector3(0, 0, 0), Vector3(-40, 0, -14), Vector3(-90, 0, -28), QUARRY_CENTRE],
+		[Vector3(0, 0, 0), Vector3(40, 0, -20), Vector3(110, 0, -40), Vector3(190, 0, -30)],
+	]
+	# Everything that has to stand on the level.
+	terrain.reserve_site(Vector3.ZERO, 56.0)
+	terrain.reserve_site(DEPOT_POSITION, 16.0)
+	terrain.reserve_site(STORE_POSITION, 14.0)
+	terrain.reserve_site(QUARRY_CENTRE, 34.0)
+	add_child(terrain)
 
-	var mesh := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = box.size
-	mesh.mesh = bm
-	mesh.position = cs.position
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.20, 0.28, 0.16)
-	mesh.material_override = mat
-	ground.add_child(mesh)
-
+	# A wall at the map edge, so nothing drives off the world.
+	var bounds := StaticBody3D.new()
+	bounds.name = "MapEdge"
+	bounds.collision_layer = Layers.WORLD
+	bounds.collision_mask = 0
 	for spec in [
-		[Vector3(0, 3.0, -MAP_HALF), Vector3(MAP_HALF * 2.0, 8.0, 2.0)],
-		[Vector3(0, 3.0, MAP_HALF), Vector3(MAP_HALF * 2.0, 8.0, 2.0)],
-		[Vector3(-MAP_HALF, 3.0, 0), Vector3(2.0, 8.0, MAP_HALF * 2.0)],
-		[Vector3(MAP_HALF, 3.0, 0), Vector3(2.0, 8.0, MAP_HALF * 2.0)],
+		[Vector3(0, 20.0, -MAP_HALF), Vector3(MAP_HALF * 2.0, 80.0, 2.0)],
+		[Vector3(0, 20.0, MAP_HALF), Vector3(MAP_HALF * 2.0, 80.0, 2.0)],
+		[Vector3(-MAP_HALF, 20.0, 0), Vector3(2.0, 80.0, MAP_HALF * 2.0)],
+		[Vector3(MAP_HALF, 20.0, 0), Vector3(2.0, 80.0, MAP_HALF * 2.0)],
 	]:
-		var wcs := CollisionShape3D.new()
-		var wb := BoxShape3D.new()
-		wb.size = spec[1]
-		wcs.shape = wb
-		wcs.position = spec[0]
-		ground.add_child(wcs)
-	add_child(ground)
+		var cs := CollisionShape3D.new()
+		var box := BoxShape3D.new()
+		box.size = spec[1]
+		cs.shape = box
+		cs.position = spec[0]
+		bounds.add_child(cs)
+	add_child(bounds)
 
 ## The forest is not a fixed list of trees: each species has a field that keeps
 ## its own ring stocked up to a quota and stops there. Fell one and the field
@@ -154,11 +169,11 @@ func _build_forest() -> void:
 	var species := [
 		# Kept outside the largest plot tier so an expanded plot never swallows
 		# the forest or leaves trees standing inside a factory.
-		{"item": &"wood_pine", "ring": [52.0, 68.0], "work": 620.0,
+		{"item": &"wood_pine", "ring": [62.0, 110.0], "work": 620.0,
 			"radius": [0.30, 0.40], "height": [6.0, 8.5], "taper": 0.60, "branches": [4, 6]},
-		{"item": &"wood_oak", "ring": [64.0, 84.0], "work": 1000.0,
+		{"item": &"wood_oak", "ring": [100.0, 180.0], "work": 1000.0,
 			"radius": [0.38, 0.50], "height": [6.5, 9.0], "taper": 0.66, "branches": [5, 7]},
-		{"item": &"wood_ironwood", "ring": [80.0, 104.0], "work": 1900.0,
+		{"item": &"wood_ironwood", "ring": [160.0, 280.0], "work": 1900.0,
 			"radius": [0.44, 0.58], "height": [7.0, 10.0], "taper": 0.72, "branches": [6, 8]},
 	]
 	var per_species: int = maxi(1, tree_count / species.size())
@@ -170,10 +185,22 @@ func _build_forest() -> void:
 		field.min_spacing = 4.2
 		field.refill_seconds = 6.0
 		field.setup([kind], _build_tree,
-			ResourceField.annulus(kind.ring[0], kind.ring[1]), _rng.randi())
+			_on_ground(ResourceField.annulus(kind.ring[0], kind.ring[1])), _rng.randi())
 		add_child(field)
 		field.prefill()
 		tree_fields.append(field)
+
+## Wraps a flat-plane sampler so what it returns sits on the actual ground, and
+## not in a river or on a road.
+func _on_ground(sampler: Callable) -> Callable:
+	return func(rng: RandomNumberGenerator) -> Vector3:
+		var flat: Vector3 = sampler.call(rng)
+		if terrain == null:
+			return flat
+		if terrain.water_depth(flat.x, flat.z) > 0.0 or terrain.is_road(flat.x, flat.z):
+			# Nudged rather than rejected, so a field near a river still fills.
+			flat += Vector3(rng.randf_range(-18.0, 18.0), 0.0, rng.randf_range(-18.0, 18.0))
+		return terrain.place(flat)
 
 func _build_tree(kind: Dictionary, form_seed: int) -> Node3D:
 	var rng := RandomNumberGenerator.new()
@@ -209,7 +236,7 @@ func _build_quarry() -> void:
 		field.refill_seconds = 8.0
 		# Its own corner of the map, so mining is a trip.
 		field.setup([kind], _build_rock,
-			ResourceField.rect(Vector3(-78.0, 0, 0), Vector2(22.0, 34.0)), _rng.randi())
+			_on_ground(ResourceField.rect(QUARRY_CENTRE, Vector2(26.0, 30.0))), _rng.randi())
 		add_child(field)
 		field.prefill()
 		rock_fields.append(field)
@@ -233,14 +260,14 @@ func _build_depot() -> void:
 	depot.name = "SellYard"
 	depot.setup(manager, quests)
 	depot.extents = Vector3(18.0, 4.0, 18.0)
-	depot.position = DEPOT_POSITION
+	depot.position = terrain.place(DEPOT_POSITION)
 	add_child(depot)
 
 	var sign_mesh := MeshInstance3D.new()
 	var bm := BoxMesh.new()
 	bm.size = Vector3(8.0, 0.4, 0.4)
 	sign_mesh.mesh = bm
-	sign_mesh.position = DEPOT_POSITION + Vector3(0, 3.2, 0)
+	sign_mesh.position = terrain.place(DEPOT_POSITION, 3.2)
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = Color(0.9, 0.78, 0.2)
 	sign_mesh.material_override = mat
@@ -252,7 +279,7 @@ func _build_store() -> void:
 	store = Store.new()
 	store.name = "Store"
 	store.setup(manager, plot, 0)
-	store.position = STORE_POSITION
+	store.position = terrain.place(STORE_POSITION)
 	store.rotation.y = PI
 	add_child(store)
 
@@ -260,6 +287,7 @@ func _make_player() -> Player:
 	var p := Player.new()
 	p.name = "Player"
 	p.position = Vector3(0, 2.0, 12.0)
+	p.terrain = terrain
 	var cs := CollisionShape3D.new()
 	var cap := CapsuleShape3D.new()
 	cap.radius = 0.4
@@ -311,7 +339,8 @@ func spawn_vehicle() -> void:
 		return
 	hauler = Hauler.new()
 	hauler.setup(manager, 0)
-	hauler.position = Vector3(10, 1.5, 16)
+	hauler.terrain = terrain
+	hauler.position = terrain.place(Vector3(10, 0, 16), 1.5)
 	add_child(hauler)
 
 func _on_vehicle_spawned(vehicle: Node3D) -> void:

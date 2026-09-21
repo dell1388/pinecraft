@@ -23,6 +23,10 @@ signal interacted(message: String)
 @export var chase_distance: float = 9.0
 @export var chase_height: float = 2.8
 
+## Water deeper than this is swum rather than waded.
+const WADE_DEPTH := 1.1
+const SWIM_SPEED_FACTOR := 0.38
+
 ## Wood shorter than this cannot be split any further.
 const MIN_BUCK_LENGTH := 0.70
 ## Axe work required per square metre of cut face.
@@ -31,6 +35,7 @@ const BUCK_WORK_PER_M2 := 700.0
 var manager: LooseItemManager
 var plot: Plot
 var store: Store
+var terrain: Terrain
 var build_system: BuildSystem
 var vehicle: Node3D = null              ## set while driving
 
@@ -94,6 +99,18 @@ func carried_count() -> int:
 func driving() -> bool:
 	return vehicle != null
 
+## How deep the water is where the player is standing.
+func water_depth() -> float:
+	if terrain == null:
+		return 0.0
+	return terrain.water_depth(global_position.x, global_position.z)
+
+func _water_surface() -> float:
+	return Terrain.WATER_LEVEL
+
+func swimming() -> bool:
+	return water_depth() > WADE_DEPTH
+
 ## The winch and crane on the vehicle being driven, if it has any.
 func rig() -> VehicleRig:
 	if vehicle == null:
@@ -110,6 +127,13 @@ func steering_load() -> bool:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and _mouse_captured:
+		if camera.top_level:
+			# Freecam: the camera carries its own yaw, since it is no longer
+			# hanging off the player's shoulders.
+			camera.rotation.y -= event.relative.x * mouse_sensitivity
+			camera.rotation.x = clampf(
+				camera.rotation.x - event.relative.y * mouse_sensitivity, -1.45, 1.45)
+			return
 		rotate_y(-event.relative.x * mouse_sensitivity)
 		camera.rotate_x(-event.relative.y * mouse_sensitivity)
 		camera.rotation.x = clampf(camera.rotation.x, -1.45, 1.45)
@@ -163,9 +187,15 @@ func _on_key(event: InputEventKey) -> void:
 		KEY_B:
 			if build_system != null:
 				build_system.toggle()
-		KEY_R:
+		KEY_Z:
 			if build_system != null and build_system.active:
-				build_system.rotate_ghost()
+				build_system.rotate_axis(0)
+		KEY_X:
+			if build_system != null and build_system.active:
+				build_system.rotate_axis(1)
+		KEY_C:
+			if build_system != null and build_system.active:
+				build_system.rotate_axis(2)
 
 ## Keys that only mean something with a vehicle under you. Returns true when the
 ## key was used here, so it does not also do its on-foot job.
@@ -221,6 +251,12 @@ func _physics_process(delta: float) -> void:
 		_update_chase_camera(delta)
 		return
 
+	if build_system != null and build_system.active:
+		# The freecam has the camera; the body stays put until build mode ends.
+		velocity = Vector3.ZERO
+		_update_rack()
+		return
+
 	if not is_on_floor():
 		velocity += get_gravity() * delta
 	elif Input.is_action_just_pressed("jump"):
@@ -231,6 +267,15 @@ func _physics_process(delta: float) -> void:
 	# Hauling a full rack slows you down: the reason to build belts.
 	var load_factor: float = 1.0 - 0.35 * clampf(carried_volume() / maxf(0.01, capacity_m3()), 0.0, 1.0)
 	var speed: float = (sprint if Input.is_action_pressed("sprint") else walk) * load_factor
+	# Spec: the player bobs slowly across water rather than swimming it.
+	var depth := water_depth()
+	if depth > WADE_DEPTH:
+		speed *= SWIM_SPEED_FACTOR
+		# Held at the surface with just enough give to bob, so deep water is
+		# crossable but never quick.
+		velocity.y = move_toward(velocity.y, 0.0, 40.0 * delta)
+		if global_position.y < _water_surface() - 0.5:
+			velocity.y = maxf(velocity.y, 2.4)
 
 	var input := Vector2(
 		Input.get_axis("move_left", "move_right"),
@@ -366,6 +411,8 @@ func _update_prompt() -> void:
 		last_prompt = ("%s" if plan.solid else "[E] add material   %s") % plan.status_line()
 	elif target is Filter:
 		last_prompt = "[E] change filter   %s" % (target as Filter).status_line()
+	elif target is Conveyor:
+		last_prompt = (target as Conveyor).status_line()
 	elif target is Hauler:
 		var h := target as Hauler
 		last_prompt = "[E] load   [V] drive   cargo %d/%d (%s)" % [
@@ -585,6 +632,10 @@ func _interact() -> void:
 	var target := _owner_of(hit.get("collider")) if not hit.is_empty() else null
 	if target == null:
 		interacted.emit("")
+		return
+	if target is Conveyor:
+		var belt := target as Conveyor
+		interacted.emit("belt %s" % ("running" if belt.toggle() else "stopped"))
 		return
 	if target is Filter:
 		var f := target as Filter

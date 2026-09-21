@@ -18,6 +18,12 @@ enum Mode { SURFACE, KINEMATIC }
 @export var width: float = 1.4
 @export var speed: float = 3.0
 @export var min_spacing: float = 1.1     ## KINEMATIC mode: gap between items
+## Spec's belt options. `rise` is how far the belt climbs over its run, and a
+## belt without rails is one things can be pushed on and off sideways.
+@export var rise: float = 0.0
+@export var railed: bool = true
+## Spec: retractable. A stopped belt holds what is on it and takes nothing new.
+@export var running: bool = true
 
 ## Set by the plot: given a world point, returns the machine/bin/sell zone that
 ## should receive items leaving this belt, or null. Handing items straight to a
@@ -46,29 +52,38 @@ func _build() -> void:
 	_deck = StaticBody3D.new()
 	_deck.collision_layer = Layers.MACHINE
 	_deck.collision_mask = Layers.MASK_MACHINE
+	# A ramp is the same deck, pitched and lengthened to the slope it covers.
+	var run := sqrt(length * length + rise * rise)
+	var pitch := atan2(rise, length)
+	var deck_pose := Transform3D(Basis(Vector3.RIGHT, -pitch), Vector3(0, rise * 0.5, 0))
 	var deck_shape := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	box.size = Vector3(width, DECK_THICKNESS, length)
+	box.size = Vector3(width, DECK_THICKNESS, run)
 	deck_shape.shape = box
+	deck_shape.transform = deck_pose
 	_deck.add_child(deck_shape)
 
 	var mesh := MeshInstance3D.new()
 	var bm := BoxMesh.new()
 	bm.size = box.size
 	mesh.mesh = bm
+	mesh.transform = deck_pose
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = Color(0.18, 0.19, 0.22)
 	mesh.material_override = mat
 	_deck.add_child(mesh)
 
-	# Side rails keep SURFACE-mode items from wandering off the belt.
-	for side in [-1.0, 1.0]:
-		var rail := CollisionShape3D.new()
-		var rb := BoxShape3D.new()
-		rb.size = Vector3(0.08, 0.35, length)
-		rail.shape = rb
-		rail.position = Vector3(side * (width * 0.5 + 0.04), 0.25, 0.0)
-		_deck.add_child(rail)
+	# Side rails keep SURFACE-mode items from wandering off the belt. A
+	# borderless deck goes without, so things can be pushed on and off it.
+	if railed:
+		for side in [-1.0, 1.0]:
+			var rail := CollisionShape3D.new()
+			var rb := BoxShape3D.new()
+			rb.size = Vector3(0.08, 0.35, run)
+			rail.shape = rb
+			rail.transform = deck_pose.translated_local(
+				Vector3(side * (width * 0.5 + 0.04), 0.25, 0.0))
+			_deck.add_child(rail)
 
 	if mode == Mode.SURFACE:
 		var pm := PhysicsMaterial.new()
@@ -85,9 +100,9 @@ func _build() -> void:
 		_area.monitorable = false
 		var acs := CollisionShape3D.new()
 		var ab := BoxShape3D.new()
-		ab.size = Vector3(width, 1.2, length)
+		ab.size = Vector3(width, 1.2 + absf(rise), length)
 		acs.shape = ab
-		acs.position = Vector3(0, 0.6, 0)
+		acs.position = Vector3(0, 0.6 + rise * 0.5, 0)
 		_area_shape = acs
 		_area.add_child(acs)
 		_area.body_entered.connect(_on_body_entered)
@@ -96,7 +111,7 @@ func _build() -> void:
 	add_child(_deck)
 
 	_output_point = Node3D.new()
-	_output_point.position = Vector3(0, 0.4, -length * 0.5 - 0.3)
+	_output_point.position = Vector3(0, 0.4 + rise, -length * 0.5 - 0.3)
 	add_child(_output_point)
 
 func output_transform() -> Transform3D:
@@ -105,6 +120,21 @@ func output_transform() -> Transform3D:
 func captured_count() -> int:
 	return _captured.size()
 
+## Spec: retractable belts. Stopping one holds what is on it and stops it taking
+## anything new, without giving the load back to the solver.
+func set_running(value: bool) -> void:
+	running = value
+
+func toggle() -> bool:
+	running = not running
+	return running
+
+func status_line() -> String:
+	var shape := "ramp" if absf(rise) > 0.01 else "belt"
+	return "%s: %s, %d aboard  [E] %s" % [
+		shape, "running" if running else "stopped", _captured.size(),
+		"stop" if running else "start"]
+
 # --- KINEMATIC mode --------------------------------------------------------
 
 func _on_body_entered(body: Node) -> void:
@@ -112,6 +142,8 @@ func _on_body_entered(body: Node) -> void:
 		return
 	var item := body as LooseItem
 	if item == null or item.state != LooseItem.State.FREE:
+		return
+	if not running:
 		return
 	if not Trigger.contains_point(_area_shape, item.global_position, 0.2):
 		return
@@ -146,7 +178,7 @@ func _physics_process(delta: float) -> void:
 		_poll_counter = 0
 		for body in Trigger.bodies_inside(_area, _area_shape):
 			_on_body_entered(body)
-	if _captured.is_empty():
+	if _captured.is_empty() or not running:
 		return
 	var step := speed * delta
 	for i in range(_captured.size() - 1, -1, -1):
@@ -160,7 +192,10 @@ func _physics_process(delta: float) -> void:
 			continue
 		_progress[item] = p
 		var half_h: float = item.resting_half_height()
-		var local := Vector3(0.0, DECK_THICKNESS * 0.5 + half_h + 0.01, length * 0.5 - p)
+		# Riding the deck, which climbs if this belt is a ramp.
+		var climb := rise * (p / maxf(0.01, length))
+		var local := Vector3(0.0, DECK_THICKNESS * 0.5 + half_h + 0.01 + climb,
+			length * 0.5 - p)
 		# Laid along the belt: predictable, no tumbling, no overhang sideways.
 		var basis := Basis(Vector3.RIGHT, PI * 0.5)
 		item.global_transform = global_transform * Transform3D(basis, local)

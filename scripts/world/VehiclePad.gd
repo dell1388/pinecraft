@@ -18,6 +18,7 @@ var plot_id: int = 0
 ## Where a spawned vehicle is parented. Not the pad itself: a truck has to be
 ## able to drive off it.
 var host: Node3D
+var terrain: Terrain
 
 var vehicle: Node3D = null
 
@@ -45,6 +46,7 @@ func spawn() -> Node3D:
 	recall()
 	var truck := Hauler.new()
 	truck.setup(manager, plot_id)
+	truck.terrain = terrain
 	var target: Node3D = host if host != null else get_parent() as Node3D
 	if target == null:
 		return null

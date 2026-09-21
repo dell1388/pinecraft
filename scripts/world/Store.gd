@@ -69,13 +69,21 @@ func price_of(slot: Dictionary) -> int:
 	if slot.kind == &"upgrade":
 		return PlayerState.next_cost(slot.target)
 	var def := GameData.building(slot.target)
-	return def.unlock_cost if def != null else -1
+	if def == null:
+		return -1
+	# A crated machine is priced as the machine you do not have yet, or as the
+	# next improvement to the one you do.
+	if slot.kind == &"machine" and PlayerState.is_unlocked(slot.target):
+		return PlayerState.next_cost(slot.target)
+	return def.unlock_cost
 
 ## Whether the shop still has a reason to stock this: a maxed track or a
 ## building you already own is not for sale.
 func available(slot: Dictionary) -> bool:
 	if slot.kind == &"upgrade":
 		return not PlayerState.at_max(slot.target)
+	if slot.kind == &"machine":
+		return not PlayerState.is_unlocked(slot.target) or not PlayerState.at_max(slot.target)
 	return not PlayerState.is_unlocked(slot.target)
 
 ## Puts a box back on every shelf slot that should have one.
@@ -160,12 +168,10 @@ func open_box(item: LooseItem) -> String:
 		return "that is not a box"
 	if not item.owned:
 		return "that one has not been paid for"
+	# The box was the payment, so what is inside it is free at this point.
 	var what := ""
-	if slot.kind == &"upgrade":
-		# The box is the payment, so the upgrade itself is free at this point.
-		PlayerState.levels[slot.target] = PlayerState.level(slot.target) + 1
-		PlayerState.upgraded.emit(slot.target, PlayerState.level(slot.target))
-		what = "%s is now %s" % [String(slot.target), PlayerState.label(slot.target)]
+	if slot.kind == &"upgrade" or (slot.kind == &"machine" and PlayerState.is_unlocked(slot.target)):
+		what = _level_up(slot.target)
 	else:
 		if not PlayerState.is_unlocked(slot.target):
 			PlayerState.unlocked_buildings.append(slot.target)
@@ -177,6 +183,11 @@ func open_box(item: LooseItem) -> String:
 	restock()
 	opened.emit(item.item_id, what)
 	return what
+
+func _level_up(track: StringName) -> String:
+	PlayerState.levels[track] = PlayerState.level(track) + 1
+	PlayerState.upgraded.emit(track, PlayerState.level(track))
+	return "%s is now %s" % [String(track), PlayerState.label(track)]
 
 ## Spec: the store also sells land.
 func buy_land() -> String:

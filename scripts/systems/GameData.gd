@@ -108,11 +108,17 @@ func _validate() -> void:
 		var target := StringName(entry.get("target", ""))
 		if not items.has(box):
 			load_errors.append("store sells unknown box '%s'" % box)
-		if String(entry.get("kind", "")) == "upgrade":
+		var kind := String(entry.get("kind", ""))
+		if kind == "upgrade":
 			if not upgrade_tracks.has(target):
 				load_errors.append("store box '%s' upgrades unknown track '%s'" % [box, target])
-		elif not buildings.has(target):
-			load_errors.append("store box '%s' unlocks unknown building '%s'" % [box, target])
+		else:
+			if not buildings.has(target):
+				load_errors.append("store box '%s' unlocks unknown building '%s'" % [box, target])
+			# A crated machine improves the machine as well as delivering it,
+			# so it needs a track of the same name to improve.
+			if kind == "machine" and not upgrade_tracks.has(target):
+				load_errors.append("store box '%s' has no upgrade track '%s'" % [box, target])
 	for b: BuildingDef in buildings.values():
 		if b.kind == &"machine" and not machines.has(b.machine):
 			load_errors.append("building '%s' references unknown machine '%s'" % [b.id, b.machine])

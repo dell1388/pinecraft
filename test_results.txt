@@ -4,6 +4,7 @@
   [ok  ] felling drops the trunk as it grew
   [ok  ] branches and trunk are cut separately
   [ok  ] resource fields fill to a quota and stop
+  [ok  ] terrain has biomes, rivers and roads
   [ok  ] bucking splits wood and conserves volume
   [ok  ] a chunk is pulled out whole when the pull is enough
   [ok  ] hammering cracks a chunk apart piece by piece
@@ -12,11 +13,13 @@
   [ok  ] furnace smelts ore into billets
   [ok  ] workbench assembles from volumes
   [ok  ] machines reject items they cannot use
+  [ok  ] the intake hole decides what fits
   [ok  ] sell zone pays today's price
   [ok  ] the yard buys what the player owns in it
   [ok  ] orders pay out on delivery
   [ok  ] storage bin stores and dispenses
   [ok  ] conveyor feeds a machine directly
+  [ok  ] belts come as ramps, borderless and stoppable
   [ok  ] splitter routes round-robin
   [ok  ] filter sorts items by type
   [ok  ] building placement, cost and removal
@@ -33,7 +36,7 @@
   [ok  ] winch and crane respect their power ratings
   [ok  ] kill plane rescues fallen items
   [ok  ] per-plot cap is enforced
-      full base: 168 items live, avg 1.80 ms/frame, worst 4.95 ms (budget 16.67)
+      full base: 164 items live, avg 3.61 ms/frame, worst 13.14 ms (budget 16.67)
   [ok  ] full automated base stays in budget
 
-PASS - 609 checks
+PASS - 664 checks

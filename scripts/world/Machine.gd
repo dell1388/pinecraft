@@ -43,6 +43,13 @@ var _intake_point: Node3D
 var _backlog: int = 0
 var _poll: float = 0.0
 var _size: Vector3 = Vector3(3, 3, 3)
+## Per-machine, because upgrading a sawmill must not widen every sawmill's
+## definition. These are the definition's holes and rate scaled by this
+## machine's level.
+var intake_hole: Vector2 = Vector2(0.7, 0.7)
+var outlet_hole: Vector2 = Vector2(0.4, 0.4)
+var rate_m3_per_second: float = 0.05
+var level: int = 1
 
 func setup(p_manager: LooseItemManager, p_def: BuildingDef, p_plot_id: int = 0) -> void:
 	manager = p_manager
@@ -57,8 +64,42 @@ func _ready() -> void:
 	if machine_def == null and def != null:
 		machine_def = GameData.machine(def.machine)
 	_size = def.footprint_world(1.0)
+	_apply_level()
 	_build()
+	# A machine already standing on the plot has to grow when its line is
+	# upgraded; buying a wider mouth and not getting one would be absurd.
+	PlayerState.upgraded.connect(_on_upgraded)
 	set_physics_process(true)
+
+func _on_upgraded(track: StringName, _new_level: int) -> void:
+	if machine_def == null or track != machine_def.id:
+		return
+	_apply_level()
+	_rebuild_shell()
+
+## Rebuilds the shell around the new hole sizes. Buffered work is bookkeeping
+## rather than geometry, so it rides through untouched.
+func _rebuild_shell() -> void:
+	for node in [_body, _intake_area, _outlet_area, _intake_point, _outlet_point]:
+		if node != null and is_instance_valid(node):
+			node.queue_free()
+	_body = null
+	_intake_area = null
+	_outlet_area = null
+	_intake_point = null
+	_outlet_point = null
+	_build()
+
+## Spec: machine levels give larger intake and outlet holes, and get through
+## more material. A bigger mouth is the upgrade that matters, because the hole
+## is what decides whether a whole trunk goes in or has to be bucked first.
+func _apply_level() -> void:
+	level = PlayerState.level(machine_def.id)
+	var hole_scale := PlayerState.stat(machine_def.id, "hole_scale", 1.0)
+	var rate_scale := PlayerState.stat(machine_def.id, "rate_scale", 1.0)
+	intake_hole = machine_def.intake_hole * hole_scale
+	outlet_hole = machine_def.outlet_hole * hole_scale
+	rate_m3_per_second = machine_def.m3_per_second * rate_scale
 
 # --- Geometry --------------------------------------------------------------
 
@@ -73,10 +114,10 @@ func _build() -> void:
 		var hole := Vector2.ZERO
 		var height := 0.0
 		if StringName(face) == machine_def.intake_face:
-			hole = machine_def.intake_hole
+			hole = intake_hole
 			height = machine_def.intake_height
 		elif StringName(face) == machine_def.outlet_face:
-			hole = machine_def.outlet_hole
+			hole = outlet_hole
 			height = machine_def.outlet_height
 		_add_wall(face, hole, height)
 	_add_part(Vector3(_size.x, WALL, _size.z), Vector3(0, WALL * 0.5, 0), machine_def.color.darkened(0.25))
@@ -93,7 +134,7 @@ func _build() -> void:
 	_intake_area.collision_mask = Layers.LOOSE
 	_intake_shape = CollisionShape3D.new()
 	var ib := BoxShape3D.new()
-	var mouth := machine_def.intake_hole
+	var mouth := intake_hole
 	ib.size = Vector3(maxf(mouth.x, 0.6) + 0.5, maxf(mouth.y, 0.6) + 0.5, 1.5)
 	if machine_def.intake_face == &"top":
 		ib.size = Vector3(mouth.x + 0.5, 1.5, mouth.y + 0.5)
@@ -237,11 +278,11 @@ func _decorate() -> void:
 			blade.material_override = bmat
 			_body.add_child(blade)
 			# Infeed ramp and outfeed lip, so the holes read as holes.
-			_add_part(Vector3(machine_def.intake_hole.x + 0.4, 0.12, 1.0),
-				Vector3(0, machine_def.intake_height - machine_def.intake_hole.y * 0.5,
+			_add_part(Vector3(intake_hole.x + 0.4, 0.12, 1.0),
+				Vector3(0, machine_def.intake_height - intake_hole.y * 0.5,
 					_size.z * 0.5 + 0.45), accent, false)
-			_add_part(Vector3(machine_def.outlet_hole.x + 0.5, 0.12, 0.9),
-				Vector3(0, machine_def.outlet_height - machine_def.outlet_hole.y * 0.5,
+			_add_part(Vector3(outlet_hole.x + 0.5, 0.12, 0.9),
+				Vector3(0, machine_def.outlet_height - outlet_hole.y * 0.5,
 					-_size.z * 0.5 - 0.4), accent, false)
 			for side in [-1.0, 1.0]:
 				_add_part(Vector3(0.22, 0.9, 0.22), Vector3(side * (_size.x * 0.5 - 0.2), 0.45,
@@ -262,7 +303,7 @@ func _decorate() -> void:
 			# Glowing mouth around the outlet.
 			var glow := MeshInstance3D.new()
 			var gb := BoxMesh.new()
-			gb.size = Vector3(0.12, machine_def.outlet_hole.y, machine_def.outlet_hole.x)
+			gb.size = Vector3(0.12, outlet_hole.y, outlet_hole.x)
 			glow.mesh = gb
 			glow.position = Vector3(_size.x * 0.5 - 0.02, machine_def.outlet_height, 0)
 			var gmat := StandardMaterial3D.new()
@@ -272,7 +313,7 @@ func _decorate() -> void:
 			gmat.emission_energy_multiplier = 1.6
 			glow.material_override = gmat
 			_body.add_child(glow)
-			_add_part(Vector3(machine_def.intake_hole.x + 0.5, 0.14, machine_def.intake_hole.y + 0.5),
+			_add_part(Vector3(intake_hole.x + 0.5, 0.14, intake_hole.y + 0.5),
 				Vector3(0, _size.y + 0.07, 0), accent, false)
 		&"workbench":
 			_add_part(Vector3(_size.x - 0.4, 0.16, _size.z - 0.4), Vector3(0, _size.y + 0.08, 0),
@@ -301,8 +342,16 @@ func can_accept(item_id: StringName) -> bool:
 		return false
 	return GameData.machine_accepts(machine_def.id, item_id)
 
+## Spec: the intake hole is a real hole. A piece that will not go through it
+## does not go in, which is what makes bucking a trunk down - or upgrading the
+## machine's mouth - worth doing.
+func fits(dims: Dictionary) -> bool:
+	return Solid.fits_through(dims, intake_hole)
+
 func accept_item(item: LooseItem) -> bool:
 	if not can_accept(item.item_id):
+		return false
+	if not fits(item.dims):
 		return false
 	var v := item.volume()
 	volume_in += v
@@ -361,7 +410,7 @@ func _start_job() -> void:
 		if queue.is_empty():
 			return
 		var next: Dictionary = queue.pop_front()
-		var duration: float = maxf(0.4, float(next.volume) / maxf(0.001, machine_def.m3_per_second))
+		var duration: float = maxf(0.4, float(next.volume) / maxf(0.001, rate_m3_per_second))
 		job = {"output_id": next.output_id, "volume": float(next.volume), "duration": duration}
 	progress = 0.0
 	state_changed.emit(self)
@@ -378,7 +427,10 @@ func _finish_job() -> void:
 		if def_out != null:
 			pieces.append(def_out.default_dims())
 	else:
-		pieces = Solid.cut_to_pieces(volume, machine_def.cross_section, machine_def.max_piece_length)
+		# Output is cut to whatever the outlet will pass, so a wider outlet
+		# hands back longer, fatter pieces.
+		var section := machine_def.cross_section.min(outlet_hole)
+		pieces = Solid.cut_to_pieces(volume, section, machine_def.max_piece_length)
 
 	var origin := _outlet_point.global_transform
 	var forward := -origin.basis.z
@@ -418,7 +470,8 @@ func status_line() -> String:
 			int(progress / maxf(0.01, float(job.duration)) * 100.0), float(job.volume)]
 	if stalled:
 		return "%s: outlet blocked" % def.display_name
-	return "%s: idle (%s)" % [def.display_name, input_summary()]
+	return "%s lv%d: idle, mouth %.2f x %.2f m (%s)" % [
+		def.display_name, level, intake_hole.x, intake_hole.y, input_summary()]
 
 func to_dict() -> Dictionary:
 	var jobs: Array = []

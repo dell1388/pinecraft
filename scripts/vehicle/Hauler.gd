@@ -26,6 +26,8 @@ signal cargo_changed(count: int, capacity: int)
 var manager: LooseItemManager
 var plot_id: int = 0
 var driver: Node3D = null
+## The land under the truck, for road speed and for drowning the engine.
+var terrain: Terrain
 ## The load, as {id, dims}. There are no physics bodies aboard: see the cargo
 ## section for why.
 var cargo_items: Array[Dictionary] = []
@@ -422,15 +424,30 @@ func _read_input() -> void:
 	input_steer = Input.get_axis("move_right", "move_left")
 	input_brake = Input.is_action_pressed("jump")
 
+## Spec: a driver seat under water means the truck can no longer be driven.
+func flooded() -> bool:
+	if terrain == null or _seat == null:
+		return false
+	return _seat.global_position.y < Terrain.WATER_LEVEL
+
+## Spec: roads give a slight speed increase.
+func on_road() -> bool:
+	if terrain == null:
+		return false
+	return terrain.is_road(global_position.x, global_position.z)
+
 func _apply_drive(_delta: float) -> void:
+	if flooded():
+		return        # the seat is under: nothing to do but get out and push
+	var road_bonus: float = 1.0 + (Terrain.ROAD_SPEED_BONUS if on_road() else 0.0)
 	var throttle := input_throttle
 	var steer := input_steer
 	var forward := -global_transform.basis.z
 	var speed := linear_velocity.dot(forward)
 
 	if _grounded > 0:
-		if absf(throttle) > 0.05 and absf(speed) < max_speed:
-			apply_central_force(forward * throttle * engine_force_max)
+		if absf(throttle) > 0.05 and absf(speed) < max_speed * road_bonus:
+			apply_central_force(forward * throttle * engine_force_max * road_bonus)
 		elif absf(speed) > 0.2:
 			apply_central_force(-forward * signf(speed) * brake_force * 0.15)
 		# Steering authority scales with speed: no pirouettes while parked.
@@ -440,8 +457,9 @@ func _apply_drive(_delta: float) -> void:
 		apply_central_force(-linear_velocity.normalized() * brake_force)
 
 func _clamp_motion() -> void:
-	if linear_velocity.length() > max_speed * 1.4:
-		linear_velocity = linear_velocity.normalized() * max_speed * 1.4
+	var ceiling := max_speed * 1.4 * (1.0 + Terrain.ROAD_SPEED_BONUS)
+	if linear_velocity.length() > ceiling:
+		linear_velocity = linear_velocity.normalized() * ceiling
 	if angular_velocity.length() > 3.5:
 		angular_velocity = angular_velocity.normalized() * 3.5
 

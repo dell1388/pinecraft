@@ -12,6 +12,10 @@ extends Resource
 @export var speed: float = 3.0
 @export var capacity: float = 6.0
 @export var unlock_cost: int = 0            ## 0 = available from the start
+## Conveyor options. `rise` makes the belt a ramp; `railed` false makes it a
+## borderless deck that things can be pushed on and off sideways.
+@export var rise: float = 0.0
+@export var railed: bool = true
 
 static func from_dict(d: Dictionary) -> BuildingDef:
 	var b := BuildingDef.new()
@@ -25,6 +29,8 @@ static func from_dict(d: Dictionary) -> BuildingDef:
 	b.speed = float(d.get("speed", 3.0))
 	b.capacity = float(d.get("capacity", 6.0))
 	b.unlock_cost = int(d.get("unlock_cost", 0))
+	b.rise = float(d.get("rise", 0.0))
+	b.railed = bool(d.get("railed", true))
 	return b
 
 func footprint_world(cell_size: float) -> Vector3:

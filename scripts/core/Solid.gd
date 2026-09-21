@@ -43,6 +43,16 @@ static func bounds(d: Dictionary) -> Vector3:
 		return Vector3(r * 2.0, float(d.length), r * 2.0)
 	return d.size
 
+## Whether a piece will go through a rectangular opening. The long axis goes
+## through first, so it is the two smaller extents that have to fit, and the
+## piece may be turned to suit the hole.
+static func fits_through(d: Dictionary, hole: Vector2) -> bool:
+	var b := bounds(d)
+	var extents := [b.x, b.y, b.z]
+	extents.sort()
+	return extents[0] <= minf(hole.x, hole.y) + 0.001 \
+		and extents[1] <= maxf(hole.x, hole.y) + 0.001
+
 static func max_radius(d: Dictionary) -> float:
 	if d.get("shape", BOX) == CYLINDER:
 		return maxf(float(d.r0), float(d.r1))

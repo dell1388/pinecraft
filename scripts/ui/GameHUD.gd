@@ -143,73 +143,32 @@ func _market_text() -> String:
 	return "\n".join(lines)
 
 func _shop_text() -> String:
-	var lines: Array[String] = ["SHOP - $%d" % Economy.money, "", "Upgrades:"]
-	var keys := ["1", "2", "3", "4"]
-	var tracks := GameData.upgrade_tracks.keys()
-	for i in tracks.size():
-		var track: StringName = tracks[i]
-		var cost := PlayerState.next_cost(track)
-		var cost_text := "MAX" if cost < 0 else "$%d" % cost
-		lines.append("  [%s] %-9s lv%d %-22s -> %s" % [
-			keys[i] if i < keys.size() else " ", String(track),
-			PlayerState.level(track), PlayerState.label(track), cost_text])
+	var lines: Array[String] = ["SHOP BOARD - $%d" % Economy.money, "",
+		"Everything is bought at the store, off the shelf and over the counter.",
+		"Carry a box to the till and press [E]; land is sold at the desk.", "",
+		"Tools and machines:"]
+	for track_id in GameData.upgrade_tracks:
+		var cost := PlayerState.next_cost(track_id)
+		lines.append("  %-10s lv%d %-22s next %s" % [
+			String(track_id), PlayerState.level(track_id), PlayerState.label(track_id),
+			"MAX" if cost < 0 else "$%d" % cost])
 	lines.append("")
 	var expand_cost := plot.next_expansion_cost()
-	lines.append("  [5] expand plot (tier %d, %.0fm) -> %s" % [
+	lines.append("Land: tier %d, %.0fm across, next parcel %s" % [
 		plot.tier, plot.half_extent * 2.0,
 		"MAX" if expand_cost < 0 else "$%d" % expand_cost])
-	lines.append("  [6] buy hauler -> %s" % (
-		"owned - place its pad in build mode" if PlayerState.owns_vehicle()
-		else "$%d" % PlayerState.vehicle_cost()))
 	lines.append("")
-	lines.append("Unlock buildings:")
-	var locked_keys := ["7", "8", "9", "0"]
-	var n := 0
+	lines.append("Locked, still on the shelf:")
+	var locked := 0
 	for def: BuildingDef in GameData.buildings.values():
-		if PlayerState.is_unlocked(def.id) or n >= locked_keys.size():
+		if PlayerState.is_unlocked(def.id):
 			continue
-		lines.append("  [%s] %-16s unlock $%d  (build cost $%d)" % [
-			locked_keys[n], def.display_name, def.unlock_cost, def.cost])
-		n += 1
-	if n == 0:
-		lines.append("  everything unlocked")
+		lines.append("  %-16s $%d  (build cost $%d)" % [
+			def.display_name, def.unlock_cost, def.cost])
+		locked += 1
+	if locked == 0:
+		lines.append("  nothing - you own one of everything")
 	return "\n".join(lines)
-
-func _shop_key(index: int) -> void:
-	var tracks := GameData.upgrade_tracks.keys()
-	if index < tracks.size():
-		if not PlayerState.try_upgrade(tracks[index]):
-			log_message("cannot afford that upgrade")
-		_rebuild_panel()
-		return
-	match index:
-		4:
-			if plot.try_expand():
-				log_message("plot expanded to tier %d (%.0fm)" % [plot.tier, plot.half_extent * 2.0])
-			else:
-				log_message("cannot expand yet")
-		5:
-			if PlayerState.try_buy_vehicle():
-				log_message("hauler delivered")
-				if world != null and world.has_method("spawn_vehicle"):
-					world.call("spawn_vehicle")
-			else:
-				log_message("cannot buy the hauler")
-		_:
-			var locked: Array[BuildingDef] = []
-			for def: BuildingDef in GameData.buildings.values():
-				if not PlayerState.is_unlocked(def.id):
-					locked.append(def)
-			var i := index - 6
-			if i >= 0 and i < locked.size():
-				if PlayerState.try_unlock(locked[i].id):
-					log_message("unlocked %s" % locked[i].display_name)
-					if player != null and player.build_system != null:
-						player.build_system.refresh_palette()
-				else:
-					log_message("cannot afford that unlock")
-	_rebuild_panel()
-
 func _unhandled_key_input(event: InputEvent) -> void:
 	var key := event as InputEventKey
 	if key == null or not key.pressed or key.echo:
@@ -227,11 +186,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			elif player != null:
 				player.capture_mouse(not Input.mouse_mode == Input.MOUSE_MODE_CAPTURED)
 		_:
-			if panel == PanelKind.SHOP:
-				var digits := [KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9, KEY_0]
-				var idx := digits.find(key.keycode)
-				if idx >= 0:
-					_shop_key(idx)
+			pass
 
 # --- Status ----------------------------------------------------------------
 

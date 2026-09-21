@@ -16,9 +16,10 @@ var manager: LooseItemManager
 ## Where a pad parents the vehicle it spawns. A truck cannot be a child of the
 ## pad it came off, or it could never drive away from it.
 var vehicle_host: Node3D
+var terrain: Terrain
 var tier: int = 0
 var half_extent: float = 22.0
-var placed: Array[Dictionary] = []      ## {def, cell, yaw, node}
+var placed: Array[Dictionary] = []      ## {def, cell, rot, node}
 var occupied: Dictionary = {}           ## Vector2i -> index into `placed`
 
 var _floor_body: StaticBody3D
@@ -102,20 +103,45 @@ func world_to_cell(world_pos: Vector3) -> Vector2i:
 	var local := to_local(world_pos)
 	return Vector2i(int(floor(local.x / CELL)), int(floor(local.z / CELL)))
 
-func cell_to_world(cell: Vector2i, size: Vector3i, yaw: int) -> Vector3:
-	var fp := rotated_footprint(size, yaw)
+func cell_to_world(cell: Vector2i, size: Vector3i, rot: Variant) -> Vector3:
+	var fp := oriented_size(size, _as_rot(rot))
 	return to_global(Vector3(
 		(float(cell.x) + float(fp.x) * 0.5) * CELL,
 		0.0,
 		(float(cell.y) + float(fp.z) * 0.5) * CELL))
 
-static func rotated_footprint(size: Vector3i, yaw: int) -> Vector3i:
-	if yaw % 2 == 1:
-		return Vector3i(size.z, size.y, size.x)
-	return size
+## A footprint after quarter turns about each axis. Rotation is in 90 degree
+## steps per axis, so a rotated box still occupies whole cells and the
+## occupancy grid stays exact.
+static func oriented_size(size: Vector3i, rot: Vector3i) -> Vector3i:
+	var out := size
+	for i in posmod(rot.x, 4):
+		out = Vector3i(out.x, out.z, out.y)
+	for i in posmod(rot.y, 4):
+		out = Vector3i(out.z, out.y, out.x)
+	for i in posmod(rot.z, 4):
+		out = Vector3i(out.y, out.x, out.z)
+	return out
 
-func cells_for(cell: Vector2i, size: Vector3i, yaw: int) -> Array[Vector2i]:
-	var fp := rotated_footprint(size, yaw)
+static func rotated_footprint(size: Vector3i, yaw: int) -> Vector3i:
+	return oriented_size(size, Vector3i(0, yaw, 0))
+
+## Callers may pass a bare yaw where a full orientation is wanted; a yaw is
+## just a turn about Y.
+static func _as_rot(rot: Variant) -> Vector3i:
+	if rot is Vector3i:
+		return rot
+	return Vector3i(0, int(rot), 0)
+
+## The visual orientation matching `oriented_size`.
+static func orientation_basis(rot: Vector3i) -> Basis:
+	return Basis.from_euler(Vector3(
+		float(posmod(rot.x, 4)) * PI * 0.5,
+		float(posmod(rot.y, 4)) * PI * 0.5,
+		float(posmod(rot.z, 4)) * PI * 0.5))
+
+func cells_for(cell: Vector2i, size: Vector3i, rot: Variant) -> Array[Vector2i]:
+	var fp := oriented_size(size, _as_rot(rot))
 	var out: Array[Vector2i] = []
 	for x in fp.x:
 		for z in fp.z:
@@ -128,38 +154,39 @@ func in_bounds(cell: Vector2i) -> bool:
 	return absf(x) <= half_extent - CELL and absf(z) <= half_extent - CELL
 
 ## Returns "" when placement is legal, otherwise the reason it is not.
-func placement_error(def: BuildingDef, cell: Vector2i, yaw: int, check_cost: bool = true) -> String:
+func placement_error(def: BuildingDef, cell: Vector2i, rot: Variant, check_cost: bool = true) -> String:
 	if def == null:
 		return "unknown building"
 	if check_cost and not Economy.can_afford(def.cost):
 		return "need $%d" % def.cost
-	for c in cells_for(cell, def.size, yaw):
+	for c in cells_for(cell, def.size, rot):
 		if not in_bounds(c):
 			return "outside plot"
 		if occupied.has(c):
 			return "space taken"
 	return ""
 
-func can_place(def: BuildingDef, cell: Vector2i, yaw: int, check_cost: bool = true) -> bool:
-	return placement_error(def, cell, yaw, check_cost) == ""
+func can_place(def: BuildingDef, cell: Vector2i, rot: Variant, check_cost: bool = true) -> bool:
+	return placement_error(def, cell, rot, check_cost) == ""
 
 # --- Placement -------------------------------------------------------------
 
-func place(def: BuildingDef, cell: Vector2i, yaw: int, charge: bool = true) -> Node3D:
-	if not can_place(def, cell, yaw, charge):
+func place(def: BuildingDef, cell: Vector2i, rot: Variant, charge: bool = true) -> Node3D:
+	var orientation := _as_rot(rot)
+	if not can_place(def, cell, orientation, charge):
 		return null
 	if charge and not Economy.try_spend(def.cost):
 		return null
 	var node := _instantiate(def)
 	if node == null:
 		return null
-	node.position = to_local(cell_to_world(cell, def.size, yaw))
-	node.rotation.y = float(yaw) * PI * 0.5
+	node.position = to_local(cell_to_world(cell, def.size, orientation))
+	node.basis = orientation_basis(orientation)
 	add_child(node)
-	var record := {"def": def, "cell": cell, "yaw": yaw, "node": node}
+	var record := {"def": def, "cell": cell, "rot": orientation, "node": node}
 	placed.append(record)
 	var index := placed.size() - 1
-	for c in cells_for(cell, def.size, yaw):
+	for c in cells_for(cell, def.size, orientation):
 		occupied[c] = index
 	buildings_changed.emit(self)
 	return node
@@ -176,6 +203,8 @@ func _instantiate(def: BuildingDef) -> Node3D:
 			c.length = float(def.size.z) * CELL
 			c.width = float(def.size.x) * CELL * 0.9
 			c.speed = def.speed
+			c.rise = def.rise
+			c.railed = def.railed
 			c.sink_finder = find_sink_near
 			return c
 		&"splitter":
@@ -203,6 +232,7 @@ func _instantiate(def: BuildingDef) -> Node3D:
 		&"pad":
 			var pad := VehiclePad.new()
 			pad.setup(manager, def, plot_id, vehicle_host if vehicle_host != null else self)
+			pad.terrain = terrain
 			pad.vehicle_spawned.connect(func(_p, v): vehicle_spawned.emit(v))
 			return pad
 	push_error("Plot: unknown building kind '%s'" % def.kind)
@@ -238,7 +268,7 @@ func _reindex() -> void:
 	occupied.clear()
 	for i in placed.size():
 		var rec := placed[i]
-		for c in cells_for(rec.cell, (rec.def as BuildingDef).size, rec.yaw):
+		for c in cells_for(rec.cell, (rec.def as BuildingDef).size, rec.rot):
 			occupied[c] = i
 
 func clear_buildings() -> void:
@@ -310,7 +340,7 @@ func to_dict() -> Dictionary:
 		var entry := {
 			"id": String((rec.def as BuildingDef).id),
 			"cell": [rec.cell.x, rec.cell.y],
-			"yaw": rec.yaw,
+			"rot": [rec.rot.x, rec.rot.y, rec.rot.z],
 		}
 		var node: Node3D = rec.node
 		if node != null and node.has_method("to_dict"):
@@ -328,7 +358,12 @@ func from_dict(d: Dictionary) -> void:
 			continue
 		var cell_array: Array = entry.get("cell", [0, 0])
 		var cell := Vector2i(int(cell_array[0]), int(cell_array[1]))
-		var node := place(def, cell, int(entry.get("yaw", 0)), false)
+		# Saves written before three-axis rotation carry a bare yaw.
+		var orientation := Vector3i(0, int(entry.get("yaw", 0)), 0)
+		if entry.has("rot"):
+			var r: Array = entry["rot"]
+			orientation = Vector3i(int(r[0]), int(r[1]), int(r[2]))
+		var node := place(def, cell, orientation, false)
 		if node != null and entry.has("state") and node.has_method("from_dict"):
 			# Deferred: the node's _ready must run before its state is restored.
 			node.call_deferred("from_dict", entry["state"])

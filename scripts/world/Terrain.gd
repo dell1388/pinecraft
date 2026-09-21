@@ -241,9 +241,11 @@ func _grade_roads() -> void:
 				var target: float = _path_height(path, nearest.y)
 				var t: float = clampf(d / (ROAD_HALF_WIDTH * 2.0), 0.0, 1.0)
 				var index := _index(ix, iz)
-				# Never grade a road out over open water.
-				if _heights[index] < WATER_LEVEL - 0.5 and target < WATER_LEVEL:
-					continue
+				# Where a road meets a carved channel it crosses at a ford
+				# rather than filling the river in: shallow enough to drive
+				# through, still visibly water.
+				if _heights[index] < WATER_LEVEL - 0.3:
+					target = -0.35
 				_heights[index] = lerpf(target, _heights[index], smoothstep(0.0, 1.0, t))
 				if d <= ROAD_HALF_WIDTH:
 					_road_mask[index] = 1
@@ -321,10 +323,14 @@ func _build_mesh() -> void:
 			var p01 := Vector3(x0, _heights[_index(ix, iz + 1)], z0 + CELL)
 			var p11 := Vector3(x0 + CELL, _heights[_index(ix + 1, iz + 1)], z0 + CELL)
 			var color := _quad_color(ix, iz, p00.y)
-			for tri in [[p00, p01, p11], [p00, p11, p10]]:
-				# Each triangle carries its own normal, which is what makes the
-				# land read as facets instead of as a smooth blanket.
-				var normal := (tri[1] - tri[0]).cross(tri[2] - tri[0]).normalized()
+			# Each triangle carries its own normal, which is what makes the land
+			# read as facets instead of as a smooth blanket.
+			var tris: Array[PackedVector3Array] = [
+				PackedVector3Array([p00, p01, p11]),
+				PackedVector3Array([p00, p11, p10]),
+			]
+			for tri in tris:
+				var normal: Vector3 = (tri[1] - tri[0]).cross(tri[2] - tri[0]).normalized()
 				for corner in tri:
 					verts[v] = corner
 					normals[v] = normal

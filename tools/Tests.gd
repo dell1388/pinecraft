@@ -30,6 +30,7 @@ func _run_all() -> void:
 	await _test(&"felling drops the trunk as it grew", test_chop)
 	await _test(&"branches and trunk are cut separately", test_limb_cutting)
 	await _test(&"resource fields fill to a quota and stop", test_resource_field)
+	await _test(&"terrain has biomes, rivers and roads", test_terrain)
 	await _test(&"bucking splits wood and conserves volume", test_bucking)
 	await _test(&"a chunk is pulled out whole when the pull is enough", test_chunk_pull)
 	await _test(&"hammering cracks a chunk apart piece by piece", test_chunk_cracking)
@@ -38,11 +39,13 @@ func _run_all() -> void:
 	await _test(&"furnace smelts ore into billets", test_furnace)
 	await _test(&"workbench assembles from volumes", test_workbench)
 	await _test(&"machines reject items they cannot use", test_machine_rejects)
+	await _test(&"the intake hole decides what fits", test_machine_holes)
 	await _test(&"sell zone pays today's price", test_sell_zone)
 	await _test(&"the yard buys what the player owns in it", test_sell_yard)
 	await _test(&"orders pay out on delivery", test_quests)
 	await _test(&"storage bin stores and dispenses", test_storage)
 	await _test(&"conveyor feeds a machine directly", test_conveyor_to_machine)
+	await _test(&"belts come as ramps, borderless and stoppable", test_conveyor_options)
 	await _test(&"splitter routes round-robin", test_splitter)
 	await _test(&"filter sorts items by type", test_filter)
 	await _test(&"building placement, cost and removal", test_building)
@@ -86,10 +89,24 @@ func _write_log() -> void:
 func _test(name: StringName, fn: Callable) -> void:
 	_current = String(name)
 	var before := _failures.size()
+	var checks_before := _checks
+	_finished = false
 	await fn.call()
+	# A test that dies part way through - a parse error in what it exercises,
+	# say - used to contribute fewer checks and still read as a pass, so each
+	# one has to say it got to the end.
+	if not _finished:
+		_failures.append("%s: did not run to completion (%d checks in)" % [
+			_current, _checks - checks_before])
 	_teardown()
 	var status := "ok  " if _failures.size() == before else "FAIL"
 	_say("  [%s] %s" % [status, _current])
+
+var _finished: bool = false
+
+## Every test calls this as its last line.
+func done() -> void:
+	_finished = true
 
 func check(condition: bool, message: String) -> bool:
 	_checks += 1
@@ -176,6 +193,7 @@ func test_data_integrity() -> void:
 				"machine %s has no output cross-section" % m.id)
 	for def: BuildingDef in GameData.buildings.values():
 		check(def.cost > 0, "building %s is free" % def.id)
+	done()
 
 func test_prices() -> void:
 	Economy.from_dict({"money": 0, "day": 7})
@@ -201,6 +219,7 @@ func test_prices() -> void:
 	var b := Economy.price_of(&"lumber_pine", long_board)
 	check(absf(float(b) - float(a) * 2.0) <= 2.0,
 		"price is not proportional to volume (%d vs %d)" % [a, b])
+	done()
 
 func test_chop() -> void:
 	_setup()
@@ -235,6 +254,7 @@ func test_chop() -> void:
 	if trunk != null and is_instance_valid(trunk):
 		var upright: float = absf(trunk.global_transform.basis.y.dot(Vector3.UP))
 		check(upright < 0.8, "the felled trunk never fell over (upright %.2f)" % upright)
+	done()
 
 ## Spec: the player cuts through the individual cylinders the tree is made of.
 ## A branch comes off on its own; the trunk is severed at the height of the cut
@@ -287,6 +307,7 @@ func test_limb_cutting() -> void:
 	await step(2)
 	check(not tree.standing(), "cutting the base did not finish the tree")
 	check_near(loose_volume(), grown, 0.0001, "the tree did not yield exactly what it grew")
+	done()
 
 ## Spec: resources spawn procedurally in form and place up to a quota, and stop
 ## once the quota is reached.
@@ -340,6 +361,95 @@ func test_resource_field() -> void:
 		if field.at_quota():
 			break
 	check_eq(field.count(), 8, "the field did not refill to its quota")
+	done()
+
+## Spec: a large simplistic polygonal map with several biomes, rivers that are
+## sometimes fordable, and roads that are quicker to drive on.
+func test_terrain() -> void:
+	_setup(false)
+	var land := Terrain.new()
+	land.half_extent = 150.0
+	land.noise_seed = 4242
+	land.rivers = [{
+		"width": 9.0, "depth": 3.0,
+		"fords": [{"at": 100.0, "width": 24.0}],
+		"path": [Vector3(-140, 0, -60), Vector3(0, 0, -20), Vector3(140, 0, 40)],
+	}]
+	land.roads = [[Vector3(0, 0, 0), Vector3(0, 0, 60), Vector3(60, 0, 110)]]
+	land.reserve_site(Vector3.ZERO, 40.0)
+	world.add_child(land)
+	await step(2)
+
+	# The map is large, and the ground under a point is a real answer.
+	check(land.half_extent * 2.0 >= 300.0, "the map is only %.0f m across" % (land.half_extent * 2.0))
+	var probe := land.height_at(20.0, -30.0)
+	check(is_finite(probe), "the ground has no height at a sampled point")
+
+	# Several biomes, not one.
+	var seen: Dictionary = {}
+	var step_m := 12.0
+	var x := -land.half_extent + step_m
+	while x < land.half_extent - step_m:
+		var z := -land.half_extent + step_m
+		while z < land.half_extent - step_m:
+			seen[land.biome_at(x, z)] = true
+			z += step_m
+		x += step_m
+	check(seen.size() >= 3, "the map only has %d biome(s)" % seen.size())
+	for biome in seen:
+		check(land.biome_name(biome) != "", "a biome has no name")
+
+	# The land is not flat, and it is quantised into facets.
+	var lowest := INF
+	var highest := -INF
+	for i in 400:
+		var px := randf_range(-land.half_extent + 10.0, land.half_extent - 10.0)
+		var pz := randf_range(-land.half_extent + 10.0, land.half_extent - 10.0)
+		var h := land.height_at(px, pz)
+		lowest = minf(lowest, h)
+		highest = maxf(highest, h)
+	check(highest - lowest > 5.0, "the map has only %.1f m of relief" % (highest - lowest))
+
+	# The build site is level, so a factory floor is never on a slope.
+	var site_heights: Array[float] = []
+	for angle in [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]:
+		site_heights.append(land.height_at(cos(angle) * 25.0, sin(angle) * 25.0))
+	for h in site_heights:
+		check_near(h, 0.0, 0.001, "the reserved build site is not level")
+
+	# The river is cut below the water line, and its ford is shallow enough to
+	# drive through while the rest of it is not.
+	var deep := land.water_depth(-70.0, -40.0)
+	check(deep > 1.0, "the river is only %.1f m deep at its channel" % deep)
+	var ford_point: Variant = _ford_point(land)
+	check(ford_point != null, "the river has no fordable stretch")
+	if ford_point != null:
+		var shallow: float = land.water_depth((ford_point as Vector3).x, (ford_point as Vector3).z)
+		check(shallow < 0.8, "the ford is %.1f m deep, too deep to drive" % shallow)
+		check(shallow > 0.0, "the ford is not water at all")
+
+	# The road is marked where it runs and nowhere else.
+	check(land.is_road(0.0, 50.0), "the road is not marked along its own line")
+	check(not land.is_road(-90.0, 40.0), "open ground 90 m off the road is marked as road")
+
+	# And dropping a point onto the ground puts it on the ground.
+	var dropped := land.place(Vector3(40.0, 99.0, -70.0), 0.5)
+	check_near(dropped.y, land.height_at(40.0, -70.0) + 0.5, 0.001,
+		"placing a point on the ground missed the ground")
+	done()
+
+## Walks the river looking for the shallow stretch the ford should have made.
+func _ford_point(land: Terrain) -> Variant:
+	var a := Vector3(-140, 0, -60)
+	var b := Vector3(0, 0, -20)
+	var c := Vector3(140, 0, 40)
+	for i in 400:
+		var t := float(i) / 400.0
+		var point := a.lerp(b, t * 2.0) if t < 0.5 else b.lerp(c, (t - 0.5) * 2.0)
+		var d := land.water_depth(point.x, point.z)
+		if d > 0.0 and d < 0.8:
+			return point
+	return null
 
 func test_bucking() -> void:
 	_setup()
@@ -380,6 +490,7 @@ func test_bucking() -> void:
 		player._buck(stub)
 	await step(2)
 	check_eq(manager.active_count(), before, "a piece under the minimum length was still split")
+	done()
 
 ## Spec: disgorging a chunk needs a pull of its mass plus the buried share of
 ## its mass again. Under that, it does not move.
@@ -422,6 +533,7 @@ func test_chunk_pull() -> void:
 	await step(2)
 	check(deep.pull_required() > rock.pull_required(),
 		"a chunk buried deeper did not need a harder pull")
+	done()
 
 ## Spec: a hammer opens cracks at random that deepen until the chunk breaks
 ## apart, and a heavier hammer cracks faster.
@@ -471,6 +583,7 @@ func test_chunk_cracking() -> void:
 		heavy_blows += 1
 	check(heavy_blows < blows, "a 20 kg hammer took %d blows against a 3 kg hammer's %d" % [
 		heavy_blows, blows])
+	done()
 
 ## Spec: a crusher breaks whole chunks and large pieces down, faster than by
 ## hand. It conserves volume like every other machine.
@@ -503,6 +616,7 @@ func test_crusher() -> void:
 	for item in manager.free_items():
 		check(item.length() <= def.max_piece_length + 0.0001,
 			"a crushed piece is %.2f m, over the %.2f m limit" % [item.length(), def.max_piece_length])
+	done()
 
 func test_sawmill() -> void:
 	_setup()
@@ -545,6 +659,7 @@ func test_sawmill() -> void:
 			"board is longer than the machine cuts (%.2f m)" % size.y)
 	# A bigger log must yield more board, not more pieces of the same board.
 	check(mill.total_produced >= 2, "a 5.6 m of log should not come out as one short board")
+	done()
 
 func test_furnace() -> void:
 	_setup()
@@ -577,6 +692,7 @@ func test_furnace() -> void:
 		check(size.y <= machine_def.max_piece_length + 0.0001, "billet is too long to leave the outlet")
 		check(size.y > size.x * 0.5, "billet should be a bar, not a cube")
 	check(billets > 0, "the furnace produced no billets")
+	done()
 
 func test_workbench() -> void:
 	_setup()
@@ -606,6 +722,7 @@ func test_workbench() -> void:
 		if item.item_id == recipe.output:
 			made += 1
 	check(made > 0, "the finished good never appeared at the outlet")
+	done()
 
 func test_machine_rejects() -> void:
 	_setup()
@@ -621,6 +738,62 @@ func test_machine_rejects() -> void:
 	check(is_instance_valid(ore) and ore.state == LooseItem.State.FREE,
 		"the rejected ore was destroyed")
 	check_near(mill.volume_in, 0.0, 0.0001, "sawmill counted material it refused")
+	done()
+
+## Spec: machine levels give larger intake and outlet holes. The hole is a real
+## hole - a piece that will not go through it does not go in.
+func test_machine_holes() -> void:
+	_setup()
+	PlayerState.levels[&"sawmill"] = 1
+	var mill := Machine.new()
+	mill.setup(manager, GameData.building(&"sawmill"), 0)
+	world.add_child(mill)
+	await step(2)
+
+	var mouth := mill.intake_hole
+	check(mouth.x > 0.1 and mouth.y > 0.1, "the mill has no mouth")
+
+	# A thin log goes in; a trunk twice the width of the mouth does not.
+	var thin := Solid.cylinder(mouth.x * 0.4, mouth.x * 0.4, 3.0)
+	var fat := Solid.cylinder(mouth.x * 1.2, mouth.x * 1.1, 6.0)
+	check(mill.fits(thin), "the mill refused a log well inside its mouth")
+	check(not mill.fits(fat), "the mill swallowed a trunk wider than its mouth")
+
+	var stuck := spawn(&"wood_pine", mill.input_point(), fat)
+	check(not mill.accept_item(stuck), "an oversized trunk was fed in anyway")
+	check_near(mill.volume_in, 0.0, 0.0001, "a refused trunk still counted as input")
+	check_eq(stuck.state, LooseItem.State.FREE, "a refused trunk was consumed")
+
+	# Bucked down, the same wood goes in.
+	var halves := manager.split_item(stuck, 0.5)
+	check_eq(halves.size(), 2, "the trunk did not split")
+	var narrowed := spawn(&"wood_pine", mill.input_point(), thin)
+	check(mill.accept_item(narrowed), "the mill refused a piece inside its mouth")
+	check(mill.volume_in > 0.0, "the accepted piece did not count as input")
+
+	# Upgrading the mill widens the mouth. It takes the top tier to swallow a
+	# trunk this fat, which is the point: for a long while you buck it first.
+	PlayerState.levels[&"sawmill"] = 3
+	var middling := Machine.new()
+	middling.setup(manager, GameData.building(&"sawmill"), 0)
+	middling.position = Vector3(0, 0, -40)
+	world.add_child(middling)
+	await step(2)
+	check(middling.intake_hole.x > mouth.x, "the mid-tier mill did not widen its mouth")
+	check(not middling.fits(fat), "a mid-tier mill already swallows a 1.7 m trunk")
+
+	PlayerState.levels[&"sawmill"] = 4
+	var bigger := Machine.new()
+	bigger.setup(manager, GameData.building(&"sawmill"), 0)
+	bigger.position = Vector3(0, 0, -20)
+	world.add_child(bigger)
+	await step(2)
+	check(bigger.intake_hole.x > mouth.x, "levelling the mill did not widen its mouth")
+	check(bigger.rate_m3_per_second > mill.rate_m3_per_second,
+		"levelling the mill did not speed it up")
+	check(bigger.fits(fat), "the upgraded mill still will not take the trunk")
+	check(bigger.level > mill.level, "the upgraded mill does not know its level")
+	done()
 
 func test_sell_zone() -> void:
 	_setup()
@@ -635,6 +808,7 @@ func test_sell_zone() -> void:
 	await step(30)
 	check_eq(Economy.money, price, "sell zone paid the wrong amount")
 	check_eq(manager.active_count(), 0, "sold item was not removed")
+	done()
 
 ## Spec: material left in the yard is bought when the player asks the shopkeep -
 ## all of it, and only what the player actually owns.
@@ -679,6 +853,7 @@ func test_sell_yard() -> void:
 	# Nothing left to sell is not an error, it is just nothing.
 	var empty := yard.sell_all()
 	check_eq(int(empty.count), 0, "the shopkeep bought something from an empty yard")
+	done()
 
 ## Spec: orders reward delivering a quantity of a named material.
 func test_quests() -> void:
@@ -738,6 +913,7 @@ func test_quests() -> void:
 			check_near(float(quest.delivered), 1.75, 0.0001, "order progress did not survive a save")
 	check(found, "the running order was not restored")
 	SaveSystem.delete_save(path)
+	done()
 
 func test_storage() -> void:
 	_setup()
@@ -760,6 +936,7 @@ func test_storage() -> void:
 	check_eq(manager.active_count(), 5, "bin did not pour the items back out")
 	check_near(loose_volume(), stored, 0.0001, "the bin gave back a different amount than it took")
 	check_eq(bin.count(), 0, "bin still reports contents after emptying")
+	done()
 
 func test_conveyor_to_machine() -> void:
 	_setup()
@@ -782,6 +959,62 @@ func test_conveyor_to_machine() -> void:
 	await step(150)
 	check(belt.total_delivered >= 3, "belt delivered %d of 3 items" % belt.total_delivered)
 	check(mill.volume_in > 0.0, "belt did not hand anything to the machine")
+	done()
+
+## Spec: belts want options - ramps to climb, borderless decks, and
+## retractables that can be stopped.
+func test_conveyor_options() -> void:
+	_setup()
+	Economy.from_dict({"money": 50000, "day": 1})
+
+	var ramp_def := GameData.building(&"conveyor_ramp")
+	check(ramp_def != null, "there is no belt ramp to build")
+	check(ramp_def.rise > 0.5, "the belt ramp does not climb")
+	var ramp := plot.place(ramp_def, Vector2i(-4, -4), 0) as Conveyor
+	check(ramp != null, "the ramp was not placed")
+	await step(4)
+
+	# A ramp lifts what rides it.
+	var box := spawn(&"lumber_pine", ramp.global_position + Vector3(0, 0.9, 1.6),
+		Solid.box(Vector3(0.3, 0.9, 0.3)))
+	for i in 200:
+		await step(1)
+		if ramp.captured_count() > 0:
+			break
+	check(ramp.captured_count() > 0, "the ramp never picked the piece up")
+	# Measured while it is still aboard: a 4 m belt at 3 m/s delivers in well
+	# under two seconds, and a delivered piece has already fallen off the end.
+	var lifted := box.global_position.y
+	for i in 20:
+		await step(1)
+	check(box.state == LooseItem.State.CAPTURED, "the piece left the ramp before it was measured")
+	check(box.global_position.y > lifted, "the ramp did not carry the piece upward")
+	check(ramp.output_transform().origin.y > ramp.global_position.y + 0.5,
+		"the ramp's far end is not above its near end")
+
+	# A borderless belt is a deck without rails.
+	var open_def := GameData.building(&"conveyor_open")
+	check(open_def != null, "there is no borderless belt to build")
+	check(not open_def.railed, "the borderless belt still has rails")
+	check(open_def.cost < GameData.building(&"conveyor").cost,
+		"a belt with less on it costs more")
+
+	# A stopped belt takes nothing new.
+	var flat := plot.place(GameData.building(&"conveyor"), Vector2i(4, -4), 0) as Conveyor
+	await step(4)
+	check(flat.running, "a new belt starts stopped")
+	check(not flat.toggle(), "toggling a running belt did not stop it")
+	var ignored := spawn(&"lumber_pine", flat.global_position + Vector3(0, 0.9, 1.6),
+		Solid.box(Vector3(0.3, 0.9, 0.3)))
+	await step(40)
+	check_eq(flat.captured_count(), 0, "a stopped belt picked something up")
+	check(flat.toggle(), "toggling a stopped belt did not start it")
+	for i in 200:
+		await step(1)
+		if flat.captured_count() > 0:
+			break
+	check(flat.captured_count() > 0, "a restarted belt never picked the piece up")
+	done()
 
 func test_splitter() -> void:
 	_setup()
@@ -808,6 +1041,7 @@ func test_splitter() -> void:
 			straight += 1
 	check(left > 0 and right > 0 and straight > 0,
 		"splitter did not use all three outputs (l%d s%d r%d)" % [left, straight, right])
+	done()
 
 func test_filter() -> void:
 	_setup()
@@ -850,6 +1084,7 @@ func test_filter() -> void:
 	await step(70)
 	var local_after: Vector3 = filter.global_transform.affine_inverse() * plank.global_position
 	check(local_after.x > 0.5, "inverted filter did not divert the matching item")
+	done()
 
 func test_building() -> void:
 	_setup()
@@ -881,6 +1116,7 @@ func test_building() -> void:
 	# Rotation must swap the footprint.
 	var rotated := Plot.rotated_footprint(Vector3i(3, 2, 4), 1)
 	check_eq(rotated, Vector3i(4, 2, 3), "rotating a footprint did not swap x/z")
+	done()
 
 ## Spec: a plan is filled by touching material to it, the first material fed to
 ## it is the only one it will take, and it turns solid when it is full.
@@ -937,6 +1173,7 @@ func test_schematic() -> void:
 	check_near(reclaimed, 4.0, 0.0001, "reclaiming returned the wrong volume")
 	check_near(loose_volume(&"lumber_pine") - before, 4.0, 0.0001,
 		"the material did not come back out of the plan")
+	done()
 
 func test_save_load() -> void:
 	_setup()
@@ -985,6 +1222,7 @@ func test_save_load() -> void:
 	check(typeof(parsed) == TYPE_DICTIONARY, "save file is not a JSON object")
 	check(parsed.has("plot") and parsed.has("economy"), "save file is missing sections")
 	SaveSystem.delete_save(path)
+	done()
 
 func test_expansion() -> void:
 	_setup()
@@ -999,6 +1237,7 @@ func test_expansion() -> void:
 	check(manager.per_plot_cap > before_cap, "expansion did not raise the item cap")
 	var far_cell := Vector2i(int(before_extent) + 2, 0)
 	check(plot.in_bounds(far_cell), "newly gained ground is still out of bounds")
+	done()
 
 func test_upgrades() -> void:
 	_setup(false)
@@ -1015,6 +1254,7 @@ func test_upgrades() -> void:
 		PlayerState.try_upgrade(&"axe")
 	check(not PlayerState.try_upgrade(&"axe"), "bought past the last level")
 	check_eq(PlayerState.next_cost(&"axe"), -1, "maxed track still reports a cost")
+	done()
 
 ## Spec: stock sits in boxes on shelves, is carried to the counter and paid for
 ## there, and walking out with something unpaid makes it disappear.
@@ -1109,6 +1349,7 @@ func test_store() -> void:
 	var tier_before := plot.tier
 	var land := shop.buy_land()
 	check(plot.tier == tier_before + 1, "the desk did not sell a parcel (%s)" % land)
+	done()
 
 func test_carry() -> void:
 	_setup()
@@ -1152,6 +1393,7 @@ func test_carry() -> void:
 	player._drop(1)
 	await step(10)
 	check_eq(third.state, LooseItem.State.FREE, "dropped item is not free again")
+	done()
 
 ## Spec: the player lifts up to 100 kg and moves up to 1000 kg. Both limits are
 ## about weight, so the same shape in a denser wood stops being liftable.
@@ -1199,6 +1441,7 @@ func test_handling_limits() -> void:
 	check(not player.pick_up(trunk), "the rack lifted a %.0f kg trunk" % trunk.mass)
 	player._grab_drag_item(trunk)
 	check(player.dragged == null, "a %.0f kg trunk was dragged past a 1000 kg limit" % trunk.mass)
+	done()
 
 ## Spec: an object is owned once the player picks it up or buys it, and owned
 ## objects on the property are saved with the game.
@@ -1259,6 +1502,7 @@ func test_ownership() -> void:
 	if typeof(doc) == TYPE_DICTIONARY:
 		check_eq((doc["loose"] as Array).size(), owned_before, "wrong number of pieces written")
 	SaveSystem.delete_save(path)
+	done()
 
 func test_hauler() -> void:
 	_setup(false)
@@ -1353,6 +1597,7 @@ func test_hauler() -> void:
 	check(truck.can_accept(&"lumber_pine"), "hauler refuses items while it has room")
 	truck.cargo_capacity_m3 = 0.001
 	check(not truck.can_accept(&"lumber_pine"), "hauler accepts items when full")
+	done()
 
 ## Spec: a pad spawns one copy of its vehicle; triggering it again removes the
 ## old one first.
@@ -1390,6 +1635,7 @@ func test_vehicle_pad() -> void:
 	await step(10)
 	check(not pad.has_vehicle(), "the pad still has a truck after a recall")
 	check(_haulers_in(world) == 0, "a recall left %d trucks behind" % _haulers_in(world))
+	done()
 
 ## Spec: every machine has a set power, beyond which it has no effect. The crane
 ## will not lift past its rating and the winch will not pull past its own.
@@ -1472,6 +1718,7 @@ func test_vehicle_rig() -> void:
 	await step(4)
 	check(heavy.global_position.distance_to(stood) < 0.5,
 		"the winch dragged a load %.0f times past its rating" % (heavy.mass / 10.0))
+	done()
 
 func _haulers_in(node: Node) -> int:
 	var n := 0
@@ -1489,6 +1736,7 @@ func test_kill_plane() -> void:
 	check(item.global_position.y > Tuning.KILL_PLANE_Y,
 		"item below the kill plane was not rescued (y=%.1f)" % item.global_position.y)
 	check(manager.stat_killplane > 0, "kill-plane rescue was not counted")
+	done()
 
 func test_cap() -> void:
 	_setup()
@@ -1502,6 +1750,7 @@ func test_cap() -> void:
 	# Pooling means the node count stays near the cap however many spawns happen.
 	var nodes := manager.active_count() + manager.pooled_count()
 	check(nodes <= 45, "pooling leaked nodes: %d live+pooled for a cap of 40" % nodes)
+	done()
 
 func test_full_base() -> void:
 	_setup()
@@ -1559,6 +1808,7 @@ func test_full_base() -> void:
 		produced += m.total_produced
 	check(produced > 0, "no machine produced anything in the running base")
 	check(Economy.money != money_before, "the base earned nothing (sell chute never fired)")
+	done()
 
 func _make_tree(height: float, radius: float, taper: float, branches: int) -> ChoppableTree:
 	var tree := ChoppableTree.new()

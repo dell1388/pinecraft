@@ -26,43 +26,90 @@ it up; headless runs resolve class names from that cache.
 | Key | Action |
 | --- | --- |
 | WASD / Shift / Space | move, sprint, jump |
-| LMB | chop tree / buck felled wood / mine rock (place, in build mode) |
-| RMB | pick item onto the carry rack (remove building, in build mode) |
-| F | heavy-drag a single item / release |
+| LMB | cut the limb under the crosshair / hammer a chunk / buck felled wood |
+| RMB | pick a piece onto the carry rack |
+| F | heavy-drag a piece, or heave a chunk out of the ground |
 | Q / G | drop one / drop everything |
-| E | deposit into a machine, bin or sell zone |
+| E | deposit, open a paid box, talk to the shopkeep, stop or start a belt |
 | Shift+E | empty a storage bin back onto the ground |
-| B / R / wheel | build mode / rotate / cycle building |
-| M / U / F1 | market board / shop & upgrades / help |
+| B | build mode (freecam: WASD, mouse, Shift/Ctrl for height) |
+| Z / X / C | rotate the ghost about each axis, in quarter turns |
+| LMB / RMB (build) | place / remove |
+| M / U / F1 | market board / shop board / help |
 | F5 / F9 / F8 | save / load / new game |
-| V / X / Z / C | enter-exit hauler / unload all / drop one / flip it upright |
+| V | get in and out of the hauler (third-person while driving) |
+| E / G (driving) | hook and unhook the winch / reel it in |
+| F (driving) | crane: take hold of a piece, or let it go |
+| WASD / Shift / Ctrl / R / T (crane) | drive the load itself, and turn it |
+| X / Z / C | unload all / drop one / flip the truck upright |
 
 ## The loop
 
-1. **Fell** pine, oak and ironwood in the forest ring. A felled tree does not
-   turn into tidy logs: the trunk drops as one piece with exactly the shape it
-   grew to - a 7 m tapered pole weighing a quarter of a tonne - and its branches
-   come off as their own pieces.
-2. **Buck** that trunk down with the axe. Each cut halves a piece, and the work
-   a cut takes scales with the cross-section at the cut, so a fat trunk is
-   several swings and a branch is one. Cut until the pieces are small enough to
-   carry (or drag them, or load them on the hauler whole).
-3. **Mine** iron, copper and gold in the quarry to the west.
-4. **Haul** with the carry rack (a volume, not a slot count), the heavy drag, or
-   the flatbed hauler. A full rack slows you down. Anything in the hauler's bed
-   becomes part of the truck and cannot fall out; `X` unloads the lot, `Z` drops
-   one.
-5. **Process**: the sawmill takes wood in one end and pushes square lumber out
-   the other; the furnace is fed through the roof and pours billets out of its
-   side; the workbench assembles lumber and metal into crates and toolkits.
-6. **Sell** at the gold depot pad or, once built, a sell chute on your own plot.
-   Prices are redrawn every in-game day, so stockpile in bins when a price is low.
-7. **Upgrade** axe, pickaxe, carry rack and boots; **expand** the plot through
-   four tiers; **unlock** the furnace, workbench and fast conveyors.
-8. **Automate**: belts hand items straight into machines, splitters fan output
-   out three ways, filters sort by item type (invert them with Shift+E), storage
-   buffers the surplus, and a sell chute closes the loop without you walking a
-   step.
+1. **Cut** a tree apart cylinder by cylinder. There is no tree health bar: every
+   branch and the trunk has its own collider and its own accumulated axe work,
+   and a swing lands on whichever limb is under the crosshair. Take a branch and
+   the tree keeps standing; cut the trunk and it parts *at the height of the
+   cut*, so what is above falls with the branches that were on it and what is
+   below is a shorter tree you can cut again.
+2. **Buck** the felled length down. Each cut halves a piece, and the work scales
+   with the cross-section at the cut, so a fat trunk is several swings and a
+   branch is one. You are cutting it down to something that will go through a
+   machine's mouth, or that you can lift.
+3. **Work ore out of the ground.** A chunk is part buried, and the pull to take
+   it whole is its own weight plus the buried share of that weight again - small
+   ones come out on a heave, big ones will not come at all. The other way is the
+   hammer: every blow opens a crack somewhere random or drives a nearby one
+   deeper, and when a crack goes through, the piece on its near side breaks off
+   while the rest settles further in. A heavier head cracks deeper. A crusher
+   does the same job to whole chunks, much faster.
+4. **Move it.** You can lift 100 kg and drag 1000 kg; past that you need the
+   truck's winch or its crane. A full rack slows you down, which is the reason
+   to build belts. Anything in the hauler's bed becomes part of the truck.
+5. **Process.** The sawmill's intake is a real hole - a trunk that will not fit
+   through it does not go in, so you buck it first or buy a mill with a bigger
+   mouth. Machines conserve volume exactly: what goes in comes back out as
+   pieces with the outlet's cross-section, at whatever length that volume needs.
+6. **Sell** at the yard. Drop material inside the fence, walk up to the shopkeep
+   and ask; everything of yours in the yard is bought at once at the day's rate,
+   with whatever is still in your arms going over the counter with it. Standing
+   orders pay a bonus on top for a volume of a named material.
+7. **Buy** at the store, which is a shop you walk into. Stock sits in labelled
+   boxes on shelves; carry what you want to the counter and the till charges for
+   it. Taking a box off a shelf is not owning it, and carrying an unpaid one out
+   of the door puts it back. A paid box is yours to open wherever you like. Land
+   is sold at the desk.
+8. **Build.** Machines and belts go on the plot grid. Structures are built out of
+   *material*: place a translucent plan, touch material to it, and it fills by
+   exactly that piece's volume. The first piece decides what the shape is made
+   of and nothing else will go in after that; full, it turns solid and takes the
+   material's colour.
+9. **Automate**: belts hand items straight into machines, ramps climb, splitters
+   fan output three ways, filters sort by type, belts can be stopped, storage
+   buffers the surplus, and a sell chute closes the loop.
+
+## The map
+
+The land is one large faceted heightfield, 600 m across. Height and biome come
+from two low-frequency fields, elevation and moisture, the way a real biome
+table works - so it is procedural but legible, and the same seed gives the same
+country every time. Woodland, swamp, desert, mountains, taiga and snowland all
+appear; each has its own base height, relief and colour.
+
+Everything else is carved into that afterwards, in order:
+
+* **Build sites are levelled** - the plot, the yard, the store and the quarry -
+  so a factory floor is never on a slope.
+* **Rivers are cut down through** whatever the land was doing, with banks that
+  fall away over a few metres. Each has stretches left shallow enough to drive
+  through; everywhere else wants a bridge. Water deeper than a metre is swum
+  rather than waded, slowly, and a hauler whose driver seat goes under can no
+  longer be driven.
+* **Roads are graded across** it toward their own centre-line rather than draped
+  over every bump, and they give a small speed bonus to drive on. Where a road
+  meets a river it crosses at a ford rather than filling the river in.
+
+Resource fields sample the ground, so trees and rocks stand on it and avoid the
+water and the roads.
 
 ## Materials are volumes
 
@@ -94,45 +141,64 @@ another:
 Still no asset files: every mesh is built in code from primitives, just more of
 them than before.
 
-* **Trees** are a flared stump, a tapered trunk, four to seven angled branch
-  cylinders and a cone of foliage on each branch end. The trunk mesh and the
-  piece that falls are the same frustum, which is what makes "it keeps the shape
-  it grew" true rather than approximate.
+* **The land** is one `ArrayMesh` with a triangle per facet - each triangle
+  carries its own vertices and its own normal, which is what makes hills read as
+  facets rather than as a blurry blanket, and vertex colours carry the biome. Its
+  collider is the same triangles.
+* **Trees** are a flared stump, a tapered trunk, four to eight angled branch
+  cylinders and a cone of foliage on each branch end. Every limb has its own
+  collider, which is how the aim ray knows which one you are standing under. The
+  trunk mesh and the piece that falls are the same frustum, which is what makes
+  "it keeps the shape it grew" true rather than approximate.
+* **Ore chunks** are a cluster of tilted boxes with bright ore seams, sunk into
+  the ground by however much of them is buried, and drawn from the ore left in
+  them - so hammering a piece off visibly shrinks the rock. Open cracks are
+  dark seams that lengthen as they deepen.
 * **Machines** are shells, not blocks: each wall is built as up to four boxes
   around a rectangular opening, so the intake and outlet are real holes you can
-  see material go into and come out of. The sawmill carries a blade through a
-  slot in its roof and infeed/outfeed lips; the furnace has a chimney and a
-  glowing vent; the workbench has a top and a tool rack.
+  see material go into and come out of - and they *are* real holes, since a
+  piece has to fit through one to go in. Upgrading a machine rebuilds its shell
+  around the new mouth. The sawmill carries a blade through a slot in its roof;
+  the furnace has a chimney and a glowing vent.
 * **The hauler** has a cab, deck boards, headlights, and four wheels with hubs
-  that spin with ground speed and steer with the front axle. The wheels are
-  decoration over the same four suspension raycasts as before.
-* **Ore rocks** are a cluster of tilted boxes with bright ore seams, tinted from
-  whatever they drop.
+  that spin with ground speed and steer with the front axle. Its winch cable and
+  crane boom are drawn last, from the hook to wherever the load ended up.
+* **The yard** is a fenced pad with a hut and a shopkeep you can walk up to and
+  aim at. **The store** is a room with three walls and a doorway, shelving down
+  the back, a counter with a till and a land desk by the door.
 * Collision stays primitive throughout: one cylinder or box per loose piece, a
-  handful of boxes per machine shell, one box per tree.
+  handful of boxes per machine shell, one cylinder per tree limb, one box per
+  chunk. The land is the only trimesh, and nothing dynamic uses one.
 
 ## Architecture
 
 ```
-scripts/core/      Layers, Tuning, InputSetup, Trigger (trigger-volume guard)
-scripts/systems/   GameData (autoload), Economy (autoload), PlayerState (autoload), SaveSystem
+scripts/core/      Layers, Tuning, InputSetup, Trigger (trigger-volume guard),
+                   Solid (volume, fitting and cutting maths)
+scripts/systems/   GameData (autoload), Economy (autoload), PlayerState (autoload),
+                   SaveSystem, QuestLog
 scripts/data/      RecipeDef, MachineDef, BuildingDef
 scripts/physics/   LooseItem, LooseItemManager, ItemDef
-scripts/world/     ChoppableTree, OreRock, Machine, StorageBin, SellZone,
+scripts/world/     Terrain, ResourceField, ChoppableTree, OreRock, Machine,
+                   StorageBin, SellZone, SellYard, Store, VehiclePad,
                    Conveyor, Splitter, Filter, World, StressWorld, StressTest
-scripts/build/     Plot (grid, placement, persistence), BuildSystem (ghost)
+scripts/build/     Plot (grid, placement, persistence), BuildSystem (freecam
+                   ghost), Schematic (shapes filled with material)
 scripts/player/    Player
-scripts/vehicle/   Hauler
+scripts/vehicle/   Hauler, VehicleRig (winch and crane)
 scripts/ui/        GameHUD, StressHUD
-scripts/core/      ... plus Solid (volume and cutting maths)
-data/              items, recipes, buildings, upgrades, prices  (all JSON)
+data/              items, recipes, buildings, upgrades, prices, quests, store
 tools/             Bench, Tests, SmokeWorld, Probe
 ```
 
 Everything numeric lives in `data/*.json`: items and their mass, size, colour,
 base value and volatility; recipes; building costs, footprints and unlocks;
-upgrade tracks; plot expansion tiers. `GameData` cross-validates every reference
-at load, so a typo in a data file fails loudly instead of silently doing nothing.
+upgrade tracks; plot expansion tiers; standing orders; what the store stocks.
+`GameData` cross-validates every reference at load, so a typo in a data file
+fails loudly instead of silently doing nothing. Prices are never written twice:
+a boxed axe on a shelf costs whatever the next level of the axe track costs, and
+a crated machine costs that building's unlock price until you own one and its
+next level afterwards.
 
 ## Physics design
 
@@ -203,37 +269,54 @@ Budget is 16.67 ms.
 
 ### Integration tests (`scenes/tests.tscn`)
 
-297 checks across 23 tests, all passing: data integrity, deterministic daily
-prices, felling (the trunk arrives at the height, base radius and taper the tree
-grew to, and topples), bucking (splits halve, volume is conserved, stubs cannot
-be split forever), mining, milling, smelting and assembly (volume in equals
-volume out, boards match the outlet cross-section, nothing exceeds the maximum
-cut length), machine rejection, volume pricing at the sell zone, storage
-store/dispense, belt-to-machine hand-off, splitter round-robin, belt-logic
-filtering, building placement/cost/refund/bounds, save-load round-trip, plot
-expansion, upgrades, carry limits by volume (including refusing a whole trunk),
-hauler driving and cargo retention through a full-speed collision, a rollover,
-a recovery and a save/load, kill plane, item cap, and a full automated base
-under load.
+664 checks across 36 tests, all passing. Every test has to say it reached its
+own end, so one that dies part way through - a parse error in what it exercises,
+say - is reported as a failure instead of quietly contributing fewer checks.
+
+Covered: data integrity across every cross-reference in the JSON tables;
+deterministic daily prices; felling (the trunk arrives at the height, base
+radius and taper the tree grew to, and topples); limb-by-limb cutting (a branch
+comes off alone, the trunk parts at the height of the cut, the stump keeps
+standing, and wood is conserved through every cut); resource fields filling to a
+quota and stopping; terrain biomes, relief, levelled build sites, river depth,
+fords and road marking; bucking; chunk pulling (the required pull is mass plus
+the embedded share of it, and an under-strength pull does nothing); hammer
+cracking (a heavier head takes fewer blows, and the ore adds up); the crusher;
+milling, smelting and assembly with volume in equal to volume out; intake holes
+gating what fits and machine levels widening them; the sell yard buying only
+what the player owns inside it; orders paying out and surviving a save; storage;
+belt-to-machine hand-off; belt ramps, borderless decks and stopping a belt;
+splitter round-robin; belt-logic filtering; building placement, cost and refund;
+plans filling with one material and turning solid, with offcuts returned and
+material reclaimed; save-load round-trip; plot expansion; upgrades; the store
+(shelf pricing off the track, taking a box not being owning it, paying at the
+till, opening a paid box, unpaid stock going back on the shelf, land at the
+desk); carry limits by length and lift limits by weight; ownership and its
+persistence; hauler driving and cargo retention through a collision, a rollover
+and a save/load; vehicle pads spawning one truck and replacing it; winch and
+crane power ratings; kill plane; item cap; and a full automated base under load.
 
 ### Physics benchmark (`scenes/bench.tscn`)
 
 | scenario | avg ms | p95 | max | at rest | % budget |
 | --- | --- | --- | --- | --- | --- |
-| 100 logs dropped | 1.08 | 2.04 | 2.59 | 0.46 | 6% |
-| 250 logs dropped | 4.24 | 5.86 | 7.33 | 0.43 | 25% |
-| **500 logs dropped** | **10.81** | **14.46** | **18.30** | **0.57** | **65%** |
-| conveyor, kinematic, fed 5/s | 0.70 | 1.18 | 1.61 | - | 4% |
-| conveyor, surface velocity, fed 5/s | 0.89 | 1.39 | 1.88 | - | 5% |
-| 20 dragged items over a 200 pile | 2.57 | 4.41 | 6.12 | - | 15% |
-| 60 ore fired at 60 m/s (CCD) | 0.64 | 1.50 | 2.04 | - | 4% |
-| continuous spawn/despawn churn | 2.61 | 3.58 | 5.37 | - | 16% |
-| 1500 items into a 200 cap | 4.25 | 4.95 | 8.72 | 0.43 | 25% |
+| 100 logs dropped | 0.92 | 2.45 | 2.95 | 0.18 | 6% |
+| 250 logs dropped | 6.27 | 9.73 | 20.65 | 0.21 | 38% |
+| **500 logs dropped** | **12.59** | **17.75** | **37.12** | **0.50** | **76%** |
+| 1000 logs dropped | 40.58 | 60.12 | 97.23 | 16.23 | 243% |
+| 2000 logs dropped | 67.22 | 99.82 | 120.78 | 91.65 | 403% |
+| conveyor, kinematic, fed 5/s | 0.55 | 0.98 | 2.56 | - | 3% |
+| conveyor, surface velocity, fed 5/s | 0.68 | 1.08 | 1.90 | - | 4% |
+| 20 dragged items over a 200 pile | 2.43 | 3.81 | 4.76 | - | 15% |
+| 60 ore fired at 60 m/s (CCD) | 0.78 | 1.53 | 1.82 | - | 5% |
+| continuous spawn/despawn churn | 2.69 | 3.64 | 5.55 | - | 16% |
+| 1500 items into a 200 cap | 3.60 | 4.13 | 7.18 | 0.28 | 22% |
 
-These are cylinders now, not boxes. Round logs cost roughly 60% more solver
-time than the old box stock and take longer to settle, because they roll -
-500 of them went from 6.6 ms to 10.8 ms a frame. Still inside budget, and the
-per-plot cap of 200 keeps real play at about a fifth of it.
+Loose stock is cylinders, not boxes. Round logs cost roughly 60% more solver
+time than box stock and take longer to settle, because they roll. The last two
+rows are deliberately past the point of no return and are there to show where it
+is: the per-plot cap of 200 at tier 0, rising to 400, keeps real play in the top
+third of the table, at a fifth to a quarter of budget.
 
 * No tunnelling: 60 ore chunks at 60 m/s, 0 escaped the plot.
 * No instability while dragging 20 items over a live 200-log pile: 0 escapes.
@@ -243,20 +326,71 @@ per-plot cap of 200 keeps real play at about a fifth of it.
 
 ### Whole game, headless (`scenes/smoke_world.tscn`)
 
-The assembled world (90 trees, 34 rocks, plot, machines, belts, sell chute,
-hauler, ~100 loose pieces) runs at **0.97 ms/frame average, 11.5 ms worst**,
-with trees felling, rocks breaking, machines milling and the sell chute paying
-out. The smoke run asserts the world's contents as well as its frame cost - it
-was a silently empty forest that caught a broken species table here.
+The assembled world - a 600 m biome map with rivers and roads, 90 trees and 33
+ore chunks kept stocked by their fields, the plot, machines, belts, the sell
+yard, the store, the hauler and ~130 loose pieces - runs at **2.1 ms/frame
+average**, with trees felling, chunks breaking, machines milling and the sell
+chute paying out. Generating the land costs one frame of about 37 ms at startup
+and nothing afterwards.
+
+The smoke run asserts the world's *contents* as well as its frame cost, which is
+what makes it worth having: it was an empty forest that caught a broken species
+table, and a missing signal handler that caught a world scene which compiled in
+the test suite but not in the game.
+
+## Against the design doc
+
+The design document drives what is here. Line by line:
+
+**Built and tested.** Trees as cut-able cylinder groups with leaves that go with
+the wood they hang on; felled wood with real mass and collision that can be cut
+smaller and fed to a sawmill that returns the same volume in handier shapes.
+Irregular ore chunks with ore-coloured seams; chunks taken whole by a pull equal
+to their mass plus the embedded fraction of it, or hammered apart by randomly
+generated cracks that deepen faster under a heavier head; a crusher that does it
+wholesale; ore smelted to higher value density. Value as density times volume,
+periodic price swings, and orders that reward delivering quantities of named
+materials. A yard where the shopkeep buys everything of yours standing in it.
+Lifting to 100 kg and moving to 1000 kg. Cargo that becomes part of the vehicle
+when a driver gets in. Third-person driving, winches that hook to any solid
+surface, a crane that hands the player the *object* rather than the boom, and a
+power rating on both past which nothing happens at all. A square of property to
+build on, freecam build mode, quarter-turn rotation on three axes, and schematic
+shapes that solidify when filled with their own volume of one material. Machines
+that must be placed and fed, and vehicle spawn pads that deliver one copy and
+recall the old one. A store you walk into, with stock in labelled boxes that
+vanish if carried out unpaid, and land sold at the desk. A large simplistic
+polygonal map with six biomes, rivers to ford or bridge, water that slows you
+and drowns a driver's seat, and roads that are quicker to drive. Ownership that
+follows picking up, buying and machines on your own plot, and that decides what
+a save remembers. Three to five levels per tool and machine, with machine levels
+widening real intake holes, and belts as ramps, borderless decks and
+retractables.
+
+**Not built yet.** Caves - the doc wants large extensive ones with rocks and ore
+inside, and a heightfield cannot express an overhang, so that needs a different
+representation of the land than the one here. Build-mode gizmo handles and
+multi-select: the doc asks for cardinal handles on a selected object for finer
+translation, rotation and scale, and for selecting several objects and moving
+them as one; placement here is still grid-snapped, which is what keeps the
+occupancy grid exact. Outriggers, and vehicles beyond the one hauler - the
+non-linear vehicle progression the doc describes (fast and small, slow and
+strong, crane and no bed) needs more than one chassis to be a progression.
+Belt curves and tees as distinct pieces, though filters and splitters already
+cover the sorting the doc lists beside them.
 
 ## Status and next steps
 
-Done: physics foundation, full MVP loop, volume-conserving materials, felling
-and bucking, plot building with JSON save/load, automation (belts, splitters,
-filters, storage, sell chutes), ore mining, plot expansion, upgrades, the
-hauler, and daily-changing prices.
+Done: physics foundation, the full loop from standing tree to sold material,
+volume-conserving materials and machines, limb-by-limb felling and bucking,
+embedded ore and hammer-cracking, quota-stocked resource fields, a biome map
+with rivers and roads, plot building with JSON save/load, schematic shapes,
+automation (belts, ramps, splitters, filters, storage, sell chutes), the
+physical store, the sell yard and standing orders, vehicle pads, the winch and
+crane, ownership and persistence, and daily-changing prices.
 
-Natural next steps: logic gates and filters on the belt network, more machine
-tiers, a proper art pass, quests or contracts to steer progression, and
+Natural next steps, in the order they would pay off: caves and the terrain
+representation they need; the build-mode gizmo and multi-select; a second and
+third vehicle so the vehicle upgrade path is a real choice; belt curves; and
 performance work on the manager's per-frame loop (the ~0.4 ms floor at rest is
 that loop, not the solver).
