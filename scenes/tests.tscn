@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://b1pinecrafttests"]
+
+[ext_resource type="Script" path="res://tools/Tests.gd" id="1_tests"]
+
+[node name="Tests" type="Node3D"]
+script = ExtResource("1_tests")

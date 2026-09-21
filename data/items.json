@@ -1,9 +1,18 @@
 {
   "items": [
-    { "id": "log_pine",   "display_name": "Pine Log",  "size": [0.35, 0.35, 1.60], "mass": 8.0,  "color": [0.45, 0.30, 0.18], "base_value": 3 },
-    { "id": "log_oak",    "display_name": "Oak Log",   "size": [0.42, 0.42, 1.70], "mass": 12.0, "color": [0.36, 0.24, 0.14], "base_value": 6 },
-    { "id": "plank",      "display_name": "Plank",     "size": [0.18, 0.08, 1.40], "mass": 3.0,  "color": [0.72, 0.55, 0.32], "base_value": 9 },
-    { "id": "ore_iron",   "display_name": "Iron Ore",  "size": [0.45, 0.40, 0.45], "mass": 14.0, "color": [0.52, 0.53, 0.58], "base_value": 11 },
-    { "id": "ingot_iron", "display_name": "Iron Ingot","size": [0.50, 0.18, 0.24], "mass": 9.0,  "color": [0.70, 0.72, 0.78], "base_value": 26 }
+    { "id": "log_pine",     "display_name": "Pine Log",      "category": "wood",  "size": [0.35, 0.35, 1.60], "mass": 8.0,  "color": [0.45, 0.30, 0.18], "base_value": 3,   "volatility": 0.25 },
+    { "id": "log_oak",      "display_name": "Oak Log",       "category": "wood",  "size": [0.42, 0.42, 1.70], "mass": 12.0, "color": [0.36, 0.24, 0.14], "base_value": 7,   "volatility": 0.28 },
+    { "id": "log_ironwood", "display_name": "Ironwood Log",  "category": "wood",  "size": [0.46, 0.46, 1.75], "mass": 18.0, "color": [0.27, 0.22, 0.20], "base_value": 18,  "volatility": 0.35 },
+    { "id": "plank_pine",   "display_name": "Pine Plank",    "category": "wood",  "size": [0.18, 0.08, 1.40], "mass": 3.0,  "color": [0.72, 0.55, 0.32], "base_value": 5,   "volatility": 0.22 },
+    { "id": "plank_oak",    "display_name": "Oak Plank",     "category": "wood",  "size": [0.20, 0.09, 1.45], "mass": 4.0,  "color": [0.62, 0.44, 0.24], "base_value": 11,  "volatility": 0.24 },
+    { "id": "plank_ironwood","display_name": "Ironwood Plank","category": "wood", "size": [0.22, 0.10, 1.50], "mass": 6.0,  "color": [0.40, 0.34, 0.30], "base_value": 27,  "volatility": 0.30 },
+    { "id": "ore_iron",     "display_name": "Iron Ore",      "category": "ore",   "size": [0.45, 0.40, 0.45], "mass": 14.0, "color": [0.52, 0.53, 0.58], "base_value": 12,  "volatility": 0.30 },
+    { "id": "ore_copper",   "display_name": "Copper Ore",    "category": "ore",   "size": [0.44, 0.40, 0.44], "mass": 13.0, "color": [0.66, 0.42, 0.25], "base_value": 16,  "volatility": 0.34 },
+    { "id": "ore_gold",     "display_name": "Gold Ore",      "category": "ore",   "size": [0.40, 0.36, 0.40], "mass": 16.0, "color": [0.78, 0.66, 0.24], "base_value": 44,  "volatility": 0.45 },
+    { "id": "ingot_iron",   "display_name": "Iron Ingot",    "category": "metal", "size": [0.50, 0.18, 0.24], "mass": 9.0,  "color": [0.70, 0.72, 0.78], "base_value": 30,  "volatility": 0.26 },
+    { "id": "ingot_copper", "display_name": "Copper Ingot",  "category": "metal", "size": [0.50, 0.18, 0.24], "mass": 8.5,  "color": [0.85, 0.52, 0.28], "base_value": 40,  "volatility": 0.28 },
+    { "id": "ingot_gold",   "display_name": "Gold Ingot",    "category": "metal", "size": [0.48, 0.17, 0.23], "mass": 11.0, "color": [0.95, 0.80, 0.25], "base_value": 108, "volatility": 0.40 },
+    { "id": "crate",        "display_name": "Shipping Crate","category": "goods", "size": [0.70, 0.70, 0.70], "mass": 20.0, "color": [0.58, 0.40, 0.22], "base_value": 120, "volatility": 0.18 },
+    { "id": "toolkit",      "display_name": "Toolkit",       "category": "goods", "size": [0.55, 0.30, 0.35], "mass": 12.0, "color": [0.30, 0.45, 0.62], "base_value": 260, "volatility": 0.22 }
   ]
 }

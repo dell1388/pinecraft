@@ -10,11 +10,12 @@ const LOOSE    := 1 << 2   # loose physics items: logs, ore, crates
 const MACHINE  := 1 << 3   # kinematic machines & conveyor bodies
 const TREE     := 1 << 4   # choppable trees (static until felled)
 const TRIGGER  := 1 << 5   # area volumes: conveyor capture, hoppers, sell zones
-const VEHICLE  := 1 << 6   # vehicles (later)
+const VEHICLE  := 1 << 6   # vehicles
+const KERB     := 1 << 7   # plot edging: stops items rolling away, not people
 
 # --- Composite masks -------------------------------------------------------
 
-const MASK_LOOSE := WORLD | LOOSE | MACHINE | TREE | PLAYER | VEHICLE
+const MASK_LOOSE := WORLD | LOOSE | MACHINE | TREE | PLAYER | VEHICLE | KERB
 const MASK_PLAYER := WORLD | LOOSE | MACHINE | TREE | VEHICLE
 const MASK_MACHINE := LOOSE | PLAYER | VEHICLE
 const MASK_TRIGGER := LOOSE | PLAYER

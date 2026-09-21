@@ -1,0 +1,23 @@
+=== Pinecraft integration tests | Godot 4.4.1-stable (official) | Jolt Physics ===
+  [ok  ] data integrity
+  [ok  ] deterministic daily prices
+  [ok  ] chopping a tree yields logs
+  [ok  ] mining a rock yields ore
+  [ok  ] sawmill converts logs to planks
+  [ok  ] machines reject items they cannot use
+  [ok  ] sell zone pays today's price
+  [ok  ] storage bin stores and dispenses
+  [ok  ] conveyor feeds a machine directly
+  [ok  ] splitter routes round-robin
+  [ok  ] building placement, cost and removal
+  [ok  ] save/load round-trip
+  [ok  ] plot expansion raises bounds and cap
+  [ok  ] tool upgrades apply and charge
+  [ok  ] carry rack limits and deposits
+  [ok  ] hauler drives, carries and stays upright
+  [ok  ] kill plane rescues fallen items
+  [ok  ] per-plot cap is enforced
+      full base: 191 items live, avg 1.23 ms/frame, worst 3.77 ms (budget 16.67)
+  [ok  ] full automated base stays in budget
+
+PASS - 193 checks

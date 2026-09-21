@@ -10,6 +10,8 @@ extends Resource
 @export var mass: float = 8.0
 @export var color: Color = Color(0.45, 0.30, 0.18)
 @export var base_value: int = 3
+@export var category: StringName = &"misc"
+@export var volatility: float = 0.25
 
 static func make(p_id: StringName, p_name: String, p_size: Vector3, p_mass: float,
 		p_color: Color, p_value: int) -> ItemDef:
@@ -34,10 +36,13 @@ static func defaults() -> Array[ItemDef]:
 static func from_dict(d: Dictionary) -> ItemDef:
 	var s: Array = d.get("size", [0.35, 0.35, 1.6])
 	var c: Array = d.get("color", [1.0, 1.0, 1.0])
-	return make(
+	var def := make(
 		StringName(d.get("id", "unknown")),
 		String(d.get("display_name", "Unknown")),
 		Vector3(s[0], s[1], s[2]),
 		float(d.get("mass", 5.0)),
 		Color(c[0], c[1], c[2]),
 		int(d.get("base_value", 1)))
+	def.category = StringName(d.get("category", "misc"))
+	def.volatility = float(d.get("volatility", 0.25))
+	return def

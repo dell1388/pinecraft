@@ -1,0 +1,17 @@
+{
+  "buildings": [
+    { "id": "conveyor",   "display_name": "Conveyor",    "kind": "conveyor", "cost": 60,   "size": [1, 1, 4], "speed": 3.0 },
+    { "id": "conveyor_fast", "display_name": "Fast Conveyor", "kind": "conveyor", "cost": 180, "size": [1, 1, 4], "speed": 6.0, "unlock_cost": 1200 },
+    { "id": "splitter",   "display_name": "Splitter",    "kind": "splitter", "cost": 140,  "size": [2, 1, 2] },
+    { "id": "sawmill",    "display_name": "Sawmill",     "kind": "machine",  "cost": 450,  "size": [3, 2, 4], "machine": "sawmill" },
+    { "id": "furnace",    "display_name": "Furnace",     "kind": "machine",  "cost": 900,  "size": [3, 3, 3], "machine": "furnace", "unlock_cost": 600 },
+    { "id": "workbench",  "display_name": "Workbench",   "kind": "machine",  "cost": 2200, "size": [4, 2, 4], "machine": "workbench", "unlock_cost": 2500 },
+    { "id": "storage",    "display_name": "Storage Bin", "kind": "storage",  "cost": 220,  "size": [2, 2, 2], "capacity": 60 },
+    { "id": "sell_chute", "display_name": "Sell Chute",  "kind": "sell",     "cost": 320,  "size": [2, 2, 2] }
+  ],
+  "machines": [
+    { "id": "sawmill",   "display_name": "Sawmill",   "input_slots": 12, "output_backlog": 12, "color": [0.42, 0.34, 0.24] },
+    { "id": "furnace",   "display_name": "Furnace",   "input_slots": 16, "output_backlog": 10, "color": [0.32, 0.30, 0.34] },
+    { "id": "workbench", "display_name": "Workbench", "input_slots": 24, "output_backlog": 8,  "color": [0.26, 0.36, 0.44] }
+  ]
+}

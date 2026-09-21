@@ -19,10 +19,16 @@ enum Mode { SURFACE, KINEMATIC }
 @export var speed: float = 3.0
 @export var min_spacing: float = 1.1     ## KINEMATIC mode: gap between items
 
+## Set by the plot: given a world point, returns the machine/bin/sell zone that
+## should receive items leaving this belt, or null. Handing items straight to a
+## sink is what keeps belt ends from jamming the way surface belts do.
+var sink_finder: Callable = Callable()
+
 const DECK_THICKNESS := 0.16
 
 var _deck: StaticBody3D
 var _area: Area3D
+var _area_shape: CollisionShape3D
 var _captured: Array[LooseItem] = []
 var _progress: Dictionary = {}           ## LooseItem -> float (metres along belt)
 var _output_point: Node3D
@@ -82,6 +88,7 @@ func _build() -> void:
 		ab.size = Vector3(width, 1.2, length)
 		acs.shape = ab
 		acs.position = Vector3(0, 0.6, 0)
+		_area_shape = acs
 		_area.add_child(acs)
 		_area.body_entered.connect(_on_body_entered)
 		add_child(_area)
@@ -106,6 +113,8 @@ func _on_body_entered(body: Node) -> void:
 	var item := body as LooseItem
 	if item == null or item.state != LooseItem.State.FREE:
 		return
+	if not Trigger.contains_point(_area_shape, item.global_position, 0.2):
+		return
 	var local := global_transform.affine_inverse() * item.global_position
 	# Belt runs along -Z; progress 0 is the input end (+Z).
 	var progress: float = clampf(length * 0.5 - local.z, 0.0, length)
@@ -128,7 +137,7 @@ func _physics_process(delta: float) -> void:
 	_poll_counter += 1
 	if _poll_counter >= 6:
 		_poll_counter = 0
-		for body in _area.get_overlapping_bodies():
+		for body in Trigger.bodies_inside(_area, _area_shape):
 			_on_body_entered(body)
 	if _captured.is_empty():
 		return
@@ -154,8 +163,16 @@ func _release_at(index: int, impart_velocity: bool) -> void:
 	_progress.erase(item)
 	if not is_instance_valid(item):
 		return
-	if item.state == LooseItem.State.CAPTURED:
-		item.set_state(LooseItem.State.FREE)
-		if impart_velocity:
-			total_delivered += 1
-			item.linear_velocity = -global_transform.basis.z.normalized() * speed
+	if item.state != LooseItem.State.CAPTURED:
+		return
+	item.set_state(LooseItem.State.FREE)
+	if not impart_velocity:
+		return
+	total_delivered += 1
+	# Prefer handing the item directly to whatever is at the end of the belt.
+	if sink_finder.is_valid():
+		var sink: Object = sink_finder.call(output_transform().origin)
+		if sink != null and sink.has_method("can_accept") \
+				and sink.can_accept(item.item_id) and sink.accept_item(item):
+			return
+	item.linear_velocity = -global_transform.basis.z.normalized() * speed

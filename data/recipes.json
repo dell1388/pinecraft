@@ -1,0 +1,12 @@
+{
+  "recipes": [
+    { "id": "saw_pine",     "machine": "sawmill",   "inputs": [{"item": "log_pine", "count": 1}],     "outputs": [{"item": "plank_pine", "count": 2}],     "seconds": 2.0 },
+    { "id": "saw_oak",      "machine": "sawmill",   "inputs": [{"item": "log_oak", "count": 1}],      "outputs": [{"item": "plank_oak", "count": 2}],      "seconds": 2.6 },
+    { "id": "saw_ironwood", "machine": "sawmill",   "inputs": [{"item": "log_ironwood", "count": 1}], "outputs": [{"item": "plank_ironwood", "count": 2}], "seconds": 3.4 },
+    { "id": "smelt_iron",   "machine": "furnace",   "inputs": [{"item": "ore_iron", "count": 2}],     "outputs": [{"item": "ingot_iron", "count": 1}],     "seconds": 4.0 },
+    { "id": "smelt_copper", "machine": "furnace",   "inputs": [{"item": "ore_copper", "count": 2}],   "outputs": [{"item": "ingot_copper", "count": 1}],   "seconds": 4.5 },
+    { "id": "smelt_gold",   "machine": "furnace",   "inputs": [{"item": "ore_gold", "count": 2}],     "outputs": [{"item": "ingot_gold", "count": 1}],     "seconds": 6.0 },
+    { "id": "make_crate",   "machine": "workbench", "inputs": [{"item": "plank_pine", "count": 4}, {"item": "ingot_iron", "count": 1}], "outputs": [{"item": "crate", "count": 1}], "seconds": 6.0 },
+    { "id": "make_toolkit", "machine": "workbench", "inputs": [{"item": "plank_oak", "count": 3}, {"item": "ingot_copper", "count": 2}], "outputs": [{"item": "toolkit", "count": 1}], "seconds": 8.0 }
+  ]
+}

@@ -8,7 +8,12 @@ extends RigidBody3D
 ## driven by LooseItemManager so that 500 of these cost one GDScript loop
 ## instead of 500 script callbacks per step.
 
-enum State { FREE, CARRIED, CAPTURED, POOLED }
+## FREE     - fully simulated
+## CARRIED  - dynamic, but velocity-steered by the player (heavy drag)
+## HELD     - kinematic, snapped to a slot on the player's carry rack
+## CAPTURED - kinematic, owned by a belt/splitter
+## POOLED   - detached from the tree, no body in the physics space
+enum State { FREE, CARRIED, HELD, CAPTURED, POOLED }
 
 signal state_changed(item: LooseItem, from: State, to: State)
 
@@ -67,8 +72,9 @@ func set_state(next: State) -> void:
 			freeze = false
 			sleeping = false
 			angular_damp = 6.0
-		State.CAPTURED:
-			# Owned by a conveyor/machine: no solver involvement at all.
+		State.HELD, State.CAPTURED:
+			# Owned by the player's rack or a machine: kinematic, so it still
+			# pushes loose items aside but costs the solver nothing.
 			freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
 			freeze = true
 		State.POOLED:
@@ -92,6 +98,13 @@ func teleport(xform: Transform3D) -> void:
 	PhysicsServer3D.body_set_state(get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM, xform)
 	global_transform = xform
 	reset_motion()
+
+## Turns the item's collisions off entirely (used while it rides a vehicle:
+## a kinematic body clipping its carrier's own hull fights the solver every
+## frame and can bring the vehicle to a standstill).
+func set_collisions_enabled(enabled: bool) -> void:
+	collision_layer = Layers.LOOSE if enabled else 0
+	collision_mask = Layers.MASK_LOOSE if enabled else 0
 
 ## Half of the item's vertical extent, used by machines that place items by
 ## transform rather than letting them settle.

@@ -5,3 +5,4 @@ export_presets.cfg
 import.log
 bench_stdout.txt
 bench_progress.log
+tests_stdout.txt

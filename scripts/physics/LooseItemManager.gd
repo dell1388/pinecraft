@@ -67,6 +67,16 @@ func plot_count(plot_id: int) -> int:
 	var arr: Array = _by_plot.get(plot_id, [])
 	return arr.size()
 
+## Every item currently simulated and unowned. Used by pickup and by tools that
+## need to scan the loose world; the array is rebuilt per call, so callers
+## should not do this every frame for large plots.
+func free_items() -> Array[LooseItem]:
+	var out: Array[LooseItem] = []
+	for item in _active:
+		if item.state == LooseItem.State.FREE:
+			out.append(item)
+	return out
+
 func awake_count() -> int:
 	var n := 0
 	for item in _active:
@@ -170,7 +180,7 @@ func _physics_process(delta: float) -> void:
 
 	for i in range(_active.size() - 1, -1, -1):
 		var item: LooseItem = _active[i]
-		if item.state == LooseItem.State.CAPTURED:
+		if item.state == LooseItem.State.CAPTURED or item.state == LooseItem.State.HELD:
 			continue
 		# Sleeping bodies cannot move, so every check below is skipped for them.
 		# This is what keeps a settled 500-log pile essentially free.

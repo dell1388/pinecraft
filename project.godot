@@ -4,8 +4,14 @@ config_version=5
 [application]
 config/name="Pinecraft"
 config/description="Single-player 3D sandbox/tycoon: chop, process, sell, build, automate."
-run/main_scene="res://scenes/stress_test.tscn"
+run/main_scene="res://scenes/world.tscn"
 config/features=PackedStringArray("4.4", "Forward Plus")
+
+[autoload]
+
+GameData="*res://scripts/systems/GameData.gd"
+Economy="*res://scripts/systems/Economy.gd"
+PlayerState="*res://scripts/systems/PlayerState.gd"
 
 [display]
 window/size/viewport_width=1600

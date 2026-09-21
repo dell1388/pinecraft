@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://b1pinecraftsmoke"]
+
+[ext_resource type="Script" path="res://tools/SmokeWorld.gd" id="1_smoke"]
+
+[node name="SmokeWorld" type="Node"]
+script = ExtResource("1_smoke")
