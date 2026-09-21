@@ -516,7 +516,10 @@ func test_hauler() -> void:
 	for i in 4:
 		spawn(&"log_pine", truck.global_position + Vector3(0, 2.0 + float(i) * 0.4, 0.6))
 	await step(45)
-	check_eq(truck.cargo.size(), 4, "hauler did not capture its cargo")
+	check_eq(truck.cargo_count(), 4, "hauler did not take the load aboard")
+	# Loaded cargo must leave the physics world entirely: no bodies to bounce,
+	# be grabbed, be sold or be knocked off.
+	check_eq(manager.active_count(), 0, "cargo is still a loose physics body after loading")
 
 	var start := truck.global_position
 	truck.autopilot = true
@@ -526,14 +529,59 @@ func test_hauler() -> void:
 	check(travelled > 6.0, "hauler barely moved under throttle (%.1f m)" % travelled)
 	check(truck.linear_velocity.length() <= truck.max_speed * 1.5, "hauler exceeded its speed cap")
 	check(truck.global_transform.basis.y.dot(Vector3.UP) > 0.7, "hauler rolled while driving")
-	check_eq(truck.cargo.size(), 4, "hauler lost cargo while driving")
+	check_eq(truck.cargo_count(), 4, "hauler lost cargo while driving")
+	check_eq(manager.active_count(), 0, "something fell out of the bed while driving")
+
+	# The load rides exactly with the hull, whatever happens to the hull.
+	var bed_offsets: Array[Vector3] = []
+	for child in truck.get_children():
+		var prop := child as MeshInstance3D
+		if prop != null and prop.mesh is BoxMesh and prop.position.y > 0.4:
+			bed_offsets.append(prop.position)
+	check(bed_offsets.size() == 4, "expected 4 cargo props on the hull, saw %d" % bed_offsets.size())
+
+	# Slam it into the boundary wall at full speed, then flip it upside down and
+	# spin it: nothing may come loose.
+	truck.input_throttle = 1.0
+	await step(240)
+	check_eq(truck.cargo_count(), 4, "cargo was lost in a collision")
+	PhysicsServer3D.body_set_state(truck.get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM,
+		Transform3D(Basis.from_euler(Vector3(PI, 0, 0)), truck.global_position + Vector3(0, 4, 0)))
+	truck.angular_velocity = Vector3(6, 6, 6)
+	await step(90)
+	check_eq(truck.cargo_count(), 4, "cargo was lost in a rollover")
+	check_eq(manager.active_count(), 0, "a rollover shook an item loose")
+	truck.recover()
+	await step(30)
+	check_eq(truck.cargo_count(), 4, "cargo was lost when the truck was recovered")
+
+	# Cargo survives a save/load round-trip as part of the vehicle.
+	var doc := truck.to_dict()
+	truck.cargo_items.clear()
+	truck._rebuild_props()
+	truck.from_dict(doc)
+	check_eq(truck.cargo_count(), 4, "cargo did not survive a save/load round-trip")
 
 	truck.input_throttle = 0.0
+	await step(30)
 	var dropped := truck.unload()
 	check_eq(dropped, 4, "unloading returned the wrong count")
 	await step(20)
-	check_eq(truck.cargo.size(), 0, "hauler still holds cargo after unloading")
-	check_eq(manager.free_items().size(), 4, "unloaded cargo is not free")
+	check_eq(truck.cargo_count(), 0, "hauler still holds cargo after unloading")
+	var returned := manager.free_items()
+	check_eq(returned.size(), 4, "unloaded cargo did not come back as real items")
+	for item in returned:
+		check_eq(item.item_id, &"log_pine", "unloaded item changed type")
+
+	# One-at-a-time unloading, and the sink protocol the player and belts use.
+	truck.load_item(&"ore_iron")
+	truck.load_item(&"ore_iron")
+	check_eq(truck.cargo_count(), 2, "load_item did not stack the load")
+	check(truck.unload_one(), "could not drop a single item")
+	check_eq(truck.cargo_count(), 1, "drop-one removed the wrong amount")
+	check(truck.can_accept(&"plank_pine"), "hauler refuses items while it has room")
+	truck.cargo_capacity = 1
+	check(not truck.can_accept(&"plank_pine"), "hauler accepts items when full")
 
 func test_kill_plane() -> void:
 	_setup()

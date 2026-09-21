@@ -99,13 +99,6 @@ func teleport(xform: Transform3D) -> void:
 	global_transform = xform
 	reset_motion()
 
-## Turns the item's collisions off entirely (used while it rides a vehicle:
-## a kinematic body clipping its carrier's own hull fights the solver every
-## frame and can bring the vehicle to a standstill).
-func set_collisions_enabled(enabled: bool) -> void:
-	collision_layer = Layers.LOOSE if enabled else 0
-	collision_mask = Layers.MASK_LOOSE if enabled else 0
-
 ## Half of the item's vertical extent, used by machines that place items by
 ## transform rather than letting them settle.
 func get_aabb_half_height() -> float:

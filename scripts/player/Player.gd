@@ -169,7 +169,8 @@ func _owner_of(collider: Object) -> Node:
 	while node != null:
 		if node is ChoppableTree or node is OreRock or node is LooseItem \
 				or node is Machine or node is StorageBin or node is SellZone \
-				or node is Conveyor or node is Filter or node is Splitter:
+				or node is Conveyor or node is Filter or node is Splitter \
+				or node is Hauler:
 			return node
 		node = node.get_parent()
 	return null
@@ -200,6 +201,10 @@ func _update_prompt() -> void:
 		last_prompt = "[E] sell carried items"
 	elif target is Filter:
 		last_prompt = "[E] change filter   %s" % (target as Filter).status_line()
+	elif target is Hauler:
+		var h := target as Hauler
+		last_prompt = "[E] load   [V] drive   cargo %d/%d (%s)" % [
+			h.cargo_count(), h.cargo_capacity, h.cargo_summary()]
 	else:
 		last_prompt = ""
 

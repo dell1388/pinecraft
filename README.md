@@ -35,14 +35,16 @@ it up; headless runs resolve class names from that cache.
 | B / R / wheel | build mode / rotate / cycle building |
 | M / U / F1 | market board / shop & upgrades / help |
 | F5 / F9 / F8 | save / load / new game |
-| V / X / C | enter-exit hauler / unload it / flip it back upright |
+| V / X / Z / C | enter-exit hauler / unload all / drop one / flip it upright |
 
 ## The loop
 
 1. **Chop** pine, oak and ironwood in the forest ring; **mine** iron, copper and
    gold in the quarry to the west.
 2. **Haul** with the carry rack (capacity is an upgrade), the heavy drag, or the
-   flatbed hauler once you can afford it. A full rack slows you down.
+   flatbed hauler once you can afford it. A full rack slows you down. Anything
+   put in the hauler's bed becomes part of the truck and cannot fall out; `X`
+   unloads the lot, `Z` drops one.
 3. **Process**: sawmill turns logs into planks, furnace smelts ore into ingots,
    workbench combines planks and ingots into crates and toolkits.
 4. **Sell** at the gold depot pad or, once built, a sell chute on your own plot.
@@ -121,9 +123,13 @@ rule below is enforced in one place rather than per object.
   without a clean exit event and the same node is re-used elsewhere. Sinks ran
   a point-in-box test (`Trigger`) before acting; without it a storage bin
   re-swallowed items it had just poured out, metres away.
-* **Vehicle cargo has collisions disabled while aboard.** A kinematic crate
-  clipping its carrier's own hull fights the solver every frame; with collisions
-  left on, the loaded hauler crawled 5 m in 2.5 s instead of 30 m.
+* **Vehicle cargo is part of the vehicle, not a passenger.** Loading removes the
+  item from the physics world and parents a plain mesh to the hull: no collider,
+  no body, no velocity of its own. Nothing can shake, push, grab or sell a load
+  in transit, collisions and rollovers included, and cargo costs zero per frame.
+  Anything resting in the bed is absorbed on a 10 Hz sweep (and in full the
+  moment a driver climbs in), so there is never a loose item aboard waiting to
+  be flung off. Unloading spawns the real items back behind the truck.
 
 ## Measured results
 
@@ -133,11 +139,12 @@ Budget is 16.67 ms.
 
 ### Integration tests (`scenes/tests.tscn`)
 
-198 checks across 20 tests, all passing: data integrity, deterministic daily
+215 checks across 20 tests, all passing: data integrity, deterministic daily
 prices, chopping, mining, machine processing and rejection, sell pricing, storage
 store/dispense, belt-to-machine hand-off, splitter round-robin, building
 placement/cost/refund/bounds, save-load round-trip, plot expansion, upgrades,
-carry rack limits and deposits, hauler driving/cargo/stability, kill plane,
+carry rack limits and deposits, hauler driving and cargo retention (through a
+full-speed collision, a rollover, a recovery and a save/load), kill plane,
 item cap, belt-logic filtering, and a full automated base under load.
 
 ### Physics benchmark (`scenes/bench.tscn`)

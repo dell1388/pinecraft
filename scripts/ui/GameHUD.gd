@@ -34,7 +34,7 @@ const HELP_TEXT := """PINECRAFT - controls
   B                      build mode      R rotate      wheel cycle building
   M                      market board    U shop & upgrades    F1 this help
   F5 / F9                save / load     F8 new game
-  V                      enter / exit hauler   X unload hauler   C recover hauler
+  V / X / Z / C          enter-exit hauler, unload all, drop one, recover it
 
 The loop: fell trees -> haul logs to a sawmill -> planks to a furnace/workbench
 or straight to a sell zone -> buy belts so the plot runs itself."""
@@ -250,7 +250,9 @@ func _process(delta: float) -> void:
 			Engine.get_frames_per_second()],
 	]
 	if player.driving():
-		lines.append("driving - [X] unload  [V] exit  [C] recover")
+		var truck := player.vehicle as Hauler
+		var cargo_text := "%d/%d" % [truck.cargo_count(), truck.cargo_capacity] if truck != null else "-"
+		lines.append("driving - cargo %s (locked)   [X] unload  [Z] drop one  [V] exit  [C] recover" % cargo_text)
 	_status.text = "\n".join(lines)
 	_prompt.text = player.last_prompt
 	if panel == PanelKind.MARKET or panel == PanelKind.SHOP:

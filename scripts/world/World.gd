@@ -255,6 +255,9 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		KEY_X:
 			if hauler != null:
 				hud.log_message("unloaded %d item(s)" % hauler.unload())
+		KEY_Z:
+			if hauler != null and hauler.unload_one():
+				hud.log_message("dropped one (%d left)" % hauler.cargo_count())
 		KEY_C:
 			if hauler != null:
 				hauler.recover()
@@ -286,4 +289,7 @@ func _toggle_vehicle() -> void:
 		return
 	player.enter_vehicle(hauler)
 	hauler.driver = player
-	hud.log_message("driving - WASD, Space brake, X unload")
+	# Everything loose in the bed becomes part of the truck before it moves.
+	var secured := hauler.secure_load()
+	hud.log_message("driving - WASD, Space brake, X unload, Z drop one%s" % (
+		"  (secured %d item(s))" % secured if secured > 0 else ""))

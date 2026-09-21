@@ -18,7 +18,7 @@
   [ok  ] hauler drives, carries and stays upright
   [ok  ] kill plane rescues fallen items
   [ok  ] per-plot cap is enforced
-      full base: 191 items live, avg 1.25 ms/frame, worst 10.74 ms (budget 16.67)
+      full base: 191 items live, avg 1.17 ms/frame, worst 2.81 ms (budget 16.67)
   [ok  ] full automated base stays in budget
 
-PASS - 198 checks
+PASS - 215 checks
