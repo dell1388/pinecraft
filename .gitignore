@@ -1,0 +1,7 @@
+.godot/
+.import/
+export_presets.cfg
+*.translation
+import.log
+bench_stdout.txt
+bench_progress.log

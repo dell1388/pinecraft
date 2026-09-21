@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://b1pinecraftstress"]
+
+[ext_resource type="Script" path="res://scripts/world/StressTest.gd" id="1_stress"]
+
+[node name="StressTest" type="Node3D"]
+script = ExtResource("1_stress")

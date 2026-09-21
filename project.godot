@@ -1,0 +1,35 @@
+; Pinecraft - Godot 4.4 / Jolt Physics
+config_version=5
+
+[application]
+config/name="Pinecraft"
+config/description="Single-player 3D sandbox/tycoon: chop, process, sell, build, automate."
+run/main_scene="res://scenes/stress_test.tscn"
+config/features=PackedStringArray("4.4", "Forward Plus")
+
+[display]
+window/size/viewport_width=1600
+window/size/viewport_height=900
+window/stretch/mode="canvas_items"
+
+[physics]
+common/physics_ticks_per_second=60
+common/max_physics_steps_per_frame=4
+3d/physics_engine="Jolt Physics"
+3d/default_gravity=24.0
+jolt_physics_3d/simulation/allow_sleep=true
+jolt_physics_3d/simulation/sleep_velocity_threshold=0.05
+jolt_physics_3d/simulation/sleep_time_threshold=0.4
+jolt_physics_3d/simulation/velocity_steps=8
+jolt_physics_3d/simulation/position_steps=2
+jolt_physics_3d/simulation/use_enhanced_internal_edge_removal=true
+jolt_physics_3d/simulation/continuous_cd_movement_threshold=0.6
+jolt_physics_3d/limits/max_linear_velocity=60.0
+jolt_physics_3d/limits/temporary_memory_buffer_size=128
+jolt_physics_3d/limits/max_bodies=20480
+jolt_physics_3d/limits/max_body_pairs=131072
+jolt_physics_3d/limits/max_contact_constraints=40960
+
+[rendering]
+anti_aliasing/quality/msaa_3d=1
+lights_and_shadows/directional_shadow/soft_shadow_filter_quality=1

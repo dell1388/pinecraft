@@ -1,0 +1,9 @@
+{
+  "items": [
+    { "id": "log_pine",   "display_name": "Pine Log",  "size": [0.35, 0.35, 1.60], "mass": 8.0,  "color": [0.45, 0.30, 0.18], "base_value": 3 },
+    { "id": "log_oak",    "display_name": "Oak Log",   "size": [0.42, 0.42, 1.70], "mass": 12.0, "color": [0.36, 0.24, 0.14], "base_value": 6 },
+    { "id": "plank",      "display_name": "Plank",     "size": [0.18, 0.08, 1.40], "mass": 3.0,  "color": [0.72, 0.55, 0.32], "base_value": 9 },
+    { "id": "ore_iron",   "display_name": "Iron Ore",  "size": [0.45, 0.40, 0.45], "mass": 14.0, "color": [0.52, 0.53, 0.58], "base_value": 11 },
+    { "id": "ingot_iron", "display_name": "Iron Ingot","size": [0.50, 0.18, 0.24], "mass": 9.0,  "color": [0.70, 0.72, 0.78], "base_value": 26 }
+  ]
+}
