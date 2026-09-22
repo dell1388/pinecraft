@@ -8,6 +8,11 @@ const MAP_HALF := 300.0
 const DEPOT_POSITION := Vector3(0, 0, 70)
 const STORE_POSITION := Vector3(-52, 0, 62)
 const QUARRY_CENTRE := Vector3(-150, 0, -40)
+## The plot pad stands clear of two things: the water line, so the yard is never
+## flooded, and the ground itself, so the pad and the land are not two surfaces
+## fighting over one plane. The slab's top is PLOT_GROUND + 0.05.
+const PLOT_GROUND := 0.45
+const PAD_HEIGHT := 0.5
 const AUTOSAVE_SECONDS := 60.0
 const STARTING_MONEY := 250
 
@@ -45,6 +50,7 @@ func _ready() -> void:
 
 	plot = Plot.new()
 	plot.name = "Plot"
+	plot.position.y = PAD_HEIGHT
 	plot.setup(manager, 0)
 	plot.vehicle_host = self
 	plot.terrain = terrain
@@ -135,11 +141,12 @@ func _build_terrain() -> void:
 		[Vector3(0, 0, 0), Vector3(-40, 0, -14), Vector3(-90, 0, -28), QUARRY_CENTRE],
 		[Vector3(0, 0, 0), Vector3(40, 0, -20), Vector3(110, 0, -40), Vector3(190, 0, -30)],
 	]
-	# Everything that has to stand on the level.
-	terrain.reserve_site(Vector3.ZERO, 56.0)
-	terrain.reserve_site(DEPOT_POSITION, 16.0)
-	terrain.reserve_site(STORE_POSITION, 14.0)
-	terrain.reserve_site(QUARRY_CENTRE, 34.0)
+	# Everything that has to stand on the level, and all of it above the water
+	# line so a levelled site is never under the sheet.
+	terrain.reserve_site(Vector3(0, PLOT_GROUND, 0), 56.0)
+	terrain.reserve_site(Vector3(DEPOT_POSITION.x, 0.6, DEPOT_POSITION.z), 16.0)
+	terrain.reserve_site(Vector3(STORE_POSITION.x, 0.6, STORE_POSITION.z), 14.0)
+	terrain.reserve_site(Vector3(QUARRY_CENTRE.x, 0.5, QUARRY_CENTRE.z), 34.0)
 	add_child(terrain)
 
 	# A wall at the map edge, so nothing drives off the world.

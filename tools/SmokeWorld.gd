@@ -21,6 +21,37 @@ func _ready() -> void:
 	_require(world.rocks().size() >= 20, "quarry is missing: %d rocks" % world.rocks().size())
 	_require(world.depot != null, "no sell depot")
 	_require(world.player != null and world.hud != null, "no player or HUD")
+	_check_ground()
+
+## The land has to be solid off the plot, and the plot has to stand clear of it.
+## Both of these shipped broken once: the terrain's triangles were wound
+## inside-out so there was nothing to stand on past the kerb, and the pad, the
+## ground and the water sheet all sat on y = 0 and fought over it.
+func _check_ground() -> void:
+	var terrain: Terrain = world.terrain
+	var space := world.get_world_3d().direct_space_state
+	var missed: Array[String] = []
+	for probe in [Vector3(0, 0, 0), Vector3(30, 0, 30), Vector3(-45, 0, 20),
+			Vector3(80, 0, -60), Vector3(-120, 0, 90), Vector3(150, 0, 150),
+			world.DEPOT_POSITION, world.STORE_POSITION, world.QUARRY_CENTRE]:
+		var expected := terrain.height_at(probe.x, probe.z)
+		var query := PhysicsRayQueryParameters3D.create(
+			Vector3(probe.x, expected + 80.0, probe.z),
+			Vector3(probe.x, expected - 40.0, probe.z), Layers.WORLD)
+		if space.intersect_ray(query).is_empty():
+			missed.append("(%.0f, %.0f)" % [probe.x, probe.z])
+	_require(missed.is_empty(), "nothing solid to stand on at " + ", ".join(missed))
+
+	# The pad sits proud of the ground and above the water, so no two surfaces
+	# share a plane and the plot is never under the sheet.
+	var under_pad := terrain.height_at(0.0, 0.0)
+	var pad_top := world.plot.global_position.y
+	_require(pad_top > under_pad + 0.02,
+		"the plot pad (%.2f m) is not clear of the ground under it (%.2f m)" % [pad_top, under_pad])
+	_require(under_pad > Terrain.WATER_LEVEL,
+		"the ground under the plot (%.2f m) is at or below the water line" % under_pad)
+	print("ground ok: pad %.2f m over land at %.2f m, water at %.2f m" % [
+		pad_top, under_pad, Terrain.WATER_LEVEL])
 
 func _physics_process(_delta: float) -> void:
 	var now := Time.get_ticks_usec()

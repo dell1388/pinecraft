@@ -323,14 +323,16 @@ func _build_mesh() -> void:
 			var p01 := Vector3(x0, _heights[_index(ix, iz + 1)], z0 + CELL)
 			var p11 := Vector3(x0 + CELL, _heights[_index(ix + 1, iz + 1)], z0 + CELL)
 			var color := _quad_color(ix, iz, p00.y)
-			# Each triangle carries its own normal, which is what makes the land
-			# read as facets instead of as a smooth blanket.
+			# Wound clockwise seen from above, because that is the front face for
+			# both Godot's renderer and its collision shapes. Wound the other
+			# way the land is one enormous back face: invisible from above, and
+			# with nothing solid to stand on.
 			var tris: Array[PackedVector3Array] = [
-				PackedVector3Array([p00, p01, p11]),
-				PackedVector3Array([p00, p11, p10]),
+				PackedVector3Array([p00, p11, p01]),
+				PackedVector3Array([p00, p10, p11]),
 			]
 			for tri in tris:
-				var normal: Vector3 = (tri[1] - tri[0]).cross(tri[2] - tri[0]).normalized()
+				var normal: Vector3 = (tri[2] - tri[0]).cross(tri[1] - tri[0]).normalized()
 				for corner in tri:
 					verts[v] = corner
 					normals[v] = normal
@@ -368,7 +370,7 @@ func _build_water() -> void:
 	var plane := PlaneMesh.new()
 	plane.size = Vector2(half_extent * 2.0, half_extent * 2.0)
 	mi.mesh = plane
-	mi.position = Vector3(0, WATER_LEVEL, 0)
+	mi.position = Vector3(0, WATER_LEVEL - 0.02, 0)
 	var mat := StandardMaterial3D.new()
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.albedo_color = Color(0.18, 0.34, 0.46, 0.72)

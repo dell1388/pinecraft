@@ -31,6 +31,7 @@ func _run_all() -> void:
 	await _test(&"branches and trunk are cut separately", test_limb_cutting)
 	await _test(&"resource fields fill to a quota and stop", test_resource_field)
 	await _test(&"terrain has biomes, rivers and roads", test_terrain)
+	await _test(&"you can stand on the terrain anywhere", test_terrain_collision)
 	await _test(&"bucking splits wood and conserves volume", test_bucking)
 	await _test(&"a chunk is pulled out whole when the pull is enough", test_chunk_pull)
 	await _test(&"hammering cracks a chunk apart piece by piece", test_chunk_cracking)
@@ -436,6 +437,59 @@ func test_terrain() -> void:
 	var dropped := land.place(Vector3(40.0, 99.0, -70.0), 0.5)
 	check_near(dropped.y, land.height_at(40.0, -70.0) + 0.5, 0.001,
 		"placing a point on the ground missed the ground")
+	done()
+
+## The land has to be solid, not just queryable. `test_terrain` only ever asked
+## it questions; this one stands on it.
+func test_terrain_collision() -> void:
+	_teardown()
+	Economy.from_dict({"money": 1000, "day": 1})
+	PlayerState.reset()
+	world = Node3D.new()
+	add_child(world)                       # deliberately no flat ground under it
+	manager = LooseItemManager.new()
+	world.add_child(manager)
+	manager.register_plot(0, Vector3(0, 6, 0))
+
+	var land := Terrain.new()
+	land.half_extent = 120.0
+	land.noise_seed = 4242
+	land.reserve_site(Vector3.ZERO, 30.0)
+	world.add_child(land)
+	await step(4)
+
+	# A ray fired straight down has to find the ground, on the levelled pad and
+	# out in open country alike.
+	var space := world.get_world_3d().direct_space_state
+	var probes := [Vector3(0, 0, 0), Vector3(20, 0, 14), Vector3(45, 0, -38),
+		Vector3(-70, 0, 55), Vector3(95, 0, 95), Vector3(-100, 0, -20)]
+	var missed: Array[String] = []
+	for probe in probes:
+		var expected := land.height_at(probe.x, probe.z)
+		var query := PhysicsRayQueryParameters3D.create(
+			Vector3(probe.x, expected + 60.0, probe.z),
+			Vector3(probe.x, expected - 30.0, probe.z), Layers.WORLD)
+		var hit := space.intersect_ray(query)
+		if hit.is_empty():
+			missed.append("(%.0f, %.0f)" % [probe.x, probe.z])
+			continue
+		check_near(float(hit.position.y), expected, 0.4,
+			"the ground at (%.0f, %.0f) is not where height_at says it is" % [probe.x, probe.z])
+	check(missed.is_empty(), "nothing solid under %s" % ", ".join(missed))
+
+	# And something dropped on it has to stop, rather than fall forever.
+	var dropped := manager.spawn(&"ore_iron",
+		Transform3D(Basis(), Vector3(45, land.height_at(45, -38) + 6.0, -38)), 0,
+		Vector3.ZERO, Solid.cube(0.05))
+	check(dropped != null, "could not spawn a test piece")
+	var floor_y := land.height_at(45, -38)
+	for i in 240:
+		await step(1)
+		if dropped.sleeping or dropped.linear_velocity.length() < 0.05:
+			break
+	check(dropped.global_position.y > floor_y - 1.0,
+		"a piece dropped off the plot fell through the land (y=%.1f, ground %.1f)" % [
+			dropped.global_position.y, floor_y])
 	done()
 
 ## Walks the river looking for the shallow stretch the ford should have made.
