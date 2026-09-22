@@ -37,7 +37,7 @@
   [ok  ] winch and crane respect their power ratings
   [ok  ] kill plane rescues fallen items
   [ok  ] per-plot cap is enforced
-      full base: 161 items live, avg 1.93 ms/frame, worst 6.22 ms (budget 16.67)
+      full base: 168 items live, avg 2.08 ms/frame, worst 5.16 ms (budget 16.67)
   [ok  ] full automated base stays in budget
 
-PASS - 677 checks
+PASS - 680 checks

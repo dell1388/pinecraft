@@ -477,6 +477,36 @@ func test_terrain_collision() -> void:
 			"the ground at (%.0f, %.0f) is not where height_at says it is" % [probe.x, probe.z])
 	check(missed.is_empty(), "nothing solid under %s" % ", ".join(missed))
 
+	# The same winding decides which way the land faces the camera, which a
+	# headless run cannot see. Check the winding itself rather than the normals
+	# the mesh carries: culling and collision both read the vertex order, and
+	# the stored normals are computed separately - under the original bug they
+	# pointed up quite happily while every face was inside out.
+	#
+	# Godot's front face is clockwise seen from the front, which for ground
+	# means (v1 - v0) x (v2 - v0) points *down*.
+	var mesh_instance: MeshInstance3D = null
+	for child in land.get_children():
+		var mi := child as MeshInstance3D
+		if mi != null and mi.mesh is ArrayMesh:
+			mesh_instance = mi
+			break
+	check(mesh_instance != null, "the terrain built no mesh")
+	if mesh_instance != null:
+		var arrays: Array = (mesh_instance.mesh as ArrayMesh).surface_get_arrays(0)
+		var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		check(points.size() >= 3, "the terrain mesh has no triangles")
+		var inside_out := 0
+		var total := points.size() / 3
+		for t in total:
+			var v0 := points[t * 3]
+			var wound := (points[t * 3 + 1] - v0).cross(points[t * 3 + 2] - v0)
+			if wound.y > 0.0:
+				inside_out += 1
+		check_eq(inside_out, 0,
+			"%d of %d terrain faces are wound inside out - nothing to stand on, and invisible from above" % [
+				inside_out, total])
+
 	# And something dropped on it has to stop, rather than fall forever.
 	var dropped := manager.spawn(&"ore_iron",
 		Transform3D(Basis(), Vector3(45, land.height_at(45, -38) + 6.0, -38)), 0,
