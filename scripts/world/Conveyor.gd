@@ -54,8 +54,11 @@ func _build() -> void:
 	_deck.collision_mask = Layers.MASK_MACHINE
 	# A ramp is the same deck, pitched and lengthened to the slope it covers.
 	var run := sqrt(length * length + rise * rise)
+	# The belt runs toward -Z and climbs as it goes, so the deck has to be high
+	# at the -Z end. Pitch it the other way and the mesh slopes against the
+	# pieces riding it.
 	var pitch := atan2(rise, length)
-	var deck_pose := Transform3D(Basis(Vector3.RIGHT, -pitch), Vector3(0, rise * 0.5, 0))
+	var deck_pose := Transform3D(Basis(Vector3.RIGHT, pitch), Vector3(0, rise * 0.5, 0))
 	var deck_shape := CollisionShape3D.new()
 	var box := BoxShape3D.new()
 	box.size = Vector3(width, DECK_THICKNESS, run)
@@ -119,6 +122,11 @@ func output_transform() -> Transform3D:
 
 func captured_count() -> int:
 	return _captured.size()
+
+## How far the deck has climbed this far along the belt. The mesh, the collider
+## and the pieces riding it all come off this, so they cannot disagree.
+func surface_height(progress: float) -> float:
+	return rise * clampf(progress / maxf(0.01, length), 0.0, 1.0)
 
 ## Spec: retractable belts. Stopping one holds what is on it and stops it taking
 ## anything new, without giving the load back to the solver.
@@ -192,9 +200,7 @@ func _physics_process(delta: float) -> void:
 			continue
 		_progress[item] = p
 		var half_h: float = item.resting_half_height()
-		# Riding the deck, which climbs if this belt is a ramp.
-		var climb := rise * (p / maxf(0.01, length))
-		var local := Vector3(0.0, DECK_THICKNESS * 0.5 + half_h + 0.01 + climb,
+		var local := Vector3(0.0, DECK_THICKNESS * 0.5 + half_h + 0.01 + surface_height(p),
 			length * 0.5 - p)
 		# Laid along the belt: predictable, no tumbling, no overhang sideways.
 		var basis := Basis(Vector3.RIGHT, PI * 0.5)

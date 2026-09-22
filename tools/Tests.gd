@@ -991,6 +991,24 @@ func test_conveyor_options() -> void:
 	check(box.global_position.y > lifted, "the ramp did not carry the piece upward")
 	check(ramp.output_transform().origin.y > ramp.global_position.y + 0.5,
 		"the ramp's far end is not above its near end")
+	check_near(ramp.surface_height(0.0), 0.0, 0.0001, "the ramp starts above its own base")
+	check_near(ramp.surface_height(ramp.length), ramp_def.rise, 0.0001,
+		"the ramp does not climb its full rise")
+
+	# Fire a ray down at the far end and see what it lands on: this is what
+	# catches a deck pitched against the pieces riding it, which the item
+	# positions alone cannot, since they are computed separately.
+	var space := world.get_world_3d().direct_space_state
+	var far := ramp.global_position - ramp.global_transform.basis.z * (ramp.length * 0.4)
+	var query := PhysicsRayQueryParameters3D.create(
+		far + Vector3(0, ramp.rise + 3.0, 0), far - Vector3(0, 1.0, 0), Layers.MACHINE)
+	var hit := space.intersect_ray(query)
+	check(not hit.is_empty(), "nothing under the ramp's far end")
+	if not hit.is_empty():
+		var expected: float = ramp.global_position.y + ramp.surface_height(ramp.length * 0.9)
+		check_near(float(hit.position.y), expected, 0.35,
+			"the deck at the far end is at %.2f m, not the %.2f m the pieces ride at" % [
+				float(hit.position.y), expected])
 
 	# A borderless belt is a deck without rails.
 	var open_def := GameData.building(&"conveyor_open")
