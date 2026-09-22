@@ -172,30 +172,102 @@ func _build_terrain() -> void:
 ## its own ring stocked up to a quota and stops there. Fell one and the field
 ## grows another somewhere else in the ring, but never more than the quota, so
 ## a cleared forest comes back and a full one stays put.
+## Spec: several biomes, and now a forest that belongs to them. A species grows
+## where its country is rather than in a ring drawn round the origin, so the
+## look of the land tells you what you will be cutting - and the hard woods are
+## out in the hard country, which is what makes the trip worth making.
+##
+## Tree and wood are separate things. A swamp willow and a woodland oak are
+## different trees that both cut into oak, so the map can be varied without the
+## economy growing a new material for every silhouette.
 func _build_forest() -> void:
 	var species := [
-		# Kept outside the largest plot tier so an expanded plot never swallows
-		# the forest or leaves trees standing inside a factory.
-		{"item": &"wood_pine", "ring": [62.0, 110.0], "work": 620.0,
-			"radius": [0.30, 0.40], "height": [6.0, 8.5], "taper": 0.60, "branches": [4, 6]},
-		{"item": &"wood_oak", "ring": [100.0, 180.0], "work": 1000.0,
-			"radius": [0.38, 0.50], "height": [6.5, 9.0], "taper": 0.66, "branches": [5, 7]},
-		{"item": &"wood_ironwood", "ring": [160.0, 280.0], "work": 1900.0,
-			"radius": [0.44, 0.58], "height": [7.0, 10.0], "taper": 0.72, "branches": [6, 8]},
+		{"name": "Pine", "item": &"wood_pine",
+			"biomes": [Terrain.Biome.WOODLAND, Terrain.Biome.TAIGA],
+			"leaf": Color(0.15, 0.38, 0.22), "work": 620.0,
+			"radius": [0.26, 0.36], "height": [7.5, 10.5], "taper": 0.50, "branches": [5, 7],
+			# A spire: branches from low down, swept up, short.
+			"start": 0.34, "pitch": [0.30, 0.62], "length": [0.11, 0.19],
+			"foliage": 5.0, "crown": [4.0, 0.60]},
+
+		{"name": "Spruce", "item": &"wood_pine",
+			"biomes": [Terrain.Biome.SNOW],
+			"leaf": Color(0.52, 0.60, 0.58), "work": 700.0,
+			"radius": [0.24, 0.32], "height": [6.0, 8.5], "taper": 0.44, "branches": [6, 8],
+			# Narrower again, and pale with the snow on it.
+			"start": 0.26, "pitch": [0.22, 0.48], "length": [0.09, 0.15],
+			"foliage": 4.2, "crown": [3.4, 0.66]},
+
+		{"name": "Oak", "item": &"wood_oak",
+			"biomes": [Terrain.Biome.WOODLAND],
+			"leaf": Color(0.24, 0.45, 0.16), "work": 1000.0,
+			"radius": [0.40, 0.54], "height": [5.0, 7.0], "taper": 0.74, "branches": [6, 8],
+			# Open trunk, then a broad crown thrown wide.
+			"start": 0.58, "pitch": [0.80, 1.20], "length": [0.28, 0.44],
+			"foliage": 9.5, "crown": [8.5, 0.30]},
+
+		{"name": "Willow", "item": &"wood_oak",
+			"biomes": [Terrain.Biome.SWAMP],
+			"leaf": Color(0.38, 0.47, 0.22), "work": 880.0,
+			"radius": [0.34, 0.46], "height": [4.5, 6.5], "taper": 0.70, "branches": [7, 9],
+			# Drooping: branches thrown almost flat and long with it.
+			"start": 0.52, "pitch": [1.05, 1.45], "length": [0.34, 0.52],
+			"foliage": 8.0, "crown": [6.0, 0.26],
+			# Standing in the water, which is where a willow belongs.
+			"wet": 0.7},
+
+		{"name": "Ironwood", "item": &"wood_ironwood",
+			"biomes": [Terrain.Biome.MOUNTAIN],
+			"leaf": Color(0.18, 0.30, 0.20), "work": 1900.0,
+			"radius": [0.46, 0.60], "height": [5.0, 7.0], "taper": 0.82, "branches": [4, 6],
+			# Squat and thick, holding on to a mountainside.
+			"start": 0.48, "pitch": [0.70, 1.10], "length": [0.20, 0.32],
+			"foliage": 6.0, "crown": [4.6, 0.28]},
+
+		{"name": "Desert Ironwood", "item": &"wood_ironwood",
+			"biomes": [Terrain.Biome.DESERT],
+			"leaf": Color(0.42, 0.46, 0.28), "work": 1750.0,
+			"radius": [0.38, 0.50], "height": [3.8, 5.4], "taper": 0.80, "branches": [5, 7],
+			# Low, wide and sparse, the way things grow with no water.
+			"start": 0.40, "pitch": [0.95, 1.35], "length": [0.26, 0.40],
+			"foliage": 5.0, "crown": [0.0, 0.0]},
 	]
-	var per_species: int = maxi(1, tree_count / species.size())
+
+	# Quotas follow how much country each species actually has, so a seed that
+	# happens to grow little swamp gets few willows rather than an empty field
+	# grinding away at a region that is not there.
+	var pools: Array[PackedVector3Array] = []
+	var total := 0
+	for kind in species:
+		var pool := terrain.points_in_biomes(kind.biomes, 2, float(kind.get("wet", 0.0)))
+		pools.append(pool)
+		total += pool.size()
+	if total == 0:
+		return
+
 	for i in species.size():
 		var kind: Dictionary = species[i]
+		var pool := pools[i]
+		if pool.is_empty():
+			continue
+		var quota: int = int(round(float(tree_count) * float(pool.size()) / float(total)))
+		if quota <= 0:
+			continue
 		var field := ResourceField.new()
-		field.name = "Forest_%s" % kind.item
-		field.quota = per_species
+		field.name = "Forest_%s" % kind.name.replace(" ", "_")
+		field.quota = quota
 		field.min_spacing = 4.2
 		field.refill_seconds = 6.0
-		field.setup([kind], _build_tree,
-			_on_ground(ResourceField.annulus(kind.ring[0], kind.ring[1])), _rng.randi())
+		field.setup([kind], _build_tree, _from_pool(pool), _rng.randi())
 		add_child(field)
 		field.prefill()
 		tree_fields.append(field)
+
+## A sampler that draws from a fixed set of spots the terrain already vetted -
+## right biome, dry, off the roads and outside the build sites.
+func _from_pool(points: PackedVector3Array) -> Callable:
+	return func(rng: RandomNumberGenerator) -> Vector3:
+		return points[rng.randi() % points.size()]
 
 ## Wraps a flat-plane sampler so what it returns sits on the actual ground, and
 ## not in a river or on a road.
@@ -216,12 +288,20 @@ func _build_tree(kind: Dictionary, form_seed: int) -> Node3D:
 	tree.manager = manager
 	tree.plot_id = 0
 	tree.wood_item = kind.item
+	tree.species = String(kind.name)
 	tree.seed_form(form_seed)
 	tree.branch_count = rng.randi_range(int(kind.branches[0]), int(kind.branches[1]))
 	tree.trunk_height = rng.randf_range(kind.height[0], kind.height[1])
 	tree.trunk_radius = rng.randf_range(kind.radius[0], kind.radius[1])
 	tree.trunk_taper = float(kind.taper)
 	tree.work_per_m2 = float(kind.work)
+	tree.leaf_color = kind.leaf
+	tree.branch_start = float(kind.start)
+	tree.branch_pitch = Vector2(kind.pitch[0], kind.pitch[1])
+	tree.branch_length = Vector2(kind.length[0], kind.length[1])
+	tree.foliage_spread = float(kind.foliage)
+	tree.crown_spread = float(kind.crown[0])
+	tree.crown_height = float(kind.crown[1])
 	return tree
 
 ## The quarry works the same way: a patch per ore, stocked to a quota.

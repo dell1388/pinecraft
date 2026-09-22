@@ -26,6 +26,25 @@ signal limb_cut(tree: ChoppableTree, wood_volume: float)
 ## Axe work per square metre of cut face. A fat trunk is many swings.
 @export var work_per_m2: float = 900.0
 
+## What kind of tree this is. Wood is a separate thing: a swamp willow and a
+## woodland oak are different trees that both cut into oak.
+@export var species: String = "Tree"
+@export var leaf_color: Color = Color(0.16, 0.44, 0.20)
+## Where up the trunk the lowest branch sits, as a fraction of its height. Low
+## for a conifer, high for a broadleaf carrying its crown above open trunk.
+@export var branch_start: float = 0.45
+## How far branches are swept up or out, in radians from vertical. A small
+## range is a spire; a wide one is a spreading canopy.
+@export var branch_pitch: Vector2 = Vector2(0.5, 0.95)
+## Branch length as a fraction of trunk height.
+@export var branch_length: Vector2 = Vector2(0.18, 0.30)
+## Foliage clump radius, as a multiple of the branch it hangs on.
+@export var foliage_spread: float = 7.0
+## The crown on top: radius as a multiple of trunk radius, and height as a
+## fraction of trunk height. A zero radius leaves the tree bare-topped.
+@export var crown_spread: float = 6.5
+@export var crown_height: float = 0.45
+
 ## How fast a severed trunk swings over, in radians per second about the cut.
 const FALL_RATE := 0.9
 ## A trunk shorter than this is a stump: nothing left worth cutting.
@@ -86,7 +105,9 @@ func _branch_dims(b: Dictionary) -> Dictionary:
 func _build() -> void:
 	var wood_def := GameData.item(wood_item)
 	var bark: Color = wood_def.color if wood_def != null else Color(0.42, 0.29, 0.17)
-	var leaf := Color(0.13, 0.42, 0.18).lerp(Color(0.20, 0.50, 0.22), _rng.randf())
+	# A little variation per tree, so a stand is not one colour repeated.
+	var leaf := leaf_color.lightened(_rng.randf_range(0.0, 0.10)) \
+		if _rng.randf() > 0.5 else leaf_color.darkened(_rng.randf_range(0.0, 0.10))
 
 	_trunk_shape = CollisionShape3D.new()
 	_trunk_shape.shape = CylinderShape3D.new()
@@ -96,22 +117,24 @@ func _build() -> void:
 		Transform3D(Basis(), Vector3(0, 0.25, 0)), bark.darkened(0.15))
 	_trunk_mesh = _add_cylinder(trunk_radius, trunk_radius * trunk_taper, trunk_height,
 		Transform3D(Basis(), Vector3(0, trunk_height * 0.5, 0)), bark)
-	_crown = _add_cone(trunk_radius * 6.5, trunk_height * 0.45,
-		Transform3D(Basis(), Vector3(0, trunk_height * 1.02, 0)), leaf.darkened(0.05))
+	if crown_spread > 0.01:
+		_crown = _add_cone(trunk_radius * crown_spread, trunk_height * crown_height,
+			Transform3D(Basis(), Vector3(0, trunk_height * 1.02, 0)), leaf.darkened(0.05))
 
 	for i in branch_count:
-		var t: float = 0.45 + 0.5 * float(i) / maxf(1.0, float(branch_count - 1))
+		var span: float = maxf(0.05, 0.98 - branch_start)
+		var t: float = branch_start + span * float(i) / maxf(1.0, float(branch_count - 1))
 		var height: float = trunk_height * t
 		var yaw: float = _rng.randf_range(0.0, TAU)
-		var pitch: float = _rng.randf_range(0.5, 0.95)      # up-and-out
-		var length: float = trunk_height * _rng.randf_range(0.18, 0.30)
+		var pitch: float = _rng.randf_range(branch_pitch.x, branch_pitch.y)
+		var length: float = trunk_height * _rng.randf_range(branch_length.x, branch_length.y)
 		var radius: float = radius_at(height) * 0.42
 		var dir := Vector3(cos(yaw) * sin(pitch), cos(pitch), sin(yaw) * sin(pitch)).normalized()
 		var base := Vector3(0, height, 0)
 		var basis := _basis_from_up(dir)
 		var mesh := _add_cylinder(radius, radius * 0.7, length,
 			Transform3D(basis, base + dir * length * 0.5), bark.lightened(0.05))
-		var foliage := _add_cone(radius * 7.0, length * 1.25,
+		var foliage := _add_cone(radius * foliage_spread, length * 1.25,
 			Transform3D(Basis(), base + dir * (length + length * 0.35)), leaf)
 		# Each branch gets its own collider, so the aim ray can say which one
 		# the player is standing under.
@@ -139,7 +162,7 @@ func _refresh_trunk() -> void:
 	cyl.radius = trunk_radius
 	cyl.height = trunk_height
 	_trunk_shape.position = Vector3(0, trunk_height * 0.5, 0)
-	if _crown != null:
+	if _crown != null and is_instance_valid(_crown):
 		_crown.visible = _standing and not branches.is_empty()
 		_crown.position = Vector3(0, trunk_height * 1.02, 0)
 
@@ -156,7 +179,7 @@ func _add_cylinder(r_bottom: float, r_top: float, height: float, xform: Transfor
 	cm.bottom_radius = r_bottom
 	cm.top_radius = r_top
 	cm.height = height
-	cm.radial_segments = 9
+	cm.radial_segments = Tuning.ROUND_SIDES
 	cm.rings = 1
 	mi.mesh = cm
 	mi.transform = xform
@@ -170,7 +193,7 @@ func _add_cone(radius: float, height: float, xform: Transform3D, color: Color) -
 	cm.bottom_radius = radius
 	cm.top_radius = 0.0
 	cm.height = height
-	cm.radial_segments = 9
+	cm.radial_segments = Tuning.ROUND_SIDES
 	cm.rings = 1
 	mi.mesh = cm
 	mi.transform = xform

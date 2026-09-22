@@ -18,6 +18,11 @@ const CCD_ENABLE_SPEED := 16.0
 const CCD_DISABLE_SPEED := 10.0      # hysteresis, avoids per-frame flapping
 const CCD_REVIEW_HZ := 10.0          # how often the manager re-evaluates CCD
 
+# Round stock - trunks, branches, logs - is drawn as an octagon rather than as
+# a smooth cylinder, to match the faceted land. The collision shape stays a true
+# cylinder at the full radius, so the mesh always sits inside its own collider.
+const ROUND_SIDES := 8
+
 # Anything below this plane is teleported back to its plot spawn point.
 const KILL_PLANE_Y := -25.0
 

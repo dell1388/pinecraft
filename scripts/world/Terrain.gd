@@ -118,6 +118,20 @@ func biome_at(x: float, z: float) -> Biome:
 		return Biome.WOODLAND
 	return _biomes[_index(int(round(_grid_coord(x))), int(round(_grid_coord(z))))] as Biome
 
+## How much of the map each biome covers, as a share of its cells. Printed by
+## the smoke run, because a biome that covers almost nothing is a biome whose
+## trees effectively do not exist.
+func biome_mix() -> Dictionary:
+	var counts: Dictionary = {}
+	if _biomes.is_empty():
+		return counts
+	for value in _biomes:
+		counts[value] = int(counts.get(value, 0)) + 1
+	var mix: Dictionary = {}
+	for value in counts:
+		mix[biome_name(value as Biome)] = float(counts[value]) / float(_biomes.size())
+	return mix
+
 func biome_name(biome: Biome) -> String:
 	return ["woodland", "swamp", "desert", "mountains", "taiga", "snowland"][int(biome)]
 
@@ -130,6 +144,42 @@ func is_road(x: float, z: float) -> bool:
 	if _road_mask.is_empty():
 		return false
 	return _road_mask[_index(int(round(_grid_coord(x))), int(round(_grid_coord(z))))] != 0
+
+## Every grid point standing in one of `biomes`: dry, off the roads and clear of
+## the levelled build sites. This is how a species finds its own country instead
+## of being scattered round a ring drawn about the origin.
+## `max_water` lets a species stand in shallow water - a willow in a swamp is
+## not on dry land, and excluding wet ground made the swamp's tree effectively
+## extinct.
+func points_in_biomes(wanted: Array, step: int = 2, max_water: float = 0.0) -> PackedVector3Array:
+	var out := PackedVector3Array()
+	if _heights.is_empty():
+		return out
+	for iz in range(1, _cells, maxi(1, step)):
+		for ix in range(1, _cells, maxi(1, step)):
+			var index := _index(ix, iz)
+			if not wanted.has(int(_biomes[index])):
+				continue
+			if _road_mask[index] != 0:
+				continue
+			var height := _heights[index]
+			if height <= WATER_LEVEL - max_water:
+				continue
+			var x := -half_extent + float(ix) * CELL
+			var z := -half_extent + float(iz) * CELL
+			if _in_build_site(x, z):
+				continue
+			out.append(Vector3(x, height, z))
+	return out
+
+## Build sites are kept clear, so an expanded plot never swallows a forest and
+## nothing grows through the middle of the yard.
+func _in_build_site(x: float, z: float) -> bool:
+	for site in build_sites:
+		var centre: Vector3 = site.centre
+		if Vector2(x - centre.x, z - centre.z).length() <= float(site.radius) * 1.25:
+			return true
+	return false
 
 ## Drops a point onto the ground, which is how anything gets placed out here.
 func place(point: Vector3, lift: float = 0.0) -> Vector3:

@@ -22,6 +22,34 @@ func _ready() -> void:
 	_require(world.depot != null, "no sell depot")
 	_require(world.player != null and world.hud != null, "no player or HUD")
 	_check_ground()
+	_check_forest()
+
+## Different biomes are supposed to grow different trees. Count what actually
+## came up, and check each one is standing in country its species belongs to.
+func _check_forest() -> void:
+	var terrain: Terrain = world.terrain
+	var census: Dictionary = {}
+	var misplaced := 0
+	for field in world.tree_fields:
+		var kind: Dictionary = field.species[0]
+		for node in field.alive:
+			var tree := node as ChoppableTree
+			if tree == null:
+				continue
+			census[kind.name] = int(census.get(kind.name, 0)) + 1
+			var biome := terrain.biome_at(tree.global_position.x, tree.global_position.z)
+			if not (kind.biomes as Array).has(int(biome)):
+				misplaced += 1
+	var mix: Array[String] = []
+	for name in world.terrain.biome_mix():
+		mix.append("%s %.0f%%" % [name, float(world.terrain.biome_mix()[name]) * 100.0])
+	print("biomes: " + ", ".join(mix))
+	var parts: Array[String] = []
+	for name in census:
+		parts.append("%s x%d" % [name, int(census[name])])
+	print("forest: " + ", ".join(parts))
+	_require(census.size() >= 3, "only %d tree species grew" % census.size())
+	_require(misplaced == 0, "%d trees grew outside their own biomes" % misplaced)
 
 ## The land has to be solid off the plot, and the plot has to stand clear of it.
 ## Both of these shipped broken once: the terrain's triangles were wound

@@ -109,7 +109,27 @@ Everything else is carved into that afterwards, in order:
   meets a river it crosses at a ford rather than filling the river in.
 
 Resource fields sample the ground, so trees and rocks stand on it and avoid the
-water and the roads.
+water, the roads and the levelled build sites.
+
+**The forest belongs to the biomes.** A species is offered a pool of ground the
+terrain has already vetted - right biome, dry, off the roads, outside the build
+sites - rather than a ring drawn round the origin, so the look of the land tells
+you what you will be cutting, and the hard woods are out in the hard country:
+
+| Tree | Grows in | Cuts into |
+| --- | --- | --- |
+| Pine | woodland, taiga | pine |
+| Spruce | snowland | pine |
+| Oak | woodland | oak |
+| Willow | swamp (standing in shallow water) | oak |
+| Ironwood | mountains | ironwood |
+| Desert Ironwood | desert | ironwood |
+
+Tree and wood are deliberately separate: a swamp willow and a woodland oak are
+different trees that both cut into oak, so the map can be varied without the
+economy growing a new material for every silhouette. Quotas follow how much
+country each species actually has, so a seed that grows little swamp gets a few
+willows rather than an empty field grinding away at a region that is not there.
 
 ## Materials are volumes
 
@@ -145,11 +165,18 @@ them than before.
   carries its own vertices and its own normal, which is what makes hills read as
   facets rather than as a blurry blanket, and vertex colours carry the biome. Its
   collider is the same triangles.
-* **Trees** are a flared stump, a tapered trunk, four to eight angled branch
+* **Round stock is octagonal.** Trunks, branches and felled logs are drawn with
+  eight sides, matching the faceted land; the collision cylinder stays at the
+  full radius, so the mesh always sits inside its own collider. One constant,
+  `Tuning.ROUND_SIDES`, drives all of it.
+* **Trees** are a flared stump, a tapered trunk, four to nine angled branch
   cylinders and a cone of foliage on each branch end. Every limb has its own
   collider, which is how the aim ray knows which one you are standing under. The
   trunk mesh and the piece that falls are the same frustum, which is what makes
-  "it keeps the shape it grew" true rather than approximate.
+  "it keeps the shape it grew" true rather than approximate. Six species differ
+  in silhouette rather than in colour alone: where branches start up the trunk,
+  how far they are swept up or out, how long they are, how wide the foliage
+  clumps are, and whether there is a crown on top at all.
 * **Ore chunks** are a cluster of tilted boxes with bright ore seams, sunk into
   the ground by however much of them is buried, and drawn from the ore left in
   them - so hammering a piece off visibly shrinks the rock. Open cracks are

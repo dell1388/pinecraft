@@ -22,7 +22,7 @@ signal depleted(field: ResourceField, node: Node3D)
 ## Nodes are kept this far apart, so a forest is not a thicket of overlaps.
 @export var min_spacing: float = 3.4
 ## How many positions to try before giving up on this attempt.
-@export var placement_tries: int = 12
+@export var placement_tries: int = 24
 
 ## Forms to draw from. Each entry is passed to `builder` as-is.
 var species: Array[Dictionary] = []
@@ -63,7 +63,7 @@ func prefill() -> int:
 	var placed := 0
 	# Bounded by more than the quota because spacing rejects some candidates,
 	# but bounded, so a region too small for its quota cannot spin forever.
-	for i in quota * 4:
+	for i in quota * 8:
 		if at_quota():
 			break
 		if _try_spawn() != null:

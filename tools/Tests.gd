@@ -32,6 +32,8 @@ func _run_all() -> void:
 	await _test(&"resource fields fill to a quota and stop", test_resource_field)
 	await _test(&"terrain has biomes, rivers and roads", test_terrain)
 	await _test(&"you can stand on the terrain anywhere", test_terrain_collision)
+	await _test(&"a species only gets offered its own country", test_biome_pools)
+	await _test(&"round stock is drawn as octagons", test_octagonal_stock)
 	await _test(&"bucking splits wood and conserves volume", test_bucking)
 	await _test(&"a chunk is pulled out whole when the pull is enough", test_chunk_pull)
 	await _test(&"hammering cracks a chunk apart piece by piece", test_chunk_cracking)
@@ -520,6 +522,107 @@ func test_terrain_collision() -> void:
 	check(dropped.global_position.y > floor_y - 1.0,
 		"a piece dropped off the plot fell through the land (y=%.1f, ground %.1f)" % [
 			dropped.global_position.y, floor_y])
+	done()
+
+## Different biomes grow different trees, which only works if a species is
+## offered ground it actually belongs on.
+func test_biome_pools() -> void:
+	_teardown()
+	world = Node3D.new()
+	add_child(world)
+	var land := Terrain.new()
+	land.half_extent = 150.0
+	land.noise_seed = 4242
+	land.roads = [[Vector3(0, 0, -120), Vector3(0, 0, 120)]]
+	land.reserve_site(Vector3(0, 0.45, 0), 40.0)
+	world.add_child(land)
+	await step(2)
+
+	var wanted := [Terrain.Biome.WOODLAND, Terrain.Biome.TAIGA]
+	var pool := land.points_in_biomes(wanted)
+	check(pool.size() > 0, "no ground at all for woodland or taiga")
+	# Counted over the whole pool, then reported once. A check per point would
+	# bury the suite in a couple of hundred identical lines.
+	var wrong_biome := 0
+	var on_road := 0
+	var in_water := 0
+	var on_site := 0
+	var off_ground := 0
+	for point in pool:
+		if not wanted.has(int(land.biome_at(point.x, point.z))):
+			wrong_biome += 1
+		if land.is_road(point.x, point.z):
+			on_road += 1
+		if land.water_depth(point.x, point.z) > 0.0:
+			in_water += 1
+		if Vector2(point.x, point.z).length() <= 40.0:
+			on_site += 1
+		if absf(point.y - land.height_at(point.x, point.z)) > 0.001:
+			off_ground += 1
+	check_eq(off_ground, 0, "%d pool points are not at ground height" % off_ground)
+	check_eq(wrong_biome, 0, "%d points were offered in the wrong biome" % wrong_biome)
+	check_eq(on_road, 0, "%d points were offered on a road" % on_road)
+	check_eq(in_water, 0, "%d points were offered to a dry species under water" % in_water)
+	check_eq(on_site, 0, "%d points were offered inside a build site" % on_site)
+
+	# Asking for a different biome gets different ground.
+	var desert := land.points_in_biomes([Terrain.Biome.DESERT])
+	var overlap := 0
+	for point in desert:
+		if wanted.has(int(land.biome_at(point.x, point.z))):
+			overlap += 1
+	check_eq(overlap, 0, "the desert pool included woodland")
+
+	# A species allowed to stand in shallow water gets offered more of a wet
+	# biome than a dry one does - which is how the swamp keeps its willows.
+	var dry := land.points_in_biomes([Terrain.Biome.SWAMP])
+	var wet := land.points_in_biomes([Terrain.Biome.SWAMP], 2, 0.7)
+	check(wet.size() >= dry.size(),
+		"allowing shallow water offered fewer spots (%d) than dry land (%d)" % [
+			wet.size(), dry.size()])
+	done()
+
+## Spec: the land is faceted, and so is the wood. Trunks, branches and felled
+## logs are octagons, not smooth cylinders.
+func test_octagonal_stock() -> void:
+	_setup()
+	check_eq(Tuning.ROUND_SIDES, 8, "round stock is not octagonal")
+
+	var log_piece := spawn(&"wood_pine", Vector3(0, 1, 0), Solid.cylinder(0.3, 0.25, 2.0))
+	await step(2)
+	var sides := 0
+	for child in log_piece.get_children():
+		var mi := child as MeshInstance3D
+		if mi != null and mi.mesh is CylinderMesh:
+			sides = (mi.mesh as CylinderMesh).radial_segments
+	check_eq(sides, 8, "a felled log is drawn with %d sides" % sides)
+
+	# The collider stays a true cylinder at the full radius, so the octagon it
+	# stands in for is always inside it.
+	var shape: CylinderShape3D = null
+	for child in log_piece.get_children():
+		var cs := child as CollisionShape3D
+		if cs != null:
+			shape = cs.shape as CylinderShape3D
+	check(shape != null, "the log has no cylinder collider")
+	if shape != null:
+		check_near(shape.radius, 0.3, 0.001, "the collider is not at the full radius")
+
+	var tree := _make_tree(7.0, 0.34, 0.6, 3)
+	world.add_child(tree)
+	await step(2)
+	var faceted := 0
+	var round_bits := 0
+	for child in tree.get_children():
+		var mi := child as MeshInstance3D
+		if mi == null or not (mi.mesh is CylinderMesh):
+			continue
+		if (mi.mesh as CylinderMesh).radial_segments == 8:
+			faceted += 1
+		else:
+			round_bits += 1
+	check(faceted > 0, "the tree drew no octagonal parts")
+	check_eq(round_bits, 0, "%d parts of the tree are still round" % round_bits)
 	done()
 
 ## Walks the river looking for the shallow stretch the ford should have made.

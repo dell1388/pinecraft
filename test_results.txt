@@ -6,6 +6,8 @@
   [ok  ] resource fields fill to a quota and stop
   [ok  ] terrain has biomes, rivers and roads
   [ok  ] you can stand on the terrain anywhere
+  [ok  ] a species only gets offered its own country
+  [ok  ] round stock is drawn as octagons
   [ok  ] bucking splits wood and conserves volume
   [ok  ] a chunk is pulled out whole when the pull is enough
   [ok  ] hammering cracks a chunk apart piece by piece
@@ -37,7 +39,7 @@
   [ok  ] winch and crane respect their power ratings
   [ok  ] kill plane rescues fallen items
   [ok  ] per-plot cap is enforced
-      full base: 168 items live, avg 2.08 ms/frame, worst 5.16 ms (budget 16.67)
+      full base: 163 items live, avg 2.08 ms/frame, worst 8.65 ms (budget 16.67)
   [ok  ] full automated base stays in budget
 
-PASS - 680 checks
+PASS - 694 checks

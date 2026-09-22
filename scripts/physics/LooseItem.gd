@@ -88,7 +88,7 @@ func _build_mesh(color: Color) -> void:
 		var cm := _mesh.mesh as CylinderMesh
 		if cm == null:
 			cm = CylinderMesh.new()
-			cm.radial_segments = 10
+			cm.radial_segments = Tuning.ROUND_SIDES
 			cm.rings = 1
 			_mesh.mesh = cm
 		cm.bottom_radius = float(dims.r0)
