@@ -190,7 +190,7 @@ func _build_forest() -> void:
 			"start": 0.34, "pitch": [0.30, 0.62], "length": [0.11, 0.19],
 			"foliage": 5.0, "crown": [4.0, 0.60]},
 
-		{"name": "Spruce", "item": &"wood_pine",
+		{"name": "Spruce", "item": &"wood_spruce",
 			"biomes": [Terrain.Biome.SNOW],
 			"leaf": Color(0.52, 0.60, 0.58), "work": 700.0,
 			"radius": [0.24, 0.32], "height": [6.0, 8.5], "taper": 0.44, "branches": [6, 8],
@@ -206,7 +206,7 @@ func _build_forest() -> void:
 			"start": 0.58, "pitch": [0.80, 1.20], "length": [0.28, 0.44],
 			"foliage": 9.5, "crown": [8.5, 0.30]},
 
-		{"name": "Willow", "item": &"wood_oak",
+		{"name": "Willow", "item": &"wood_willow",
 			"biomes": [Terrain.Biome.SWAMP],
 			"leaf": Color(0.38, 0.47, 0.22), "work": 880.0,
 			"radius": [0.34, 0.46], "height": [4.5, 6.5], "taper": 0.70, "branches": [7, 9],
@@ -349,6 +349,7 @@ func _build_depot() -> void:
 	depot.extents = Vector3(18.0, 4.0, 18.0)
 	depot.position = terrain.place(DEPOT_POSITION)
 	add_child(depot)
+	Nameplate.landmark(depot, "SELL YARD", 5.5)
 
 	var sign_mesh := MeshInstance3D.new()
 	var bm := BoxMesh.new()
@@ -369,6 +370,7 @@ func _build_store() -> void:
 	store.position = terrain.place(STORE_POSITION)
 	store.rotation.y = PI
 	add_child(store)
+	Nameplate.landmark(store, "STORE", 6.0)
 
 func _make_player() -> Player:
 	var p := Player.new()

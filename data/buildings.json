@@ -240,7 +240,9 @@
       "conversion": {
         "wood_pine": "lumber_pine",
         "wood_oak": "lumber_oak",
-        "wood_ironwood": "lumber_ironwood"
+        "wood_ironwood": "lumber_ironwood",
+        "wood_spruce": "lumber_spruce",
+        "wood_willow": "lumber_willow"
       },
       "color": [
         0.44,

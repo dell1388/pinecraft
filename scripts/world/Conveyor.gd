@@ -58,7 +58,10 @@ func _build() -> void:
 	# at the -Z end. Pitch it the other way and the mesh slopes against the
 	# pieces riding it.
 	var pitch := atan2(rise, length)
-	var deck_pose := Transform3D(Basis(Vector3.RIGHT, pitch), Vector3(0, rise * 0.5, 0))
+	# The deck rests on the origin rather than straddling it, so a belt sits on
+	# the pad instead of being sunk half a deck into it.
+	var deck_pose := Transform3D(Basis(Vector3.RIGHT, pitch),
+		Vector3(0, DECK_THICKNESS * 0.5 + rise * 0.5, 0))
 	var deck_shape := CollisionShape3D.new()
 	var box := BoxShape3D.new()
 	box.size = Vector3(width, DECK_THICKNESS, run)
@@ -105,7 +108,7 @@ func _build() -> void:
 		var ab := BoxShape3D.new()
 		ab.size = Vector3(width, 1.2 + absf(rise), length)
 		acs.shape = ab
-		acs.position = Vector3(0, 0.6 + rise * 0.5, 0)
+		acs.position = Vector3(0, DECK_THICKNESS + 0.6 + rise * 0.5, 0)
 		_area_shape = acs
 		_area.add_child(acs)
 		_area.body_entered.connect(_on_body_entered)
@@ -114,7 +117,7 @@ func _build() -> void:
 	add_child(_deck)
 
 	_output_point = Node3D.new()
-	_output_point.position = Vector3(0, 0.4 + rise, -length * 0.5 - 0.3)
+	_output_point.position = Vector3(0, DECK_THICKNESS + 0.4 + rise, -length * 0.5 - 0.3)
 	add_child(_output_point)
 
 func output_transform() -> Transform3D:
@@ -200,7 +203,7 @@ func _physics_process(delta: float) -> void:
 			continue
 		_progress[item] = p
 		var half_h: float = item.resting_half_height()
-		var local := Vector3(0.0, DECK_THICKNESS * 0.5 + half_h + 0.01 + surface_height(p),
+		var local := Vector3(0.0, DECK_THICKNESS + half_h + 0.01 + surface_height(p),
 			length * 0.5 - p)
 		# Laid along the belt: predictable, no tumbling, no overhang sideways.
 		var basis := Basis(Vector3.RIGHT, PI * 0.5)

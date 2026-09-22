@@ -52,6 +52,7 @@ func _run_all() -> void:
 	await _test(&"splitter routes round-robin", test_splitter)
 	await _test(&"filter sorts items by type", test_filter)
 	await _test(&"building placement, cost and removal", test_building)
+	await _test(&"buildings sit on the pad, not in it", test_buildings_sit_on_pad)
 	await _test(&"plans fill with material and turn solid", test_schematic)
 	await _test(&"save/load round-trip", test_save_load)
 	await _test(&"plot expansion raises bounds and cap", test_expansion)
@@ -61,6 +62,8 @@ func _run_all() -> void:
 	await _test(&"lift and drag limits are weight limits", test_handling_limits)
 	await _test(&"ownership is tracked and saved", test_ownership)
 	await _test(&"hauler drives, carries and stays upright", test_hauler)
+	await _test(&"the hauler corners instead of sliding", test_hauler_grip)
+	await _test(&"a parked hauler stays put", test_hauler_parked)
 	await _test(&"a pad spawns one vehicle and replaces it", test_vehicle_pad)
 	await _test(&"winch and crane respect their power ratings", test_vehicle_rig)
 	await _test(&"kill plane rescues fallen items", test_kill_plane)
@@ -378,7 +381,7 @@ func test_terrain() -> void:
 		"fords": [{"at": 100.0, "width": 24.0}],
 		"path": [Vector3(-140, 0, -60), Vector3(0, 0, -20), Vector3(140, 0, 40)],
 	}]
-	land.roads = [[Vector3(0, 0, 0), Vector3(0, 0, 60), Vector3(60, 0, 110)]]
+	land.roads = [[Vector3(-130, 0, -130), Vector3(-40, 0, -50), Vector3(40, 0, 40), Vector3(130, 0, 130)]]
 	land.reserve_site(Vector3.ZERO, 40.0)
 	world.add_child(land)
 	await step(2)
@@ -432,8 +435,61 @@ func test_terrain() -> void:
 		check(shallow > 0.0, "the ford is not water at all")
 
 	# The road is marked where it runs and nowhere else.
-	check(land.is_road(0.0, 50.0), "the road is not marked along its own line")
-	check(not land.is_road(-90.0, 40.0), "open ground 90 m off the road is marked as road")
+	check(land.is_road(40.0, 40.0), "the road is not marked along its own line")
+	check(not land.is_road(-120.0, 110.0), "open ground far off the road is marked as road")
+
+	# And it is flat across its width. A road blended in from the centre-line is
+	# cambered, which is a road you slide off rather than drive on.
+	#
+	# Measured only where the land around the road actually slopes: over flat
+	# ground every grading scheme looks identical, so a test that sampled the
+	# levelled build site would pass whatever the code did.
+	# Measured in two bands, because they matter differently. The truck is
+	# 2.6 m wide, so what can tip it is the fall across its own track; the
+	# carriageway edge only has to stay sane. Measured only where the land
+	# around the road actually slopes - over flat ground every grading scheme
+	# looks identical, so sampling the levelled build site would prove nothing.
+	var worst_track := 0.0
+	var worst_edge := 0.0
+	var samples := 0
+	var sloped := 0
+	var across_dir := Vector3(1, 0, -1).normalized()
+	for step in range(-130, 131, 4):
+		var along := float(step)
+		if absf(along) < 55.0:
+			continue
+		var centre := Vector3(along, 0.0, along)
+		if not land.is_road(centre.x, centre.z):
+			continue
+		var middle := land.height_at(centre.x, centre.z)
+		if absf(land.height_at(centre.x + across_dir.x * 26.0,
+				centre.z + across_dir.z * 26.0) - middle) > 0.5:
+			sloped += 1
+		# Cross-fall is the difference between the two sides at equal distance.
+		# Comparing either side against the centre instead would count the
+		# road's gradient *along* its length, and a road climbing a hill is
+		# perfectly drivable - it is the sideways tilt that throws a truck.
+		for offset in [1.5, 3.0, 6.0]:
+			var out := float(offset)
+			var left_x := centre.x + across_dir.x * out
+			var left_z := centre.z + across_dir.z * out
+			var right_x := centre.x - across_dir.x * out
+			var right_z := centre.z - across_dir.z * out
+			if not land.is_road(left_x, left_z) or not land.is_road(right_x, right_z):
+				continue
+			var fall := absf(land.height_at(left_x, left_z) - land.height_at(right_x, right_z))
+			if out <= 3.0:
+				worst_track = maxf(worst_track, fall)
+			else:
+				worst_edge = maxf(worst_edge, fall)
+			samples += 1
+	check(sloped > 3,
+		"the test road only crosses %d sloping spots, so camber cannot be measured here" % sloped)
+	check(samples > 10, "only %d points sampled across the carriageway" % samples)
+	check(worst_track < 0.25,
+		"the road tilts %.2f m across the truck's own track - that will throw it sideways" % worst_track)
+	check(worst_edge < 0.8,
+		"the carriageway tilts %.2f m from edge to edge" % worst_edge)
 
 	# And dropping a point onto the ground puts it on the ground.
 	var dropped := land.place(Vector3(40.0, 99.0, -70.0), 0.5)
@@ -1323,6 +1379,60 @@ func test_building() -> void:
 	check_eq(rotated, Vector3i(4, 2, 3), "rotating a footprint did not swap x/z")
 	done()
 
+## From play-testing: things placed in build mode were ending up sunk into the
+## pad and out of reach. Every kind gets measured rather than eyeballed.
+func test_buildings_sit_on_pad() -> void:
+	_setup()
+	Economy.from_dict({"money": 900000, "day": 1})
+	for def: BuildingDef in GameData.buildings.values():
+		if not PlayerState.is_unlocked(def.id):
+			PlayerState.unlocked_buildings.append(def.id)
+	await step(2)
+
+	var pad := plot.global_position.y
+	var sunk: Array[String] = []
+	var checked := 0
+	var cell := Vector2i(-16, -16)
+	for def: BuildingDef in GameData.buildings.values():
+		if not plot.can_place(def, cell, Vector3i.ZERO, false):
+			cell = Vector2i(-16, cell.y + 8)
+			if not plot.can_place(def, cell, Vector3i.ZERO, false):
+				continue
+		var node := plot.place(def, cell, Vector3i.ZERO, false)
+		cell.x += def.size.x + 2
+		if node == null:
+			continue
+		await step(2)
+		var lowest := _lowest_collider_y(node)
+		if lowest == INF:
+			continue                    # nothing solid: a plan, before it is filled
+		checked += 1
+		if lowest < pad - 0.02:
+			sunk.append("%s by %.2f m" % [def.display_name, pad - lowest])
+	check(checked >= 6, "only measured %d building types" % checked)
+	check(sunk.is_empty(), "placed into the pad: " + ", ".join(sunk))
+	done()
+
+## The lowest point of anything *solid* under a node, in world space. Area3D
+## shapes are skipped: a machine's outlet zone reaching below the pad so it can
+## catch what rolls out of it is correct, and only the floor you stand on and
+## bump into counts as placement.
+func _lowest_collider_y(node: Node) -> float:
+	var lowest := INF
+	if node is Area3D:
+		return lowest
+	for child in node.get_children():
+		var cs := child as CollisionShape3D
+		if cs != null and not cs.disabled:
+			var box := cs.shape as BoxShape3D
+			if box != null:
+				lowest = minf(lowest, cs.global_position.y - box.size.y * 0.5)
+			var cyl := cs.shape as CylinderShape3D
+			if cyl != null:
+				lowest = minf(lowest, cs.global_position.y - cyl.height * 0.5)
+		lowest = minf(lowest, _lowest_collider_y(child))
+	return lowest
+
 ## Spec: a plan is filled by touching material to it, the first material fed to
 ## it is the only one it will take, and it turns solid when it is full.
 func test_schematic() -> void:
@@ -1806,6 +1916,80 @@ func test_hauler() -> void:
 
 ## Spec: a pad spawns one copy of its vehicle; triggering it again removes the
 ## old one first.
+## It used to be steered by dropping a yaw torque on the chassis, so the body
+## turned and the velocity carried straight on - the truck slid about like it
+## was on ice. Cornering means the velocity follows the nose.
+func test_hauler_grip() -> void:
+	_setup(false)
+	var truck := Hauler.new()
+	truck.setup(manager, 0)
+	truck.position = Vector3(0, 1.5, 0)
+	world.add_child(truck)
+	await step(60)
+
+	# Get it rolling in a straight line first.
+	truck.autopilot = true
+	truck.input_throttle = 1.0
+	await step(120)
+	var cruising := truck.linear_velocity.length()
+	check(cruising > 4.0, "the truck only reached %.1f m/s under full throttle" % cruising)
+
+	# Now turn. The nose has to come round, and the velocity has to come round
+	# with it rather than carrying on in the old direction.
+	var heading_before := (-truck.global_transform.basis.z)
+	truck.input_steer = 1.0
+	var worst_slip := 0.0
+	for i in 90:
+		await step(1)
+		var forward := -truck.global_transform.basis.z
+		var velocity := truck.linear_velocity
+		velocity.y = 0.0
+		if velocity.length() < 1.0:
+			continue
+		# The angle between where the truck points and where it is actually
+		# going. On ice this opens right up; with grip it stays small.
+		worst_slip = maxf(worst_slip, rad_to_deg(forward.angle_to(velocity.normalized())))
+	var heading_after := (-truck.global_transform.basis.z)
+	var turned := rad_to_deg(heading_before.angle_to(heading_after))
+
+	check(turned > 15.0, "steering only turned the truck %.0f degrees in 1.5 s" % turned)
+	check(worst_slip < 35.0,
+		"the truck slid at up to %.0f degrees away from its nose - that is ice, not grip" % worst_slip)
+	check(truck.global_transform.basis.y.dot(Vector3.UP) > 0.7, "the truck rolled over while cornering")
+	done()
+
+## Spec from play-testing: a truck with nobody in it should not be shoved
+## around by whatever walks into it.
+func test_hauler_parked() -> void:
+	_setup(false)
+	var truck := Hauler.new()
+	truck.setup(manager, 0)
+	truck.position = Vector3(0, 1.5, 0)
+	world.add_child(truck)
+	await step(90)
+	check(truck.parked(), "a truck with no driver does not think it is parked")
+	var resting := truck.global_position
+
+	# Shove it, hard, several times over - the sort of thing a player walking
+	# into it or a rolling log would do.
+	for i in 6:
+		truck.sleeping = false
+		truck.apply_central_impulse(Vector3(2500, 0, 1800))
+		await step(20)
+	var shifted := resting.distance_to(truck.global_position)
+	check(shifted < 2.0, "a parked truck was shoved %.1f m" % shifted)
+
+	# With a driver aboard it moves again, so the brake is not just glue.
+	truck.autopilot = true
+	truck.sleeping = false
+	check(not truck.parked(), "the truck still thinks it is parked with a driver aboard")
+	truck.input_throttle = 1.0
+	var before := truck.global_position
+	await step(150)
+	check(before.distance_to(truck.global_position) > 5.0,
+		"the truck would not drive away after being parked")
+	done()
+
 func test_vehicle_pad() -> void:
 	_setup()
 	Economy.from_dict({"money": 50000, "day": 1})

@@ -13,6 +13,7 @@ extends Node3D
 var body_color: Color = Color(0.22, 0.26, 0.34)
 
 const OUTPUT_DIRS := [Vector3.LEFT, Vector3.FORWARD, Vector3.RIGHT]
+const PLATE_THICKNESS := 0.2
 const OUTPUT_DISTANCE := 1.6
 
 var def: BuildingDef
@@ -41,13 +42,17 @@ func _ready() -> void:
 	body.collision_mask = Layers.MASK_MACHINE
 	var cs := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	box.size = Vector3(size.x, 0.2, size.z)
+	box.size = Vector3(size.x, PLATE_THICKNESS, size.z)
 	cs.shape = box
+	# Sitting on the origin, not centred on it: the origin is where a building
+	# meets the ground, so a plate centred there is half buried.
+	cs.position = Vector3(0, PLATE_THICKNESS * 0.5, 0)
 	body.add_child(cs)
 	var mesh := MeshInstance3D.new()
 	var bm := BoxMesh.new()
 	bm.size = box.size
 	mesh.mesh = bm
+	mesh.position = cs.position
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = body_color
 	mesh.material_override = mat
@@ -61,7 +66,7 @@ func _ready() -> void:
 	var ab := BoxShape3D.new()
 	ab.size = Vector3(size.x, 1.0, size.z)
 	acs.shape = ab
-	acs.position = Vector3(0, 0.6, 0)
+	acs.position = Vector3(0, PLATE_THICKNESS + 0.6, 0)
 	_area_shape = acs
 	_area.add_child(acs)
 	_area.body_entered.connect(_on_body)

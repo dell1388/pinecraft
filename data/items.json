@@ -56,6 +56,42 @@
       "volatility": 0.35
     },
     {
+      "id": "wood_spruce",
+      "display_name": "Spruce Wood",
+      "category": "wood",
+      "shape": "cylinder",
+      "variable": true,
+      "radius": 0.16,
+      "length": 1.55,
+      "taper": 0.88,
+      "density": 165,
+      "value_per_m3": 34,
+      "color": [
+        0.55,
+        0.42,
+        0.3
+      ],
+      "volatility": 0.26
+    },
+    {
+      "id": "wood_willow",
+      "display_name": "Willow Wood",
+      "category": "wood",
+      "shape": "cylinder",
+      "variable": true,
+      "radius": 0.19,
+      "length": 1.6,
+      "taper": 0.84,
+      "density": 120,
+      "value_per_m3": 40,
+      "color": [
+        0.44,
+        0.38,
+        0.28
+      ],
+      "volatility": 0.3
+    },
+    {
       "id": "lumber_pine",
       "display_name": "Pine Lumber",
       "category": "lumber",
@@ -114,6 +150,46 @@
         0.32
       ],
       "volatility": 0.3
+    },
+    {
+      "id": "lumber_spruce",
+      "display_name": "Spruce Lumber",
+      "category": "lumber",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.3,
+        0.3
+      ],
+      "length": 1.55,
+      "density": 155,
+      "value_per_m3": 108,
+      "color": [
+        0.8,
+        0.68,
+        0.48
+      ],
+      "volatility": 0.23
+    },
+    {
+      "id": "lumber_willow",
+      "display_name": "Willow Lumber",
+      "category": "lumber",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.3,
+        0.3
+      ],
+      "length": 1.55,
+      "density": 112,
+      "value_per_m3": 128,
+      "color": [
+        0.7,
+        0.66,
+        0.52
+      ],
+      "volatility": 0.28
     },
     {
       "id": "ore_iron",

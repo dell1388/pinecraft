@@ -20,7 +20,16 @@ const CELL := 6.0
 ## Anything below this is under water.
 const WATER_LEVEL := 0.0
 ## How wide a road is graded, and how much faster it is to drive on.
-const ROAD_HALF_WIDTH := 4.5
+## Half the carriageway. This has to be comfortably wider than a terrain cell,
+## or the road is narrower than the grid that represents it and "flat across"
+## stops meaning anything - which is what a 4.5 m half-width on a 6 m grid was.
+const ROAD_HALF_WIDTH := 9.0
+## Beyond the carriageway the grade blends back into whatever the land was
+## doing, so a road does not sit on a plinth. It has to be generous: a short
+## shoulder on steep ground is a cliff at the roadside, and because the heightfield
+## is sampled between grid points, a sharp step just outside the carriageway
+## bleeds back into it.
+const ROAD_SHOULDER := 20.0
 const ROAD_SPEED_BONUS := 0.18
 
 @export var half_extent: float = 300.0
@@ -273,32 +282,84 @@ func _carve_rivers() -> void:
 				_heights[_index(ix, iz)] = minf(_heights[_index(ix, iz)], carved)
 
 ## Spec: roads across the land, giving a small speed bonus to drive on.
+##
+## The carriageway is graded to one height clean across its width. Blending it
+## in gradually from the centre-line - which is what this used to do - leaves
+## the surface cambered, and a cambered road is one you slide off rather than
+## drive on. It still follows the lie of the land lengthwise, but off a smoothed
+## profile, so it is a graded road and not a rollercoaster draped over every bump.
 func _grade_roads() -> void:
 	for road in roads:
 		var path: Array = road
 		if path.size() < 2:
 			continue
+		var span := _path_length(path)
+		var profile := _road_profile(path, span)
+		if profile.is_empty():
+			continue
+		var reach := ROAD_HALF_WIDTH + ROAD_SHOULDER
 		for iz in _cells + 1:
 			for ix in _cells + 1:
 				var x := -half_extent + float(ix) * CELL
 				var z := -half_extent + float(iz) * CELL
 				var nearest := _distance_to_path(Vector3(x, 0, z), path)
 				var d: float = nearest.x
-				if d > ROAD_HALF_WIDTH * 2.0:
+				if d > reach:
 					continue
-				# A road is graded toward the height of its own centre-line, so
-				# it does not simply drape over every bump.
-				var target: float = _path_height(path, nearest.y)
-				var t: float = clampf(d / (ROAD_HALF_WIDTH * 2.0), 0.0, 1.0)
 				var index := _index(ix, iz)
+				var target := _profile_height(profile, nearest.y, span)
 				# Where a road meets a carved channel it crosses at a ford
-				# rather than filling the river in: shallow enough to drive
-				# through, still visibly water.
+				# rather than filling the river in.
 				if _heights[index] < WATER_LEVEL - 0.3:
-					target = -0.35
-				_heights[index] = lerpf(target, _heights[index], smoothstep(0.0, 1.0, t))
+					target = minf(target, -0.35)
 				if d <= ROAD_HALF_WIDTH:
+					_heights[index] = target
 					_road_mask[index] = 1
+				else:
+					var t: float = clampf((d - ROAD_HALF_WIDTH) / ROAD_SHOULDER, 0.0, 1.0)
+					_heights[index] = lerpf(target, _heights[index], smoothstep(0.0, 1.0, t))
+
+## Heights along a road's centre-line, taken off the land it crosses and then
+## smoothed twice, which is the difference between a grade and a switchback.
+func _road_profile(path: Array, span: float) -> PackedFloat32Array:
+	var out := PackedFloat32Array()
+	var steps := maxi(2, int(ceil(span / CELL)))
+	for i in steps + 1:
+		var point := _point_along(path, span * float(i) / float(steps))
+		out.append(height_at(point.x, point.z))
+	for pass_index in 2:
+		var smoothed := out.duplicate()
+		for i in range(1, out.size() - 1):
+			smoothed[i] = (out[i - 1] + out[i] * 2.0 + out[i + 1]) * 0.25
+		out = smoothed
+	return out
+
+func _profile_height(profile: PackedFloat32Array, along: float, span: float) -> float:
+	if profile.is_empty():
+		return 0.0
+	var f: float = clampf(along / maxf(0.001, span), 0.0, 1.0) * float(profile.size() - 1)
+	var i := int(floor(f))
+	var j := mini(i + 1, profile.size() - 1)
+	return lerpf(profile[i], profile[j], f - float(i))
+
+func _path_length(path: Array) -> float:
+	var total := 0.0
+	for i in path.size() - 1:
+		var a: Vector3 = path[i]
+		var b: Vector3 = path[i + 1]
+		total += Vector2(b.x - a.x, b.z - a.z).length()
+	return total
+
+func _point_along(path: Array, along: float) -> Vector3:
+	var travelled := 0.0
+	for i in path.size() - 1:
+		var a: Vector3 = path[i]
+		var b: Vector3 = path[i + 1]
+		var length := Vector2(b.x - a.x, b.z - a.z).length()
+		if along <= travelled + length or i == path.size() - 2:
+			return a.lerp(b, clampf((along - travelled) / maxf(0.001, length), 0.0, 1.0))
+		travelled += length
+	return path[path.size() - 1]
 
 ## Build sites are levelled last, so nothing the land does afterwards tilts a
 ## factory floor.
@@ -341,18 +402,6 @@ func _distance_to_path(point: Vector3, path: Array) -> Vector2:
 			best_along = travelled + length * t
 		travelled += length
 	return Vector2(best, best_along)
-
-func _path_height(path: Array, along: float) -> float:
-	var travelled := 0.0
-	for i in path.size() - 1:
-		var a: Vector3 = path[i]
-		var b: Vector3 = path[i + 1]
-		var length := Vector2(b.x - a.x, b.z - a.z).length()
-		if along <= travelled + length or i == path.size() - 2:
-			var t: float = clampf((along - travelled) / maxf(0.001, length), 0.0, 1.0)
-			return lerpf(a.y, b.y, t)
-		travelled += length
-	return path[path.size() - 1].y
 
 # --- Mesh ------------------------------------------------------------------
 

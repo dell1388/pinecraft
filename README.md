@@ -104,9 +104,14 @@ Everything else is carved into that afterwards, in order:
   through; everywhere else wants a bridge. Water deeper than a metre is swum
   rather than waded, slowly, and a hauler whose driver seat goes under can no
   longer be driven.
-* **Roads are graded across** it toward their own centre-line rather than draped
-  over every bump, and they give a small speed bonus to drive on. Where a road
-  meets a river it crosses at a ford rather than filling the river in.
+* **Roads are graded across** it - the whole carriageway to one height, which
+  follows the land lengthwise off a smoothed profile but does not tilt sideways.
+  Blending in from the centre-line instead leaves a camber, and a cambered road
+  is one you slide off. The carriageway has to be comfortably wider than a
+  terrain cell or it is narrower than the grid representing it, which is why it
+  is 18 m across on a 6 m grid, with a 20 m shoulder blending back into the
+  land. Where a road meets a river it crosses at a ford rather than filling the
+  river in, and driving one is slightly quicker.
 
 Resource fields sample the ground, so trees and rocks stand on it and avoid the
 water, the roads and the levelled build sites.
@@ -119,17 +124,20 @@ you what you will be cutting, and the hard woods are out in the hard country:
 | Tree | Grows in | Cuts into |
 | --- | --- | --- |
 | Pine | woodland, taiga | pine |
-| Spruce | snowland | pine |
+| Spruce | snowland | spruce |
 | Oak | woodland | oak |
-| Willow | swamp (standing in shallow water) | oak |
+| Willow | swamp (standing in shallow water) | willow |
 | Ironwood | mountains | ironwood |
 | Desert Ironwood | desert | ironwood |
 
-Tree and wood are deliberately separate: a swamp willow and a woodland oak are
-different trees that both cut into oak, so the map can be varied without the
-economy growing a new material for every silhouette. Quotas follow how much
-country each species actually has, so a seed that grows little swamp gets a few
-willows rather than an empty field grinding away at a region that is not there.
+Tree and wood are still separate ideas - the two ironwoods are different trees
+cutting the same wood - but each biome that is worth a trip pays for it. Willow
+is the odd one: poor value by the cubic metre and very light, so it pays well
+for what it weighs and is worth carrying by hand where oak is worth a truck.
+
+Quotas follow how much country each species actually has, so a seed that grows
+little swamp gets a few willows rather than an empty field grinding away at a
+region that is not there.
 
 ## Materials are volumes
 
@@ -190,6 +198,10 @@ them than before.
 * **The hauler** has a cab, deck boards, headlights, and four wheels with hubs
   that spin with ground speed and steer with the front axle. Its winch cable and
   crane boom are drawn last, from the hook to wherever the load ended up.
+* **Nameplates.** Primitives can only say so much, and a plot is a field of
+  similar boxes, so every placed building, the build ghost and the two landmarks
+  carry a billboarded label. It is a stopgap until the models speak for
+  themselves, and it is the difference between a factory and a guessing game.
 * **The yard** is a fenced pad with a hut and a shopkeep you can walk up to and
   aim at. **The store** is a room with three walls and a doorway, shelving down
   the back, a counter with a till and a land desk by the door.
@@ -280,6 +292,14 @@ rule below is enforced in one place rather than per object.
   without a clean exit event and the same node is re-used elsewhere. Sinks ran
   a point-in-box test (`Trigger`) before acting; without it a storage bin
   re-swallowed items it had just poured out, metres away.
+* **The hauler has tyres, not a yaw torque.** It used to be steered by dropping
+  a torque on the chassis and driven by a force through its centre of mass,
+  which is why it handled like a trolley on ice: the body turned and the
+  velocity carried straight on. Every wheel now works at its own contact patch -
+  the front pair points where it is steered, the truck corners because those
+  tyres bite, and what any tyre can do is bounded by the load that wheel is
+  carrying, so a wheel in the air grips nothing. With nobody aboard the wheels
+  lock and the truck sleeps, so a parked truck stays where it was left.
 * **Vehicle cargo is part of the vehicle, not a passenger.** Loading removes the
   item from the physics world and parents a plain mesh to the hull: no collider,
   no body, no velocity of its own. Nothing can shake, push, grab or sell a load

@@ -2,15 +2,89 @@
   "_note": "Standing orders. Each wants a volume of one material; delivering it to the yard fills the order and pays the reward on top of the ordinary sale price. Completed orders are replaced from the pool.",
   "active_slots": 3,
   "quests": [
-    { "id": "pine_order",     "title": "Pine order",        "item": "wood_pine",      "volume": 4.0,  "reward": 400 },
-    { "id": "oak_order",      "title": "Oak order",         "item": "wood_oak",       "volume": 3.0,  "reward": 700 },
-    { "id": "ironwood_order", "title": "Ironwood order",    "item": "wood_ironwood",  "volume": 2.0,  "reward": 1600 },
-    { "id": "board_order",    "title": "Board order",       "category": "lumber",     "volume": 2.5,  "reward": 1100 },
-    { "id": "iron_order",     "title": "Iron ore order",    "item": "ore_iron",       "volume": 1.5,  "reward": 900 },
-    { "id": "copper_order",   "title": "Copper ore order",  "item": "ore_copper",     "volume": 1.2,  "reward": 1300 },
-    { "id": "gold_order",     "title": "Gold ore order",    "item": "ore_gold",       "volume": 0.8,  "reward": 2600 },
-    { "id": "billet_order",   "title": "Billet order",      "category": "metal",      "volume": 0.4,  "reward": 2100 },
-    { "id": "crate_order",    "title": "Crate order",       "item": "crate",          "volume": 1.4,  "reward": 1500 },
-    { "id": "toolkit_order",  "title": "Toolkit order",     "item": "toolkit",        "volume": 0.6,  "reward": 1900 }
+    {
+      "id": "pine_order",
+      "title": "Pine order",
+      "item": "wood_pine",
+      "volume": 4.0,
+      "reward": 400
+    },
+    {
+      "id": "oak_order",
+      "title": "Oak order",
+      "item": "wood_oak",
+      "volume": 3.0,
+      "reward": 700
+    },
+    {
+      "id": "ironwood_order",
+      "title": "Ironwood order",
+      "item": "wood_ironwood",
+      "volume": 2.0,
+      "reward": 1600
+    },
+    {
+      "id": "spruce_order",
+      "title": "Spruce order",
+      "item": "wood_spruce",
+      "volume": 3.5,
+      "reward": 550
+    },
+    {
+      "id": "willow_order",
+      "title": "Willow order",
+      "item": "wood_willow",
+      "volume": 3.0,
+      "reward": 650
+    },
+    {
+      "id": "board_order",
+      "title": "Board order",
+      "category": "lumber",
+      "volume": 2.5,
+      "reward": 1100
+    },
+    {
+      "id": "iron_order",
+      "title": "Iron ore order",
+      "item": "ore_iron",
+      "volume": 1.5,
+      "reward": 900
+    },
+    {
+      "id": "copper_order",
+      "title": "Copper ore order",
+      "item": "ore_copper",
+      "volume": 1.2,
+      "reward": 1300
+    },
+    {
+      "id": "gold_order",
+      "title": "Gold ore order",
+      "item": "ore_gold",
+      "volume": 0.8,
+      "reward": 2600
+    },
+    {
+      "id": "billet_order",
+      "title": "Billet order",
+      "category": "metal",
+      "volume": 0.4,
+      "reward": 2100
+    },
+    {
+      "id": "crate_order",
+      "title": "Crate order",
+      "item": "crate",
+      "volume": 1.4,
+      "reward": 1500
+    },
+    {
+      "id": "toolkit_order",
+      "title": "Toolkit order",
+      "item": "toolkit",
+      "volume": 0.6,
+      "reward": 1900
+    }
   ]
 }

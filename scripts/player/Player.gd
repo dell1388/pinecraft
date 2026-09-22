@@ -31,6 +31,8 @@ const SWIM_SPEED_FACTOR := 0.38
 const MIN_BUCK_LENGTH := 0.70
 ## Axe work required per square metre of cut face.
 const BUCK_WORK_PER_M2 := 700.0
+## How briskly a dragged piece is turned back into line with the player.
+const DRAG_TURN_GAIN := 6.0
 
 var manager: LooseItemManager
 var plot: Plot
@@ -41,6 +43,10 @@ var vehicle: Node3D = null              ## set while driving
 
 var held: Array[LooseItem] = []
 var dragged: LooseItem = null
+## The dragged piece's orientation relative to the player, captured when it was
+## grabbed. Held constant, so the piece turns with the player instead of hanging
+## in one world orientation while they pan around it.
+var _drag_basis: Basis = Basis()
 var last_prompt: String = ""
 
 var _swing_cd: float = 0.0
@@ -592,6 +598,7 @@ func _grab_drag_item(item: LooseItem) -> bool:
 		return false
 	item.owned = item.owned or not _must_buy(item)
 	dragged = item
+	_drag_basis = Basis(Vector3.UP, -rotation.y) * item.global_transform.basis.orthonormalized()
 	item.set_state(LooseItem.State.CARRIED)
 	return true
 
@@ -623,7 +630,23 @@ func _update_drag() -> void:
 	if desired.length() > carry_max_speed:
 		desired = desired.normalized() * carry_max_speed
 	dragged.linear_velocity = desired
-	dragged.angular_velocity *= 0.6
+
+	# Turn the piece back to the orientation it had relative to the player, so
+	# a length of timber swings round with them rather than staying put while
+	# they walk around its end.
+	var wanted := (Basis(Vector3.UP, rotation.y) * _drag_basis).get_rotation_quaternion()
+	var current := dragged.global_transform.basis.get_rotation_quaternion()
+	var turn := wanted * current.inverse()
+	if turn.w < 0.0:
+		turn = Quaternion(-turn.x, -turn.y, -turn.z, -turn.w)   # the short way round
+	var angle := turn.get_angle()
+	if angle > 0.002:
+		var spin := turn.get_axis() * angle * DRAG_TURN_GAIN
+		if spin.length() > Tuning.MAX_ANGULAR_SPEED:
+			spin = spin.normalized() * Tuning.MAX_ANGULAR_SPEED
+		dragged.angular_velocity = spin
+	else:
+		dragged.angular_velocity = Vector3.ZERO
 
 # --- Interaction -----------------------------------------------------------
 

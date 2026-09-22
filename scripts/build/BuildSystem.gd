@@ -29,6 +29,7 @@ const FLY_SPRINT := 32.0
 var _ghost: MeshInstance3D
 var _ghost_material: StandardMaterial3D
 ## Where the camera was before build mode took it, so leaving puts it back.
+var _ghost_label: Label3D
 var _stowed: Transform3D
 var _flying: bool = false
 
@@ -47,6 +48,9 @@ func _ready() -> void:
 	_ghost.material_override = _ghost_material
 	_ghost.visible = false
 	add_child(_ghost)
+	# What you are about to place, named, because a translucent box is not a
+	# description of anything.
+	_ghost_label = Nameplate.attach(_ghost, "", 0.0)
 	set_process(true)
 
 func refresh_palette() -> void:
@@ -176,6 +180,8 @@ func _update_ghost() -> void:
 	_ghost.global_position = plot.cell_to_world(target_cell, def.size, rot) + Vector3(0, size.y * 0.5, 0)
 	_ghost.rotation = Vector3.ZERO
 	_ghost.visible = true
+	_ghost_label.text = def.display_name
+	_ghost_label.position = Vector3(0, size.y * 0.5 + 0.7, 0)
 
 	last_error = plot.placement_error(def, target_cell, rot)
 	_ghost_material.albedo_color = Color(0.3, 1.0, 0.4, 0.35) if last_error == "" \

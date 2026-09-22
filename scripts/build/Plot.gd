@@ -183,6 +183,9 @@ func place(def: BuildingDef, cell: Vector2i, rot: Variant, charge: bool = true) 
 	node.position = to_local(cell_to_world(cell, def.size, orientation))
 	node.basis = orientation_basis(orientation)
 	add_child(node)
+	# The models are primitives and a plot is a field of similar boxes, so
+	# every building says what it is.
+	Nameplate.attach(node, def.display_name, float(def.size.y) * CELL + 0.7)
 	var record := {"def": def, "cell": cell, "rot": orientation, "node": node}
 	placed.append(record)
 	var index := placed.size() - 1
