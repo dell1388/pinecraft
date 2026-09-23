@@ -58,12 +58,17 @@ static func load_game(plot: Plot, player: Node3D = null, path: String = SAVE_PAT
 		push_warning("SaveSystem: save is from a newer version; loading anyway")
 	PlayerState.from_dict(doc.get("player_state", {}))
 	Economy.from_dict(doc.get("economy", {}))
-	plot.from_dict(doc.get("plot", {}))
 	if manager != null:
 		# Clear exactly what a save would have written before writing it back,
-		# or loading twice doubles the stockpile.
-		for stale in manager.owned_items(plot.global_position, plot.half_extent * 1.4142):
-			manager.despawn(stale)
+		# or loading twice doubles the stockpile. That includes whatever is in
+		# a truck bed, wherever the truck is: it is saved with the truck.
+		# Done before the plot, whose pads bring the truck and its load back.
+		var reach: float = plot.half_extent * 1.4142
+		for stale in manager.owned_items():
+			if stale.carrier != null or stale.global_position.distance_to(plot.global_position) <= reach:
+				manager.despawn(stale)
+	plot.from_dict(doc.get("plot", {}))
+	if manager != null:
 		_loose_from_array(manager, doc.get("loose", []), plot.plot_id)
 	if quests != null:
 		quests.from_dict(doc.get("quests", {}))
@@ -86,6 +91,8 @@ static func _loose_to_array(manager: LooseItemManager, plot: Plot) -> Array:
 	var centre := plot.global_position
 	var reach: float = plot.half_extent * 1.4142
 	for item in manager.owned_items(centre, reach):
+		if item.carrier != null and is_instance_valid(item.carrier):
+			continue      # saved with the truck it is riding in
 		var t := item.global_transform
 		out.append({
 			"id": String(item.item_id),

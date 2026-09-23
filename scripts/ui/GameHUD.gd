@@ -785,7 +785,7 @@ func _update_drive() -> void:
 		bits.append("braking")
 	if player.steering_load():
 		bits.append("crane has a load")
-	_drive_state.text = "   ·   ".join(bits) if not bits.is_empty() else "cargo is locked while you drive"
+	_drive_state.text = "   ·   ".join(bits) if not bits.is_empty() else "the load rides loose - mind the corners"
 
 func _update_debug() -> void:
 	var lines: Array[String] = []

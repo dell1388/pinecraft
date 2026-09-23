@@ -45,10 +45,8 @@ func _ready() -> void:
 	for n in counts:
 		scenarios.append({"name": "pile_%d" % n, "kind": "pile", "count": n,
 			"warm": 30, "measure": 300, "rest": 120})
-	scenarios.append({"name": "conveyor_kinematic_fed", "kind": "conveyor",
-		"mode": Conveyor.Mode.KINEMATIC, "feed_every": 12, "warm": 30, "measure": 600, "rest": 0})
-	scenarios.append({"name": "conveyor_surface_fed", "kind": "conveyor",
-		"mode": Conveyor.Mode.SURFACE, "feed_every": 12, "warm": 30, "measure": 600, "rest": 0})
+	scenarios.append({"name": "conveyor_fed", "kind": "conveyor",
+		"feed_every": 12, "warm": 30, "measure": 600, "rest": 0})
 	scenarios.append({"name": "drag_20_while_200_pile", "kind": "drag",
 		"count": 200, "drag": 20, "warm": 60, "measure": 480, "rest": 0})
 	scenarios.append({"name": "ccd_cannon_60_at_60ms", "kind": "cannon",
@@ -89,7 +87,7 @@ func _setup_scenario(s: Dictionary) -> void:
 			StressWorld.rain_items(_manager, &"wood_pine", int(s.count), _rng,
 				Vector3(0, 14, 0), 3.4, 0.5)
 		"conveyor":
-			var c := StressWorld.build_conveyor(_world, Vector3(0, 0.6, 0), 0.0, s.mode, 16.0, 3.0)
+			var c := StressWorld.build_conveyor(_world, Vector3(-14, 0.6, 0), 0.0, 16.0, 3.0)
 			_conveyors.append(c)
 		"cannon":
 			StressWorld.fire_cannon(_manager, &"ore_iron", int(s.count),
@@ -261,8 +259,7 @@ func _count_escaped() -> int:
 			escaped += 1
 	return escaped + _manager.stat_killplane
 
-## Items that made it past the far end of the belt. KINEMATIC mode also keeps
-## its own counter; position is used so both modes are measured the same way.
+## Items that made it past the far end of the belt, by position.
 func _count_delivered() -> int:
 	var belt: Conveyor = _conveyors[0]
 	var inv := belt.global_transform.affine_inverse()

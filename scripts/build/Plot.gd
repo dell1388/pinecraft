@@ -279,7 +279,6 @@ func _instantiate(def: BuildingDef) -> Node3D:
 			return m
 		&"conveyor":
 			var c := Conveyor.new()
-			c.mode = Conveyor.Mode.KINEMATIC
 			c.length = float(def.size.z) * CELL
 			c.width = float(def.size.x) * CELL * 0.9
 			c.speed = def.speed

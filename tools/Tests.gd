@@ -55,6 +55,7 @@ func _run_all() -> void:
 	await _test(&"storage bin stores and dispenses", test_storage)
 	await _test(&"conveyor feeds a machine directly", test_conveyor_to_machine)
 	await _test(&"belts come as ramps, borderless and stoppable", test_conveyor_options)
+	await _test(&"belts carry by friction, and things on them can jam", test_conveyor_physics)
 	await _test(&"splitter routes round-robin", test_splitter)
 	await _test(&"filter sorts items by type", test_filter)
 	await _test(&"building placement, cost and removal", test_building)
@@ -73,6 +74,7 @@ func _run_all() -> void:
 	await _test(&"lift and drag limits are weight limits", test_handling_limits)
 	await _test(&"ownership is tracked and saved", test_ownership)
 	await _test(&"hauler drives, carries and stays upright", test_hauler)
+	await _test(&"the load in the bed is loose and real", test_hauler_loose_load)
 	await _test(&"the hauler corners instead of sliding", test_hauler_grip)
 	await _test(&"a parked hauler stays put", test_hauler_parked)
 	await _test(&"a pad spawns one vehicle and replaces it", test_vehicle_pad)
@@ -104,6 +106,10 @@ func _write_log() -> void:
 		f.close()
 
 func _test(name: StringName, fn: Callable) -> void:
+	# TEST_ONLY=word runs just the tests whose names contain it.
+	var only := OS.get_environment("TEST_ONLY")
+	if only != "" and not String(name).contains(only):
+		return
 	_current = String(name)
 	var before := _failures.size()
 	var checks_before := _checks
@@ -668,16 +674,20 @@ func test_octagonal_stock() -> void:
 			sides = (mi.mesh as CylinderMesh).radial_segments
 	check_eq(sides, 8, "a felled log is drawn with %d sides" % sides)
 
-	# The collider stays a true cylinder at the full radius, so the octagon it
-	# stands in for is always inside it.
-	var shape: CylinderShape3D = null
+	# The collider is the same octagon the log is drawn as: a true cylinder
+	# lying on its side sinks into moving bodies under Jolt.
+	var shape: ConvexPolygonShape3D = null
 	for child in log_piece.get_children():
 		var cs := child as CollisionShape3D
 		if cs != null:
-			shape = cs.shape as CylinderShape3D
-	check(shape != null, "the log has no cylinder collider")
+			shape = cs.shape as ConvexPolygonShape3D
+	check(shape != null, "the log has no octagonal collider")
 	if shape != null:
-		check_near(shape.radius, 0.3, 0.001, "the collider is not at the full radius")
+		check_eq(shape.points.size(), 16, "the log collider is not an eight-sided prism")
+		var widest := 0.0
+		for p in shape.points:
+			widest = maxf(widest, Vector2(p.x, p.z).length())
+		check_near(widest, 0.3, 0.001, "the collider corners are not at the full radius")
 
 	var tree := _make_tree(7.0, 0.34, 0.6, 3)
 	world.add_child(tree)
@@ -1203,7 +1213,6 @@ func test_conveyor_to_machine() -> void:
 	mill.position = Vector3(0, 0, -8)   # intake face (+Z) looks back at the belt
 	world.add_child(mill)
 	var belt := Conveyor.new()
-	belt.mode = Conveyor.Mode.KINEMATIC
 	belt.length = 8.0
 	belt.speed = 4.0
 	belt.position = Vector3(0, 0.6, 2.0)
@@ -1232,21 +1241,24 @@ func test_conveyor_options() -> void:
 	check(ramp != null, "the ramp was not placed")
 	await step(4)
 
-	# A ramp lifts what rides it.
-	var box := spawn(&"lumber_pine", ramp.global_position + Vector3(0, 0.9, 1.6),
+	# A ramp lifts what rides it - by friction, with the piece still a free body.
+	# Laid down along the belt: a tall piece stood on its end at the foot of
+	# a moving ramp topples, as it would on a real one.
+	var box := manager.spawn(&"lumber_pine", Transform3D(
+		ramp.global_transform.basis * LooseItem.lying_basis(0.0),
+		ramp.global_transform * Vector3(0, 0.9, 1.2)), 0, Vector3.ZERO,
 		Solid.box(Vector3(0.3, 0.9, 0.3)))
 	for i in 200:
 		await step(1)
 		if ramp.captured_count() > 0:
 			break
-	check(ramp.captured_count() > 0, "the ramp never picked the piece up")
-	# Measured while it is still aboard: a 4 m belt at 3 m/s delivers in well
-	# under two seconds, and a delivered piece has already fallen off the end.
+	check(ramp.captured_count() > 0, "the ramp never noticed the piece")
 	var lifted := box.global_position.y
 	for i in 20:
 		await step(1)
-	check(box.state == LooseItem.State.CAPTURED, "the piece left the ramp before it was measured")
-	check(box.global_position.y > lifted, "the ramp did not carry the piece upward")
+	check(box.state == LooseItem.State.FREE and not box.freeze,
+		"a piece on the ramp was taken out of the physics")
+	check(box.global_position.y > lifted + 0.1, "the ramp did not carry the piece upward")
 	check(ramp.output_transform().origin.y > ramp.global_position.y + 0.5,
 		"the ramp's far end is not above its near end")
 	check_near(ramp.surface_height(0.0), 0.0, 0.0001, "the ramp starts above its own base")
@@ -1275,21 +1287,63 @@ func test_conveyor_options() -> void:
 	check(open_def.cost < GameData.building(&"conveyor").cost,
 		"a belt with less on it costs more")
 
-	# A stopped belt takes nothing new.
+	# A stopped belt is a still deck: what lands on it stays where it lands.
 	var flat := plot.place(GameData.building(&"conveyor"), Vector2i(4, -4), 0) as Conveyor
 	await step(4)
 	check(flat.running, "a new belt starts stopped")
 	check(not flat.toggle(), "toggling a running belt did not stop it")
-	var ignored := spawn(&"lumber_pine", flat.global_position + Vector3(0, 0.9, 1.6),
+	var resting := spawn(&"lumber_pine", flat.global_position + Vector3(0, 0.9, 1.6),
 		Solid.box(Vector3(0.3, 0.9, 0.3)))
-	await step(40)
-	check_eq(flat.captured_count(), 0, "a stopped belt picked something up")
+	await step(60)
+	var parked := resting.global_position
+	await step(60)
+	check(parked.distance_to(resting.global_position) < 0.05,
+		"a stopped belt moved what was on it (%.2f m)" % parked.distance_to(resting.global_position))
 	check(flat.toggle(), "toggling a stopped belt did not start it")
-	for i in 200:
-		await step(1)
-		if flat.captured_count() > 0:
-			break
-	check(flat.captured_count() > 0, "a restarted belt never picked the piece up")
+	await step(30)
+	check(parked.distance_to(resting.global_position) > 0.5,
+		"a restarted belt did not carry off what was sitting on it")
+	done()
+
+## Spec from play-testing: things on a belt are not locked down. They ride it
+## by friction as free bodies, keep moving while it runs, and pile up or jam
+## against whatever is in the way instead of passing through it.
+func test_conveyor_physics() -> void:
+	_setup()
+	var belt := Conveyor.new()
+	belt.length = 10.0
+	belt.speed = 3.0
+	belt.position = Vector3(0, 0.6, 0)
+	world.add_child(belt)
+	await step(2)
+	var piece := spawn(&"lumber_pine", Vector3(0, 1.3, 3.5), Solid.box(Vector3(0.3, 0.9, 0.3)))
+	await step(50)
+	check(piece.state == LooseItem.State.FREE and not piece.freeze,
+		"the belt took the piece out of the physics")
+	var v := piece.linear_velocity.dot(-belt.global_transform.basis.z)
+	check_near(v, belt.speed, 0.6, "the piece rides at %.2f m/s on a %.1f m/s belt" % [v, belt.speed])
+	check(not piece.sleeping, "a piece fell asleep on a running belt")
+
+	# A wall across the belt: the piece jams against it and stays jammed,
+	# rather than being dragged through it.
+	var wall := StaticBody3D.new()
+	wall.collision_layer = Layers.MACHINE
+	var cs := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(3.0, 1.5, 0.3)
+	cs.shape = box
+	wall.add_child(cs)
+	wall.position = Vector3(0, 1.2, -3.0)
+	world.add_child(wall)
+	await step(180)
+	check(piece.global_position.z > -3.0, "the belt dragged the piece through a wall")
+	check(piece.global_position.z < -1.5, "the piece never reached the wall (z=%.2f)" % piece.global_position.z)
+	check_eq(belt.captured_count(), 1, "the jammed piece is not counted as on the belt")
+	# Take the wall away and the jam clears by itself.
+	wall.queue_free()
+	await step(150)
+	check(piece.global_position.z < -5.0, "the jam did not clear when the wall went")
+	check(belt.total_delivered >= 1, "the piece going off the end was not counted")
 	done()
 
 func test_splitter() -> void:
@@ -2186,19 +2240,24 @@ func test_hauler() -> void:
 		"hauler did not settle on its suspension (y=%.2f)" % resting_y)
 	check(truck.global_transform.basis.y.dot(Vector3.UP) > 0.9, "hauler is not upright at rest")
 
+	# Logs dropped into the bed land in it and stay real bodies.
 	var loaded := 0.0
 	for i in 4:
-		var piece := spawn(&"wood_pine", truck.global_position + Vector3(0, 2.0 + float(i) * 0.4, 0.6),
-			Solid.cylinder(0.18, 0.16, 1.6))
+		var piece := manager.spawn(&"wood_pine", Transform3D(
+			truck.global_transform.basis * LooseItem.lying_basis(PI * 0.5),
+			truck.global_transform * Vector3(0, 2.0 + float(i) * 0.5, 0.2 + float(i) * 0.5)),
+			0, Vector3.ZERO, Solid.cylinder(0.18, 0.16, 1.6))
 		loaded += piece.volume()
-	await step(45)
-	check_eq(truck.cargo_count(), 4, "hauler did not take the load aboard")
+	await step(60)
+	check_eq(truck.cargo_count(), 4, "hauler did not see the load in its bed")
 	check_near(truck.cargo_volume(), loaded, 0.0001, "hauler miscounted its load")
 	check(truck.cargo_capacity_m3 > loaded, "test load should fit well inside the bed")
-	# Loaded cargo must leave the physics world entirely: no bodies to bounce,
-	# be grabbed, be sold or be knocked off.
-	check_eq(manager.active_count(), 0, "cargo is still a loose physics body after loading")
+	check_eq(manager.active_count(), 4, "the load stopped being physics bodies")
+	for item in truck.cargo_list():
+		check(not item.freeze and item.state == LooseItem.State.FREE, "a piece in the bed was locked down")
+		check(item.carrier == truck, "a piece in the bed does not know it is in the truck")
 
+	# Driven sensibly - away from a standstill, then braking - the load stays in.
 	var start := truck.global_position
 	truck.autopilot = true
 	truck.input_throttle = 1.0
@@ -2207,66 +2266,112 @@ func test_hauler() -> void:
 	check(travelled > 6.0, "hauler barely moved under throttle (%.1f m)" % travelled)
 	check(truck.linear_velocity.length() <= truck.max_speed * 1.5, "hauler exceeded its speed cap")
 	check(truck.global_transform.basis.y.dot(Vector3.UP) > 0.7, "hauler rolled while driving")
-	check_eq(truck.cargo_count(), 4, "hauler lost cargo while driving")
-	check_eq(manager.active_count(), 0, "something fell out of the bed while driving")
+	check_eq(truck.cargo_count(), 4, "the load fell out while pulling away")
+	truck.input_throttle = 0.0
+	truck.input_brake = true
+	await step(120)
+	check(truck.linear_velocity.length() < 1.0, "the truck did not stop under braking")
+	check_eq(truck.cargo_count(), 4, "the load went over the headboard under braking")
+	truck.input_brake = false
+	truck.autopilot = false
 
-	# The load rides exactly with the hull, whatever happens to the hull.
-	var cargo_props := 0
 	var wheels := 0
 	for child in truck.get_children():
-		var prop := child as MeshInstance3D
-		if prop == null:
-			continue
-		if truck._wheels.has(prop) and prop.position.y < 0.0:
+		if child is MeshInstance3D and truck._wheels.has(child) and (child as Node3D).position.y < 0.0:
 			wheels += 1
-		elif prop.mesh is CylinderMesh and prop.position.y > 0.3:
-			cargo_props += 1
-	check(cargo_props == 4, "expected 4 cargo props on the hull, saw %d" % cargo_props)
 	check(wheels >= 4, "the hauler should have wheels, found %d" % wheels)
 
-	# Slam it into the boundary wall at full speed, then flip it upside down and
-	# spin it: nothing may come loose.
-	truck.input_throttle = 1.0
-	await step(240)
-	check_eq(truck.cargo_count(), 4, "cargo was lost in a collision")
-	PhysicsServer3D.body_set_state(truck.get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM,
-		Transform3D(Basis.from_euler(Vector3(PI, 0, 0)), truck.global_position + Vector3(0, 4, 0)))
-	truck.angular_velocity = Vector3(6, 6, 6)
-	await step(90)
-	check_eq(truck.cargo_count(), 4, "cargo was lost in a rollover")
-	check_eq(manager.active_count(), 0, "a rollover shook an item loose")
-	truck.recover()
-	await step(30)
-	check_eq(truck.cargo_count(), 4, "cargo was lost when the truck was recovered")
-
-	# Cargo survives a save/load round-trip as part of the vehicle.
+	# The load is saved with the truck, relative to the bed.
 	var doc := truck.to_dict()
-	truck.cargo_items.clear()
-	truck._rebuild_props()
+	check_eq((doc.cargo as Array).size(), 4, "the save did not record the load")
 	truck.from_dict(doc)
-	check_eq(truck.cargo_count(), 4, "cargo did not survive a save/load round-trip")
-
-	truck.input_throttle = 0.0
 	await step(30)
-	var dropped := truck.unload()
-	check_eq(dropped, 4, "unloading returned the wrong count")
-	await step(20)
-	check_eq(truck.cargo_count(), 0, "hauler still holds cargo after unloading")
-	var returned := manager.free_items()
-	check_eq(returned.size(), 4, "unloaded cargo did not come back as real items")
-	check_near(loose_volume(), loaded, 0.0001, "the hauler gave back a different volume than it took")
-	for item in returned:
-		check_eq(item.item_id, &"wood_pine", "unloaded item changed type")
+	check_eq(truck.cargo_count(), 4, "cargo did not survive a save/load round-trip")
+	check_eq(manager.active_count(), 4, "reloading the truck doubled or lost its load")
+	check_near(truck.cargo_volume(), loaded, 0.0001, "the reloaded load is a different size")
 
-	# One-at-a-time unloading, and the sink protocol the player and belts use.
-	truck.load_item(&"ore_iron")
-	truck.load_item(&"ore_iron")
-	check_eq(truck.cargo_count(), 2, "load_item did not stack the load")
+	# Unloading drops the tailgate and walks the load out the back.
+	var dropped := truck.unload()
+	check_eq(dropped, 4, "unloading counted the wrong number of pieces")
+	await step(20)
+	check(truck._tailgate.disabled, "the tailgate did not open to unload")
+	await step(360)
+	check_eq(truck.cargo_count(), 0, "the bed is not empty after unloading")
+	var returned := manager.free_items()
+	check_eq(returned.size(), 4, "pieces went missing while unloading")
+	check_near(loose_volume(), loaded, 0.0001, "the load changed size on the way out")
+	var inverse := truck.global_transform.affine_inverse()
+	for item in returned:
+		check((inverse * item.global_position).z > Hauler.BED_BACK, "a piece came out somewhere other than the back")
+		check(item.carrier == null, "an unloaded piece still thinks it is in the truck")
+	check(not truck._tailgate.disabled, "the tailgate did not close after unloading")
+
+	# One at a time, and the sink protocol the player and belts use.
+	check(truck.load_item(&"ore_iron"), "load_item refused with room in the bed")
+	check(truck.load_item(&"ore_iron"), "load_item refused a second piece")
+	await step(30)
+	check_eq(truck.cargo_count(), 2, "load_item did not put pieces in the bed")
 	check(truck.unload_one(), "could not drop a single item")
+	await step(240)
 	check_eq(truck.cargo_count(), 1, "drop-one removed the wrong amount")
 	check(truck.can_accept(&"lumber_pine"), "hauler refuses items while it has room")
 	truck.cargo_capacity_m3 = 0.001
 	check(not truck.can_accept(&"lumber_pine"), "hauler accepts items when full")
+	done()
+
+## Spec from play-testing: the load is loose. It weighs the truck down, slides
+## forward under hard braking, and a truck that goes over dumps it.
+func test_hauler_loose_load() -> void:
+	_setup(false)
+	var truck := Hauler.new()
+	truck.setup(manager, 0)
+	truck.position = Vector3(0, 1.5, 0)
+	world.add_child(truck)
+	await step(90)
+	var empty_y := truck.global_position.y
+	for i in 6:
+		check(truck.load_item(&"wood_pine", Solid.cylinder(0.22, 0.2, 1.8)), "the bed refused a log")
+	await step(120)
+	check_eq(truck.cargo_count(), 6, "the logs did not all stay in the bed")
+	var laden_y := truck.global_position.y
+	check(laden_y < empty_y - 0.01,
+		"the load does not weigh the truck down (%.3f empty, %.3f laden)" % [empty_y, laden_y])
+
+	# Hard braking from speed: the load surges toward the cab and fetches up
+	# against the headboard - it moves, but it stays aboard.
+	truck.autopilot = true
+	truck.input_throttle = 1.0
+	await step(150)
+	var inverse := truck.global_transform.affine_inverse()
+	var before := 0.0
+	for item in truck.cargo_list():
+		before += (inverse * item.global_position).z
+	truck.input_throttle = 0.0
+	truck.input_brake = true
+	await step(90)
+	inverse = truck.global_transform.affine_inverse()
+	var after := 0.0
+	for item in truck.cargo_list():
+		after += (inverse * item.global_position).z
+	check_eq(truck.cargo_count(), 6, "hard braking threw the load out")
+	check(after < before - 0.05, "the load did not shift forward under hard braking")
+	truck.input_brake = false
+
+	# Hold the truck upside down in the air: nothing holds the load in but
+	# the sides and gravity, so it falls out of the open top. Truck and load
+	# are turned over together, as if the truck had rolled.
+	truck.autopilot = false
+	var before_roll := truck.global_transform
+	var rolled := Transform3D(before_roll.basis * Basis(Vector3.FORWARD, PI),
+		before_roll.origin + Vector3(0, 4.0, 0))
+	for item in truck.cargo_list():
+		item.teleport(rolled * (before_roll.affine_inverse() * item.global_transform))
+	truck.freeze_mode = RigidBody3D.FREEZE_MODE_STATIC
+	truck.freeze = true
+	PhysicsServer3D.body_set_state(truck.get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM, rolled)
+	await step(150)
+	check_eq(truck.cargo_count(), 0, "upside down, %d pieces stayed in the bed" % truck.cargo_count())
+	check_eq(manager.active_count(), 6, "the spilled load did not land as real pieces")
 	done()
 
 ## Spec: a pad spawns one copy of its vehicle; triggering it again removes the
@@ -2282,10 +2387,11 @@ func test_hauler_grip() -> void:
 	world.add_child(truck)
 	await step(60)
 
-	# Get it rolling in a straight line first.
+	# Get it rolling in a straight line first - not so far that the turn runs
+	# it into the edge of the test ground.
 	truck.autopilot = true
 	truck.input_throttle = 1.0
-	await step(120)
+	await step(70)
 	var cruising := truck.linear_velocity.length()
 	check(cruising > 4.0, "the truck only reached %.1f m/s under full throttle" % cruising)
 

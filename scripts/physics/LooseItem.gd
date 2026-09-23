@@ -29,6 +29,9 @@ var owned: bool = false
 var ccd_active: bool = false
 var quiet_time: float = 0.0
 var cut_progress: float = 0.0     ## axe work done on this piece since the last cut
+## The vehicle whose bed this piece is lying in, if any. The piece is still a
+## free body; this is only so the truck can count its load and save it.
+var carrier: Node3D = null
 
 var _shape: CollisionShape3D
 var _mesh: MeshInstance3D
@@ -65,14 +68,15 @@ func _build_shape() -> void:
 		_shape = CollisionShape3D.new()
 		add_child(_shape)
 	if dims.get("shape", Solid.BOX) == Solid.CYLINDER:
-		var cyl := _shape.shape as CylinderShape3D
-		if cyl == null:
-			cyl = CylinderShape3D.new()
-			_shape.shape = cyl
-		# Collision is a straight cylinder at the widest radius: one primitive,
-		# and never thinner than the mesh it stands in for.
-		cyl.radius = Solid.max_radius(dims)
-		cyl.height = float(dims.length)
+		# Collision is the same eight-sided prism the log is drawn as, taper
+		# and all. Jolt lets a true cylinder lying on its side sink a hand's
+		# width into anything that moves - a truck bed, a belt - so round
+		# stock is flat-sided in the physics as well as to look at.
+		var hull := _shape.shape as ConvexPolygonShape3D
+		if hull == null:
+			hull = ConvexPolygonShape3D.new()
+			_shape.shape = hull
+		hull.points = prism_points(float(dims.r0), float(dims.r1), float(dims.length))
 	else:
 		var box := _shape.shape as BoxShape3D
 		if box == null:
@@ -104,6 +108,18 @@ func _build_mesh(color: Color) -> void:
 	mat.albedo_color = color
 	mat.roughness = 0.9
 	_mesh.material_override = mat
+
+## The corners of an eight-sided log, matching CylinderMesh's own vertices:
+## `r0` at the bottom (-Y), `r1` at the top.
+static func prism_points(r0: float, r1: float, length: float) -> PackedVector3Array:
+	var out := PackedVector3Array()
+	var sides := Tuning.ROUND_SIDES
+	for i in sides:
+		var a := TAU * float(i) / float(sides)
+		var d := Vector3(sin(a), 0.0, cos(a))
+		out.append(d * r0 + Vector3(0, -length * 0.5, 0))
+		out.append(d * r1 + Vector3(0, length * 0.5, 0))
+	return out
 
 ## Decorative meshes carried by this piece (cut branch stubs on a felled trunk).
 ## Visual only: the collider stays one primitive.
@@ -154,6 +170,7 @@ func set_state(next: State) -> void:
 		State.POOLED:
 			freeze = false
 			sleeping = true
+			carrier = null
 	quiet_time = 0.0
 	if next != State.CARRIED:
 		angular_damp = 0.9 if dims.get("shape", Solid.BOX) == Solid.CYLINDER else 0.4
@@ -186,3 +203,32 @@ func resting_half_height() -> float:
 ## along `yaw` (radians around +Y).
 static func lying_basis(yaw: float = 0.0) -> Basis:
 	return Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, PI * 0.5)
+
+## Half the piece's thickness measured along `dir`, as it is lying now.
+func extent_along(dir: Vector3) -> float:
+	var b := global_transform.basis
+	var d := dir.normalized()
+	if dims.get("shape", Solid.BOX) == Solid.CYLINDER:
+		var r := Solid.max_radius(dims)
+		var axis := b.y.normalized()
+		var along := absf(axis.dot(d))
+		return along * length() * 0.5 + sqrt(maxf(0.0, 1.0 - along * along)) * r
+	var half: Vector3 = (dims.size as Vector3) * 0.5
+	return absf(b.x.normalized().dot(d)) * half.x + absf(b.y.normalized().dot(d)) * half.y \
+		+ absf(b.z.normalized().dot(d)) * half.z
+
+## Friction from a driven surface under the piece - a roller, a belt: pulls
+## its velocity in the surface plane toward `surface_velocity`, but never by
+## more than `grip` times gravity, so a heavy or jammed piece slips instead
+## of being yanked about.
+func grip_toward(surface_velocity: Vector3, up: Vector3, grip: float, delta: float) -> void:
+	var slip := linear_velocity - surface_velocity
+	slip -= up * slip.dot(up)
+	var most := grip * 9.8 * delta
+	var change := -slip
+	if change.length() > most:
+		change = change.normalized() * most
+	if change.length_squared() < 0.000001:
+		return
+	sleeping = false
+	linear_velocity += change

@@ -58,7 +58,8 @@ func spawn() -> Node3D:
 	vehicle_spawned.emit(self, truck)
 	return truck
 
-## Takes the current vehicle away, wherever it is. Its load goes with it.
+## Takes the current vehicle away, wherever it is. Its load is real, so it
+## stays where it was and drops to the ground.
 func recall() -> bool:
 	if not has_vehicle():
 		vehicle = null

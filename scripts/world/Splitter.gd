@@ -1,9 +1,11 @@
 class_name Splitter
 extends Node3D
 
-## Kinematic router: captures an item and hands it to one of its outputs in
-## round-robin order (left, straight, right). Like the conveyor it owns captured
-## items outright, so routing never depends on friction or luck.
+## A diverter plate: powered rollers under each piece that lands on it push
+## it toward one of the outputs, in round-robin order (left, straight, right).
+## The piece stays a free physics body the whole way - the rollers only grip
+## it, the way a belt does - so a heavy log turns slowly, a light billet
+## shoots off, and two pieces arriving together can shove each other about.
 
 @export var building_id: StringName = &"splitter"
 @export var speed: float = 3.5
@@ -22,9 +24,8 @@ var total_routed: int = 0
 
 var _area: Area3D
 var _area_shape: CollisionShape3D
-var _routing: Array[LooseItem] = []
-var _targets: Dictionary = {}       ## LooseItem -> Vector3 (local target)
-var _dirs: Dictionary = {}          ## LooseItem -> int (output index)
+var _dirs: Dictionary = {}          ## LooseItem -> int (output index), pieces on the plate
+var _half: Vector2 = Vector2.ONE
 var _next_output: int = 0
 var _poll_timer: float = 0.0
 
@@ -36,6 +37,7 @@ func _ready() -> void:
 	if def == null:
 		def = GameData.building(building_id)
 	var size: Vector3 = def.footprint_world(1.0)
+	_half = Vector2(size.x, size.z) * 0.5
 
 	var body := StaticBody3D.new()
 	body.collision_layer = Layers.MACHINE
@@ -48,6 +50,10 @@ func _ready() -> void:
 	# meets the ground, so a plate centred there is half buried.
 	cs.position = Vector3(0, PLATE_THICKNESS * 0.5, 0)
 	body.add_child(cs)
+	# Slick steel: the rollers do the pushing, not the plate.
+	var pm := PhysicsMaterial.new()
+	pm.friction = 0.15
+	body.physics_material_override = pm
 	body.add_child(_dress(size).instance("Plate", false))
 	add_child(body)
 
@@ -61,7 +67,6 @@ func _ready() -> void:
 	acs.position = Vector3(0, PLATE_THICKNESS + 0.6, 0)
 	_area_shape = acs
 	_area.add_child(acs)
-	_area.body_entered.connect(_on_body)
 	add_child(_area)
 	set_physics_process(true)
 
@@ -85,20 +90,6 @@ func _dress(size: Vector3) -> Greeble:
 			g.box(Vector3(0.07, 0.012, 0.3), Transform3D(basis * Basis(Vector3.UP, side * 0.7), at + basis * Vector3(side * 0.1, 0, 0.08)), Color(0.96, 0.76, 0.20))
 	return g
 
-func _on_body(body: Node) -> void:
-	var item := body as LooseItem
-	if item == null or item.state != LooseItem.State.FREE:
-		return
-	if not Trigger.contains_point(_area_shape, item.global_position, 0.2):
-		return
-	var out_index := route_index_for(item)
-	if out_index < 0:
-		return
-	item.set_state(LooseItem.State.CAPTURED)
-	_routing.append(item)
-	_targets[item] = OUTPUT_DIRS[out_index] * OUTPUT_DISTANCE + Vector3(0, 0.45, 0)
-	_dirs[item] = out_index
-
 ## Which output a given item should take. Round-robin here; Filter overrides it.
 func route_index_for(_item: LooseItem) -> int:
 	return _pick_output()
@@ -111,52 +102,66 @@ func _pick_output() -> int:
 			return index
 	return -1
 
+## How hard the rollers can push, as a fraction of gravity: a real grip,
+## not a grab.
+const GRIP := 0.9
+
 func _physics_process(delta: float) -> void:
-	# Polled as well as signalled: a belt can release an item straight onto the
-	# splitter without it ever crossing the trigger boundary.
 	_poll_timer -= delta
 	if _poll_timer <= 0.0:
-		_poll_timer = 0.15
-		for body in Trigger.bodies_inside(_area, _area_shape):
-			_on_body(body)
-	if _routing.is_empty():
+		_poll_timer = 0.05
+		_poll()
+	if _dirs.is_empty():
 		return
-	var step := speed * delta
-	for i in range(_routing.size() - 1, -1, -1):
-		var item: LooseItem = _routing[i]
-		if not is_instance_valid(item) or item.state != LooseItem.State.CAPTURED:
-			_forget(i)
+	var up := global_transform.basis.y
+	for item in _dirs.keys():
+		if not is_instance_valid(item) or item.state != LooseItem.State.FREE:
+			_dirs.erase(item)
 			continue
-		var target: Vector3 = _targets[item]
+		# Only what is actually down on the rollers is driven.
 		var local: Vector3 = global_transform.affine_inverse() * item.global_position
-		var to_target := target - local
-		if to_target.length() <= step:
-			_release(i)
+		if local.y - item.extent_along(up) > PLATE_THICKNESS + 0.12:
 			continue
-		local += to_target.normalized() * step
-		var dir_index: int = _dirs.get(item, 1)
-		var yaw: float = atan2(OUTPUT_DIRS[dir_index].x, OUTPUT_DIRS[dir_index].z)
-		item.global_transform = global_transform * Transform3D(LooseItem.lying_basis(yaw), local)
+		var index: int = _dirs[item]
+		var dir: Vector3 = (global_transform.basis * OUTPUT_DIRS[index]).normalized()
+		item.grip_toward(dir * speed, up, GRIP, delta)
 
-func _release(index: int) -> void:
-	var item: LooseItem = _routing[index]
-	var dir_index: int = _dirs.get(item, 1)
-	_forget(index)
-	if not is_instance_valid(item) or item.state != LooseItem.State.CAPTURED:
+## Who is on the plate. A piece gets its output the moment it lands and keeps
+## it until it leaves, which is when it counts as routed.
+func _poll() -> void:
+	var inside: Dictionary = {}
+	for body in Trigger.bodies_inside(_area, _area_shape, 0.1):
+		var item := body as LooseItem
+		if item != null and item.state == LooseItem.State.FREE:
+			inside[item] = true
+	for item in _dirs.keys():
+		if inside.has(item):
+			continue
+		_dirs.erase(item)
+		if is_instance_valid(item) and item.get_parent() != null:
+			total_routed += 1
+	for item in inside:
+		if not _dirs.has(item):
+			var index := route_index_for(item)
+			if index < 0:
+				continue
+			_dirs[item] = index
+		_hand_on(item)
+
+## A piece at the edge of the plate, headed for a machine or bin right there,
+## is dropped into it.
+func _hand_on(item: LooseItem) -> void:
+	if not sink_finder.is_valid():
 		return
-	item.set_state(LooseItem.State.FREE)
-	total_routed += 1
-	var world_dir: Vector3 = (global_transform.basis * OUTPUT_DIRS[dir_index]).normalized()
-	if sink_finder.is_valid():
-		var probe: Vector3 = global_position + world_dir * (OUTPUT_DISTANCE + 0.6)
-		var sink: Object = sink_finder.call(probe)
-		if sink != null and sink.has_method("can_accept") \
-				and sink.can_accept(item.item_id) and sink.accept_item(item):
-			return
-	item.linear_velocity = world_dir * speed
-
-func _forget(index: int) -> void:
-	var item: LooseItem = _routing[index]
-	_routing.remove_at(index)
-	_targets.erase(item)
-	_dirs.erase(item)
+	var index: int = _dirs[item]
+	var dir: Vector3 = OUTPUT_DIRS[index]
+	var local: Vector3 = global_transform.affine_inverse() * item.global_position
+	var reach: float = absf(dir.x) * _half.x + absf(dir.z) * _half.y
+	if local.dot(dir) < reach - 0.3:
+		return
+	var world_dir: Vector3 = (global_transform.basis * dir).normalized()
+	var sink: Object = sink_finder.call(global_position + world_dir * (OUTPUT_DISTANCE + 0.6))
+	if sink != null and sink.has_method("can_accept") \
+			and sink.can_accept(item.item_id) and sink.accept_item(item):
+		_dirs.erase(item)
+		total_routed += 1

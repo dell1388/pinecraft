@@ -2,7 +2,7 @@ class_name StressTest
 extends Node3D
 
 ## Playable physics stress-test scene: 500 logs piling, trees to chop, items to
-## drag, and both conveyor implementations running side by side.
+## drag, and a normal and a fast conveyor running side by side.
 
 @export var tree_count: int = 14
 @export var initial_logs: int = 0
@@ -30,9 +30,9 @@ func _ready() -> void:
 	trees = StressWorld.build_trees(self, manager, tree_count, _rng)
 
 	conveyors.append(StressWorld.build_conveyor(
-		self, Vector3(-14, 0.6, 0), 0.0, Conveyor.Mode.KINEMATIC))
+		self, Vector3(-14, 0.6, 0), 0.0))
 	conveyors.append(StressWorld.build_conveyor(
-		self, Vector3(14, 0.6, 0), 0.0, Conveyor.Mode.SURFACE))
+		self, Vector3(14, 0.6, 0), 0.0, 12.0, 5.0))
 
 	player = _make_player()
 	add_child(player)

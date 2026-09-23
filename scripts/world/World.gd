@@ -948,10 +948,11 @@ func _unhandled_key_input(event: InputEvent) -> void:
 				_toggle_vehicle()
 		KEY_X:
 			if hauler != null and not building:
-				hud.log_message("unloaded %d item(s)" % hauler.unload())
+				var n := hauler.unload()
+				hud.log_message("tailgate down: tipping out %d piece(s)" % n if n > 0 else "the bed is empty")
 		KEY_Z:
 			if hauler != null and not building and hauler.unload_one():
-				hud.log_message("dropped one (%d left)" % hauler.cargo_count())
+				hud.log_message("dropping one off the back (%d left)" % (hauler.cargo_count() - 1))
 		KEY_C:
 			if hauler != null and not building:
 				hauler.recover()
@@ -972,7 +973,5 @@ func _toggle_vehicle() -> void:
 		return
 	player.enter_vehicle(hauler)
 	hauler.driver = player
-	# Everything loose in the bed becomes part of the truck before it moves.
-	var secured := hauler.secure_load()
-	if secured > 0:
-		hud.log_message("secured %d item(s) in the bed" % secured)
+	if hauler.cargo_count() > 0:
+		hud.log_message("%d piece(s) in the bed - they ride loose, so mind the corners" % hauler.cargo_count())

@@ -110,7 +110,8 @@ its cell grid and a hazard-striped edge.
    does the same job to whole chunks, much faster.
 4. **Move it.** You can lift 100 kg and drag 1000 kg; past that you need the
    truck's winch or its crane. A full rack slows you down, which is the reason
-   to build belts. Anything in the hauler's bed becomes part of the truck.
+   to build belts. The hauler's bed has tall sides, a cab guard and a
+   tailgate; what you put in it is a real, loose load, so drive accordingly.
 5. **Process.** The sawmill's intake is a real hole - a trunk that will not fit
    through it does not go in, so you buck it first or buy a mill with a bigger
    mouth. Machines conserve volume exactly: what goes in comes back out as
@@ -421,10 +422,17 @@ rule below is enforced in one place rather than per object.
   single-item heavy drag steers the body's velocity toward a hold point, which is
   stable at any mass where a camera-to-log joint is the classic way to make a
   solver explode.
-* **Machines, belts, splitters and vehicle cargo are kinematic.** Items entering
-  a machine become counters in a buffer and leave the physics world entirely;
-  belts own captured items outright and slide them by transform. Nothing in the
-  automation layer depends on friction or luck.
+* **Belts, splitters and truck beds are physical.** Nothing is locked down.
+  A belt deck is a static body with a surface velocity, so the engine itself
+  drags whatever rests on it along by friction: pieces ride at belt speed,
+  climb ramps if they grip, tip over if they are stood on end, jam against
+  anything in the way and clear when it goes, and fall off the end if nothing
+  is there. A belt wakes whatever is on it while it runs; a stopped belt is a
+  still deck and what is on it goes to sleep. The one convenience is at the far
+  lip, where a piece that has reached a machine, bin or chute is dropped into
+  it. Splitters are powered-roller plates: each piece gets an output when it
+  lands and a friction-limited push toward it, so heavy pieces turn slowly.
+  Items entering a machine still become counters in its buffer.
 * **Trigger volumes are geometry-checked.** `Area3D.get_overlapping_bodies()` can
   report a body that is no longer really inside — pooled items are detached
   without a clean exit event and the same node is re-used elsewhere. Sinks ran
@@ -438,13 +446,22 @@ rule below is enforced in one place rather than per object.
   tyres bite, and what any tyre can do is bounded by the load that wheel is
   carrying, so a wheel in the air grips nothing. With nobody aboard the wheels
   lock and the truck sleeps, so a parked truck stays where it was left.
-* **Vehicle cargo is part of the vehicle, not a passenger.** Loading removes the
-  item from the physics world and parents a plain mesh to the hull: no collider,
-  no body, no velocity of its own. Nothing can shake, push, grab or sell a load
-  in transit, collisions and rollovers included, and cargo costs zero per frame.
-  Anything resting in the bed is absorbed on a 10 Hz sweep (and in full the
-  moment a driver climbs in), so there is never a loose item aboard waiting to
-  be flung off. Unloading spawns the real items back behind the truck.
+* **The truck's load is loose.** Whatever lies in the bed is an ordinary body
+  held in by thick sides, a headboard over the cab and a tailgate. It adds its
+  weight to the springs, surges forward under hard braking and fetches up on
+  the headboard, and falls out if the truck goes over. The truck only keeps
+  track of it: it counts what is in the bed, keeps it awake while moving, turns
+  on continuous collision above 5 m/s so a piece thrown at a wall meets it,
+  parks up only once the load has settled (and then puts truck and load to
+  sleep in the same step), and saves the load relative to the bed. Unloading
+  drops the tailgate and walks the load out the back on a slick floor.
+* **Logs collide as octagons.** Jolt lets a true cylinder lying on its side
+  sink about 10 cm into a moving body - a truck bed, a belt - where it rests
+  fine on static ground. Round stock therefore uses the same eight-sided prism
+  it is drawn as.
+* **Forces are not pushed at a sleeping truck.** Jolt keeps forces added to a
+  sleeping body and applies them all when it wakes, so a parked truck that was
+  fed suspension forces every frame leapt ten metres the moment it was driven.
 
 ## Measured results
 
@@ -477,8 +494,10 @@ material reclaimed; save-load round-trip; plot expansion; upgrades; the store
 (shelf pricing off the track, taking a box not being owning it, paying at the
 till, opening a paid box, unpaid stock going back on the shelf, land at the
 desk); carry limits by length and lift limits by weight; ownership and its
-persistence; hauler driving and cargo retention through a collision, a rollover
-and a save/load; vehicle pads spawning one truck and replacing it; winch and
+persistence; hauler driving with a loose load that stays in when pulling away
+and braking, weighs the truck down, surges forward and spills when inverted,
+saves with the truck and tips out the back; belts carrying by friction, jamming
+against a wall and clearing; vehicle pads spawning one truck and replacing it; winch and
 crane power ratings; kill plane; item cap; a full automated base under load;
 and the interface's logic - settings coercing, persisting and resetting, the
 title screen reading a save without loading it, prompt keys told apart from
@@ -499,23 +518,23 @@ traders' premiums and once-a-day caches (including across a save).
 | **500 logs dropped** | **12.59** | **17.75** | **37.12** | **0.50** | **76%** |
 | 1000 logs dropped | 40.58 | 60.12 | 97.23 | 16.23 | 243% |
 | 2000 logs dropped | 67.22 | 99.82 | 120.78 | 91.65 | 403% |
-| conveyor, kinematic, fed 5/s | 0.55 | 0.98 | 2.56 | - | 3% |
 | conveyor, surface velocity, fed 5/s | 0.68 | 1.08 | 1.90 | - | 4% |
 | 20 dragged items over a 200 pile | 2.43 | 3.81 | 4.76 | - | 15% |
 | 60 ore fired at 60 m/s (CCD) | 0.78 | 1.53 | 1.82 | - | 5% |
 | continuous spawn/despawn churn | 2.69 | 3.64 | 5.55 | - | 16% |
 | 1500 items into a 200 cap | 3.60 | 4.13 | 7.18 | 0.28 | 22% |
 
-Loose stock is cylinders, not boxes. Round logs cost roughly 60% more solver
-time than box stock and take longer to settle, because they roll. The last two
+These figures were taken with cylinder colliders on round stock, which is now an
+octagonal prism; they have not been re-measured. Round logs cost roughly 60%
+more solver time than box stock and take longer to settle, because they roll. The last two
 rows are deliberately past the point of no return and are there to show where it
 is: the per-plot cap of 200 at tier 0, rising to 400, keeps real play in the top
 third of the table, at a fifth to a quarter of budget.
 
 * No tunnelling: 60 ore chunks at 60 m/s, 0 escaped the plot.
 * No instability while dragging 20 items over a live 200-log pile: 0 escapes.
-* Surface-velocity belts jam at the output; kinematic belts do not. Automation
-  uses the kinematic path.
+* Belts are surface-velocity belts, so they can jam. A piece at the far lip is
+  handed to whatever machine is there, which keeps a straight line flowing.
 * A settled pile still costs ~0.5 ms whatever its size.
 
 ### Whole game, headless (`scenes/smoke_world.tscn`)
@@ -548,8 +567,7 @@ generated cracks that deepen faster under a heavier head; a crusher that does it
 wholesale; ore smelted to higher value density. Value as density times volume,
 periodic price swings, and orders that reward delivering quantities of named
 materials. A yard where the shopkeep buys everything of yours standing in it.
-Lifting to 100 kg and moving to 1000 kg. Cargo that becomes part of the vehicle
-when a driver gets in. Third-person driving, winches that hook to any solid
+Lifting to 100 kg and moving to 1000 kg. A loose load in a walled truck bed. Third-person driving, winches that hook to any solid
 surface, a crane that hands the player the *object* rather than the boom, and a
 power rating on both past which nothing happens at all. A square of property to
 build on, freecam build mode, quarter-turn rotation on three axes, and schematic

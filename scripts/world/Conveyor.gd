@@ -1,52 +1,52 @@
 class_name Conveyor
 extends Node3D
 
-## A conveyor belt, in two flavours, so their cost can be compared directly.
+## A conveyor belt that carries things the way a real one does: by friction.
 ##
-## MODE_SURFACE  - a StaticBody3D with constant_linear_velocity. Items ride it
-##                 through friction. One line of setup, but items stay fully
-##                 simulated and can jam, bounce or fall off.
-## MODE_KINEMATIC- an Area3D captures items, freezes them (FREEZE_MODE_KINEMATIC)
-##                 and slides them along the belt axis by transform. Zero solver
-##                 work, deterministic spacing, no jamming. This is the mode the
-##                 automation layer will be built on.
+## The deck is a StaticBody3D with a surface velocity, so whatever rests on it
+## is dragged along at belt speed by the physics engine itself. Nothing is
+## captured, frozen or placed by hand. A piece can be knocked off, roll back
+## down a ramp, jam against a wall or wedge across the rails - and a belt that
+## is stopped is just a rubber deck things sit on.
+##
+## The one concession: a piece that reaches the far lip and is right in front
+## of a machine, bin or chute is handed to it, the same as dropping it into a
+## hopper, so a line does not need pixel-perfect alignment to work.
 
-enum Mode { SURFACE, KINEMATIC }
-
-@export var mode: Mode = Mode.KINEMATIC
 @export var length: float = 12.0
 @export var width: float = 1.4
 @export var speed: float = 3.0
-@export var min_spacing: float = 1.1     ## KINEMATIC mode: gap between items
 ## Spec's belt options. `rise` is how far the belt climbs over its run, and a
 ## belt without rails is one things can be pushed on and off sideways.
 @export var rise: float = 0.0
 @export var railed: bool = true
-## Spec: retractable. A stopped belt holds what is on it and takes nothing new.
+## Spec: retractable. A stopped belt is a still deck: what is on it stays put.
 @export var running: bool = true
 
 ## Set by the plot: given a world point, returns the machine/bin/sell zone that
-## should receive items leaving this belt, or null. Handing items straight to a
-## sink is what keeps belt ends from jamming the way surface belts do.
+## should receive items leaving this belt, or null.
 var sink_finder: Callable = Callable()
 
 const DECK_THICKNESS := 0.16
+## How far short of the far end a piece has to be before it is offered to
+## whatever is there.
+const LIP := 0.2
 
 var _deck: StaticBody3D
 var _area: Area3D
 var _area_shape: CollisionShape3D
-var _captured: Array[LooseItem] = []
-var _progress: Dictionary = {}           ## LooseItem -> float (metres along belt)
+var _riding: Dictionary = {}            ## LooseItem -> true, pieces on the belt now
 var _output_point: Node3D
 var _poll_counter: int = 0
+var _pitch: float = 0.0
 
-## Throughput counters, read by the benchmark and later by the automation UI.
-var total_captured: int = 0
-var total_delivered: int = 0
+## Throughput counters, read by the benchmark and the tests.
+var total_captured: int = 0             ## pieces that have come aboard
+var total_delivered: int = 0            ## pieces that went off the far end
 
 func _ready() -> void:
 	_build()
-	set_physics_process(mode == Mode.KINEMATIC)
+	set_physics_process(true)
 
 func _build() -> void:
 	_deck = StaticBody3D.new()
@@ -71,7 +71,7 @@ func _build() -> void:
 
 	_deck.add_child(_dress(deck_pose, run).instance("Belt", false))
 
-	# Side rails keep SURFACE-mode items from wandering off the belt. A
+	# Side rails keep things from wandering off the belt. A
 	# borderless deck goes without, so things can be pushed on and off it.
 	if railed:
 		for side in [-1.0, 1.0]:
@@ -83,28 +83,28 @@ func _build() -> void:
 				Vector3(side * (width * 0.5 + 0.04), 0.25, 0.0))
 			_deck.add_child(rail)
 
-	if mode == Mode.SURFACE:
-		var pm := PhysicsMaterial.new()
-		pm.friction = 1.0
-		pm.rough = true
-		_deck.physics_material_override = pm
-		# Jolt moves bodies resting on the surface without moving the collider.
-		_deck.constant_linear_velocity = -global_transform.basis.z.normalized() * speed
-	else:
-		_area = Area3D.new()
-		_area.collision_layer = Layers.TRIGGER
-		_area.collision_mask = Layers.LOOSE
-		_area.monitoring = true
-		_area.monitorable = false
-		var acs := CollisionShape3D.new()
-		var ab := BoxShape3D.new()
-		ab.size = Vector3(width, 1.2 + absf(rise), length)
-		acs.shape = ab
-		acs.position = Vector3(0, DECK_THICKNESS + 0.6 + rise * 0.5, 0)
-		_area_shape = acs
-		_area.add_child(acs)
-		_area.body_entered.connect(_on_body_entered)
-		add_child(_area)
+	# Grippy rubber: the friction is what carries things, and what holds
+	# them on a ramp.
+	var pm := PhysicsMaterial.new()
+	pm.friction = 1.0
+	pm.rough = true
+	_deck.physics_material_override = pm
+	_pitch = pitch
+
+	# Tracks what is aboard, so it can be kept awake and handed on.
+	_area = Area3D.new()
+	_area.collision_layer = Layers.TRIGGER
+	_area.collision_mask = Layers.LOOSE
+	_area.monitoring = true
+	_area.monitorable = false
+	var acs := CollisionShape3D.new()
+	var ab := BoxShape3D.new()
+	ab.size = Vector3(width + 0.2, 1.2 + absf(rise), length)
+	acs.shape = ab
+	acs.position = Vector3(0, DECK_THICKNESS + 0.6 + rise * 0.5, 0)
+	_area_shape = acs
+	_area.add_child(acs)
+	add_child(_area)
 
 	add_child(_deck)
 
@@ -159,16 +159,17 @@ func _dress(deck_pose: Transform3D, run: float) -> Greeble:
 func output_transform() -> Transform3D:
 	return _output_point.global_transform
 
+## Pieces on the belt right now.
 func captured_count() -> int:
-	return _captured.size()
+	return _riding.size()
 
 ## How far the deck has climbed this far along the belt. The mesh, the collider
 ## and the pieces riding it all come off this, so they cannot disagree.
 func surface_height(progress: float) -> float:
 	return rise * clampf(progress / maxf(0.01, length), 0.0, 1.0)
 
-## Spec: retractable belts. Stopping one holds what is on it and stops it taking
-## anything new, without giving the load back to the solver.
+## Spec: retractable belts. A stopped belt stops moving what is on it; the
+## pieces stay where they are, as they would on any stopped belt.
 func set_running(value: bool) -> void:
 	running = value
 
@@ -179,88 +180,58 @@ func toggle() -> bool:
 func status_line() -> String:
 	var shape := "ramp" if absf(rise) > 0.01 else "belt"
 	return "%s: %s, %d aboard  [E] %s" % [
-		shape, "running" if running else "stopped", _captured.size(),
+		shape, "running" if running else "stopped", _riding.size(),
 		"stop" if running else "start"]
 
-# --- KINEMATIC mode --------------------------------------------------------
+# --- Carrying ----------------------------------------------------------------
 
-func _on_body_entered(body: Node) -> void:
-	if mode != Mode.KINEMATIC:
-		return
-	var item := body as LooseItem
-	if item == null or item.state != LooseItem.State.FREE:
-		return
+## The way the belt surface moves, in world space: along -Z, up the slope.
+func belt_velocity() -> Vector3:
 	if not running:
-		return
-	if not Trigger.contains_point(_area_shape, item.global_position, 0.2):
-		return
-	var local := global_transform.affine_inverse() * item.global_position
-	# Belt runs along -Z; progress 0 is the input end (+Z).
-	var progress: float = clampf(length * 0.5 - local.z, 0.0, length)
-	if not _has_room(progress, item):
-		return
-	item.set_state(LooseItem.State.CAPTURED)
-	total_captured += 1
-	_captured.append(item)
-	_progress[item] = progress
+		return Vector3.ZERO
+	var along := global_transform.basis * (Basis(Vector3.RIGHT, _pitch) * Vector3.FORWARD)
+	return along.normalized() * speed
 
-## Spacing scales with what is actually on the belt: a 4 m trunk needs more room
-## than a billet, and two overlapping captured pieces would clip through each
-## other because captured items are kinematic.
-func _gap_for(item: LooseItem) -> float:
-	return maxf(min_spacing, item.length() * 0.55 + 0.35)
-
-func _has_room(progress: float, incoming: LooseItem) -> bool:
-	var gap := _gap_for(incoming)
-	for item in _captured:
-		if absf(float(_progress[item]) - progress) < maxf(gap, _gap_for(item)):
-			return false
-	return true
-
-func _physics_process(delta: float) -> void:
-	# body_entered fires once; an item rejected for spacing would otherwise never
-	# be reconsidered, so the capture zone is re-polled a few times a second.
+func _physics_process(_delta: float) -> void:
+	# The engine drags anything touching the deck toward this velocity. Set
+	# every frame, so a belt that is moved or stopped is right at once.
+	_deck.constant_linear_velocity = belt_velocity()
 	_poll_counter += 1
-	if _poll_counter >= 6:
-		_poll_counter = 0
-		for body in Trigger.bodies_inside(_area, _area_shape):
-			_on_body_entered(body)
-	if _captured.is_empty() or not running:
+	if _poll_counter < 3:
 		return
-	var step := speed * delta
-	for i in range(_captured.size() - 1, -1, -1):
-		var item: LooseItem = _captured[i]
-		if not is_instance_valid(item) or item.state != LooseItem.State.CAPTURED:
-			_release_at(i, false)
+	_poll_counter = 0
+	var inside: Dictionary = {}
+	for body in Trigger.bodies_inside(_area, _area_shape, 0.1):
+		var item := body as LooseItem
+		if item != null and item.state == LooseItem.State.FREE:
+			inside[item] = true
+	for item in _riding.keys():
+		if inside.has(item):
 			continue
-		var p: float = float(_progress[item]) + step
-		if p >= length:
-			_release_at(i, true)
-			continue
-		_progress[item] = p
-		var half_h: float = item.resting_half_height()
-		var local := Vector3(0.0, DECK_THICKNESS + half_h + 0.01 + surface_height(p),
-			length * 0.5 - p)
-		# Laid along the belt: predictable, no tumbling, no overhang sideways.
-		var basis := Basis(Vector3.RIGHT, PI * 0.5)
-		item.global_transform = global_transform * Transform3D(basis, local)
+		_riding.erase(item)
+		if is_instance_valid(item) and item.get_parent() != null \
+				and _local(item).z < -length * 0.5 + LIP:
+			total_delivered += 1
+	for item in inside:
+		if not _riding.has(item):
+			_riding[item] = true
+			total_captured += 1
+		# A belt that is running is a cause to move: nothing sleeps on it.
+		if running and item.sleeping:
+			item.sleeping = false
+		if _local(item).z < -length * 0.5 + LIP:
+			_offer(item)
 
-func _release_at(index: int, impart_velocity: bool) -> void:
-	var item: LooseItem = _captured[index]
-	_captured.remove_at(index)
-	_progress.erase(item)
-	if not is_instance_valid(item):
+func _local(item: LooseItem) -> Vector3:
+	return global_transform.affine_inverse() * item.global_position
+
+## At the far lip: whatever the belt runs into can take the piece.
+func _offer(item: LooseItem) -> void:
+	if not running or not sink_finder.is_valid():
 		return
-	if item.state != LooseItem.State.CAPTURED:
+	var sink: Object = sink_finder.call(output_transform().origin)
+	if sink == null or not sink.has_method("can_accept") or not sink.can_accept(item.item_id):
 		return
-	item.set_state(LooseItem.State.FREE)
-	if not impart_velocity:
-		return
-	total_delivered += 1
-	# Prefer handing the item directly to whatever is at the end of the belt.
-	if sink_finder.is_valid():
-		var sink: Object = sink_finder.call(output_transform().origin)
-		if sink != null and sink.has_method("can_accept") \
-				and sink.can_accept(item.item_id) and sink.accept_item(item):
-			return
-	item.linear_velocity = -global_transform.basis.z.normalized() * speed
+	if sink.accept_item(item):
+		_riding.erase(item)
+		total_delivered += 1

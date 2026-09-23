@@ -430,8 +430,8 @@ func _update_prompt() -> void:
 		last_prompt = (target as Conveyor).status_line()
 	elif target is Hauler:
 		var h := target as Hauler
-		last_prompt = "[E] load   [V] drive   cargo %d/%d (%s)" % [
-			h.cargo_count(), h.cargo_capacity, h.cargo_summary()]
+		last_prompt = "[E] load   [V] drive   cargo %d (%s)" % [
+			h.cargo_count(), h.cargo_summary()]
 	else:
 		last_prompt = ""
 

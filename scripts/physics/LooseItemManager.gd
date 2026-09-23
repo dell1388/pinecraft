@@ -185,7 +185,7 @@ func _oldest(items: Array) -> LooseItem:
 	for i in items:
 		var it: LooseItem = i
 		# Never recycle something the player is holding or a machine owns.
-		if it.state != LooseItem.State.FREE:
+		if it.state != LooseItem.State.FREE or it.carrier != null:
 			continue
 		if best == null or it.spawn_index < best.spawn_index:
 			best = it
@@ -237,7 +237,8 @@ func _physics_process(delta: float) -> void:
 			item.angular_velocity = av.normalized() * Tuning.MAX_ANGULAR_SPEED
 			spin_sq = max_ang_sq
 
-		if review_ccd:
+		# A truck looks after the CCD of whatever is in its bed.
+		if review_ccd and item.carrier == null:
 			if item.ccd_active:
 				if speed_sq < ccd_off_sq:
 					item.continuous_cd = false

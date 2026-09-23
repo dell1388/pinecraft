@@ -35,7 +35,7 @@ const GROUPS := [
 		[["W", "S"], "Throttle and reverse"],
 		[["A", "D"], "Steer"],
 		[["Space"], "Brake"],
-		[["X"], "Unload the whole bed"],
+		[["X"], "Drop the tailgate and tip the load out"],
 		[["Z"], "Drop one piece off the back"],
 		[["C"], "Recover (set it back on its wheels)"],
 		[["E"], "Hook or unhook the winch"],

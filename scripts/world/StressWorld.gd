@@ -132,9 +132,8 @@ static func build_trees(parent: Node3D, manager: LooseItemManager, count: int,
 	return trees
 
 static func build_conveyor(parent: Node3D, origin: Vector3, yaw_deg: float,
-		mode: Conveyor.Mode, length: float = 12.0, speed: float = 3.0) -> Conveyor:
+		length: float = 12.0, speed: float = 3.0) -> Conveyor:
 	var c := Conveyor.new()
-	c.mode = mode
 	c.length = length
 	c.speed = speed
 	c.position = origin
