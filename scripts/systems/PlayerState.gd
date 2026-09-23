@@ -14,6 +14,10 @@ var unlocked_buildings: Array[StringName] = []
 ## Getting-started steps already done, so a loaded game does not teach you to
 ## chop a tree again.
 var tutorial_done: Array[StringName] = []
+## Places the player has been to, by name, so the map and compass can name them.
+var discovered: Array[String] = []
+## Supply caches opened: name -> the market day it was last opened.
+var caches: Dictionary = {}
 
 func _ready() -> void:
 	reset()
@@ -24,6 +28,8 @@ func reset() -> void:
 		levels[track_id] = 1
 	unlocked_buildings.clear()
 	tutorial_done.clear()
+	discovered.clear()
+	caches.clear()
 	for def: BuildingDef in GameData.buildings.values():
 		if def.unlock_cost <= 0:
 			unlocked_buildings.append(def.id)
@@ -111,7 +117,8 @@ func to_dict() -> Dictionary:
 	var tut: Array = []
 	for step in tutorial_done:
 		tut.append(String(step))
-	return {"levels": lv, "unlocked": ub, "tutorial": tut}
+	return {"levels": lv, "unlocked": ub, "tutorial": tut,
+		"discovered": discovered.duplicate(), "caches": caches.duplicate()}
 
 func from_dict(d: Dictionary) -> void:
 	reset()
@@ -124,6 +131,11 @@ func from_dict(d: Dictionary) -> void:
 			unlocked_buildings.append(StringName(b))
 	for step in d.get("tutorial", []):
 		tutorial_done.append(StringName(step))
+	for place in d.get("discovered", []):
+		discovered.append(String(place))
+	var opened: Dictionary = d.get("caches", {})
+	for key in opened:
+		caches[String(key)] = int(opened[key])
 	# Older saves recorded the truck as a flag rather than as an unlocked pad.
 	if bool(d.get("owns_vehicle", false)) and not is_unlocked(VEHICLE_PAD):
 		unlocked_buildings.append(VEHICLE_PAD)

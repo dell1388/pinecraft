@@ -34,6 +34,9 @@ var volume_in: float = 0.0
 var volume_out: float = 0.0
 
 var _body: StaticBody3D
+## Everything the shell draws, merged; built up by _add_part and _decorate.
+var _g: Greeble
+var _lamp_material: StandardMaterial3D
 var _intake_area: Area3D
 var _intake_shape: CollisionShape3D
 var _outlet_area: Area3D
@@ -108,6 +111,7 @@ func _build() -> void:
 	_body.collision_layer = Layers.MACHINE
 	_body.collision_mask = Layers.MASK_MACHINE
 	add_child(_body)
+	_g = Greeble.new()
 
 	var faces := ["front", "back", "left", "right", "top"]
 	for face in faces:
@@ -158,6 +162,8 @@ func _build() -> void:
 	_outlet_area.global_transform = _outlet_point.global_transform
 
 	_decorate()
+	_body.add_child(_g.instance("Shell"))
+	_add_status_lamp()
 
 func _add_part(size: Vector3, pos: Vector3, color: Color, collide: bool = true) -> void:
 	if collide:
@@ -167,16 +173,7 @@ func _add_part(size: Vector3, pos: Vector3, color: Color, collide: bool = true) 
 		cs.shape = box
 		cs.position = pos
 		_body.add_child(cs)
-	var mi := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = size
-	mi.mesh = bm
-	mi.position = pos
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = color
-	mat.roughness = 0.85
-	mi.material_override = mat
-	_body.add_child(mi)
+	_g.block(size, pos, color)
 
 ## Builds one wall as up to four boxes around a rectangular opening. `hole` of
 ## zero size makes a solid wall.
@@ -255,73 +252,181 @@ func _face_point(face: StringName, height: float, offset: float) -> Node3D:
 			n.position = Vector3(0, _size.y + offset, 0)
 	return n
 
-## Machine-specific dressing. Meshes only: none of it collides.
+## Where a face is, as a frame on its outside surface with +Z pointing out.
+func _face_frame(face: String) -> Transform3D:
+	match face:
+		"front":
+			return Transform3D(Basis(), Vector3(0, 0, _size.z * 0.5))
+		"back":
+			return Transform3D(Basis(Vector3.UP, PI), Vector3(0, 0, -_size.z * 0.5))
+		"left":
+			return Transform3D(Basis(Vector3.UP, -PI * 0.5), Vector3(-_size.x * 0.5, 0, 0))
+		"right":
+			return Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(_size.x * 0.5, 0, 0))
+	return Transform3D(Basis(Vector3.RIGHT, -PI * 0.5), Vector3(0, _size.y, 0))
+
+func _face_width(face: String) -> float:
+	return _size.x if face == "front" or face == "back" else _size.z
+
+## Machine dressing. Meshes only: none of it collides. Every machine gets a
+## framed, plated, vented shell, so a box reads as built; then each gets what
+## makes it that machine - a blade, a chimney, a hopper, a bench.
 func _decorate() -> void:
-	var accent := machine_def.color.lightened(0.18)
+	var body := machine_def.color
+	var accent := body.lightened(0.18)
+	var trim := body.darkened(0.35)
+	var steel := Color(0.62, 0.63, 0.66)
+	# Frame on every edge, and a plinth.
+	_g.frame(Vector3(_size.x, _size.y, _size.z), Transform3D(Basis(), Vector3(0, _size.y * 0.5, 0)), 0.14, trim)
+	_g.block(Vector3(_size.x + 0.16, 0.16, _size.z + 0.16), Vector3(0, 0.08, 0), trim.darkened(0.2))
+	# Plates, vents and stripes on the faces with no hole in them.
+	var holes := [String(machine_def.intake_face), String(machine_def.outlet_face)]
+	var first_solid := ""
+	for face in ["front", "back", "left", "right"]:
+		var f := _face_frame(face)
+		var w := _face_width(face)
+		if holes.has(face):
+			# Warning stripes under the hole, so you can find the mouth.
+			_g.stripes(w - 0.3, 0.16, f * Transform3D(Basis(), Vector3(0, 0.3, 0.0)))
+			continue
+		if first_solid == "":
+			first_solid = face
+		_g.plate(w * 0.55, _size.y * 0.34, f * Transform3D(Basis(), Vector3(-w * 0.12, _size.y * 0.42, 0)), accent)
+		_g.vent(w * 0.26, _size.y * 0.16, f * Transform3D(Basis(), Vector3(w * 0.3, _size.y * 0.74, 0)), trim)
+	# A control box with the status light on the first solid face.
+	if first_solid != "":
+		var f := _face_frame(first_solid)
+		var w := _face_width(first_solid)
+		var box_at := f * Transform3D(Basis(), Vector3(w * 0.3, _size.y * 0.36, 0.12))
+		_g.box(Vector3(0.5, 0.62, 0.24), box_at, Color(0.22, 0.23, 0.25))
+		_g.box(Vector3(0.1, 0.1, 0.06), box_at * Transform3D(Basis(), Vector3(-0.12, -0.14, 0.14)), Color(0.85, 0.22, 0.18))
+		_g.box(Vector3(0.1, 0.1, 0.06), box_at * Transform3D(Basis(), Vector3(0.12, -0.14, 0.14)), Color(0.25, 0.72, 0.30))
+		_g.pipe((box_at * Vector3(0, -0.31, 0)), Vector3((box_at * Vector3.ZERO).x, 0.1, (box_at * Vector3.ZERO).z), 0.04, steel, 4)
+		_lamp_at = box_at * Transform3D(Basis(), Vector3(0, 0.14, 0.13))
+
 	match machine_def.id:
 		&"sawmill":
-			# Blade housing and the blade itself, poking through the roof.
-			_add_part(Vector3(1.1, 0.5, 0.35), Vector3(0, _size.y + 0.25, 0.6), accent, false)
-			var blade := MeshInstance3D.new()
-			var disc := CylinderMesh.new()
-			disc.top_radius = 0.85
-			disc.bottom_radius = 0.85
-			disc.height = 0.06
-			disc.radial_segments = 20
-			blade.mesh = disc
-			blade.position = Vector3(0, _size.y + 0.45, 0.6)
-			blade.rotation = Vector3(0, 0, PI * 0.5)
-			var bmat := StandardMaterial3D.new()
-			bmat.albedo_color = Color(0.72, 0.74, 0.78)
-			bmat.metallic = 0.6
-			bmat.roughness = 0.35
-			blade.material_override = bmat
-			_body.add_child(blade)
-			# Infeed ramp and outfeed lip, so the holes read as holes.
-			_add_part(Vector3(intake_hole.x + 0.4, 0.12, 1.0),
-				Vector3(0, machine_def.intake_height - intake_hole.y * 0.5,
-					_size.z * 0.5 + 0.45), accent, false)
-			_add_part(Vector3(outlet_hole.x + 0.5, 0.12, 0.9),
-				Vector3(0, machine_def.outlet_height - outlet_hole.y * 0.5,
-					-_size.z * 0.5 - 0.4), accent, false)
-			for side in [-1.0, 1.0]:
-				_add_part(Vector3(0.22, 0.9, 0.22), Vector3(side * (_size.x * 0.5 - 0.2), 0.45,
-					_size.z * 0.5 - 0.3), accent.darkened(0.25), false)
+			# Blade housing and the blade itself, through the roof.
+			_g.block(Vector3(1.3, 0.55, 1.1), Vector3(0, _size.y + 0.27, 0.6), accent)
+			_g.stripes(1.3, 0.12, Transform3D(Basis(), Vector3(0, _size.y + 0.2, 1.16)))
+			_g.prism(16, 0.9, 0.9, 0.06, Transform3D(Basis(Vector3.FORWARD, PI * 0.5), Vector3(-0.03, _size.y + 0.62, 0.6)), steel)
+			for i in 16:
+				var a := TAU * float(i) / 16.0
+				_g.box(Vector3(0.07, 0.12, 0.05), Transform3D(Basis(Vector3.RIGHT, a), Vector3(0, _size.y + 0.62, 0.6) + Vector3(0, cos(a), sin(a)) * 0.93), Color(0.8, 0.8, 0.82))
+			_g.prism(8, 0.18, 0.18, 0.12, Transform3D(Basis(Vector3.FORWARD, PI * 0.5), Vector3(0.1, _size.y + 0.62, 0.6)), trim)
+			# Motor with cooling fins, and a belt guard to the blade.
+			var motor := Transform3D(Basis(Vector3.FORWARD, PI * 0.5), Vector3(_size.x * 0.5 - 0.1, _size.y + 0.35, -1.2))
+			_g.prism(8, 0.35, 0.35, 0.8, motor, Color(0.25, 0.42, 0.30))
+			for k in 5:
+				_g.prism(8, 0.39, 0.39, 0.04, motor.translated_local(Vector3(0, 0.12 + float(k) * 0.14, 0)), Color(0.2, 0.34, 0.24))
+			_g.block(Vector3(0.2, 0.3, 1.6), Vector3(_size.x * 0.5 - 0.5, _size.y + 0.35, -0.3), trim)
+			# In-feed ramp and rollers, out-feed lip.
+			_g.box(Vector3(intake_hole.x + 0.4, 0.12, 1.0), Transform3D(Basis(), Vector3(0, machine_def.intake_height - intake_hole.y * 0.5, _size.z * 0.5 + 0.45)), accent)
+			for k in 3:
+				_g.pipe(Vector3(-intake_hole.x * 0.5 - 0.1, machine_def.intake_height - intake_hole.y * 0.5 + 0.1, _size.z * 0.5 + 0.15 + float(k) * 0.3),
+					Vector3(intake_hole.x * 0.5 + 0.1, machine_def.intake_height - intake_hole.y * 0.5 + 0.1, _size.z * 0.5 + 0.15 + float(k) * 0.3), 0.06, steel, 6)
+			_g.block(Vector3(outlet_hole.x + 0.5, 0.12, 0.9), Vector3(0, machine_def.outlet_height - outlet_hole.y * 0.5, -_size.z * 0.5 - 0.4), accent)
+			# Sawdust chute.
+			_g.pipe(Vector3(-_size.x * 0.5 - 0.1, _size.y - 0.4, 0.8), Vector3(-_size.x * 0.5 - 0.35, 0.2, 1.6), 0.16, Color(0.72, 0.60, 0.24), 6)
 		&"furnace":
-			var stack := MeshInstance3D.new()
-			var pipe := CylinderMesh.new()
-			pipe.top_radius = 0.26
-			pipe.bottom_radius = 0.32
-			pipe.height = 1.6
-			pipe.radial_segments = 12
-			stack.mesh = pipe
-			stack.position = Vector3(_size.x * 0.28, _size.y + 0.8, -_size.z * 0.28)
-			var smat := StandardMaterial3D.new()
-			smat.albedo_color = machine_def.color.darkened(0.3)
-			stack.material_override = smat
-			_body.add_child(stack)
-			# Glowing mouth around the outlet.
-			var glow := MeshInstance3D.new()
-			var gb := BoxMesh.new()
-			gb.size = Vector3(0.12, outlet_hole.y, outlet_hole.x)
-			glow.mesh = gb
-			glow.position = Vector3(_size.x * 0.5 - 0.02, machine_def.outlet_height, 0)
-			var gmat := StandardMaterial3D.new()
-			gmat.albedo_color = Color(0.95, 0.45, 0.12)
-			gmat.emission_enabled = true
-			gmat.emission = Color(0.85, 0.32, 0.06)
-			gmat.emission_energy_multiplier = 1.6
-			glow.material_override = gmat
+			# Brick courses, a chimney with a cap, and a glowing mouth.
+			var y := 0.35
+			while y < _size.y - 0.2:
+				for face in ["front", "back", "left", "right"]:
+					if face == String(machine_def.outlet_face):
+						continue
+					var f := _face_frame(face)
+					_g.box(Vector3(_face_width(face) - 0.3, 0.04, 0.03), f * Transform3D(Basis(), Vector3(0, y, 0.015)), body.darkened(0.3))
+				y += 0.36
+			var stack := Transform3D(Basis(), Vector3(_size.x * 0.28, _size.y, -_size.z * 0.28))
+			_g.prism(8, 0.38, 0.3, 2.0, stack, body.darkened(0.3))
+			_g.prism(8, 0.46, 0.46, 0.12, stack.translated_local(Vector3(0, 1.9, 0)), trim)
+			_g.prism(8, 0.5, 0.2, 0.25, stack.translated_local(Vector3(0, 2.25, 0)), trim)
+			for k in 3:
+				_g.prism(8, 0.34, 0.34, 0.06, stack.translated_local(Vector3(0, 0.5 + float(k) * 0.5, 0)), steel.darkened(0.2))
+			var out := _face_frame(String(machine_def.outlet_face))
+			_g.box(Vector3(outlet_hole.x + 0.3, outlet_hole.y + 0.3, 0.1), out * Transform3D(Basis(), Vector3(0, machine_def.outlet_height, 0.03)), Color(1.0, 0.45, 0.10), true)
+			_g.box(Vector3(outlet_hole.x + 0.6, 0.14, 0.6), out * Transform3D(Basis(), Vector3(0, machine_def.outlet_height - outlet_hole.y * 0.5 - 0.1, 0.3)), trim)
+			# The charging hatch round the hole in the top.
+			_g.frame(Vector3(intake_hole.x + 0.3, 0.2, intake_hole.y + 0.3), Transform3D(Basis(), Vector3(0, _size.y + 0.1, 0)), 0.14, accent)
+			var glow := OmniLight3D.new()
+			glow.light_color = Color(1.0, 0.5, 0.2)
+			glow.light_energy = 1.0
+			glow.omni_range = 4.0
+			glow.position = out * Vector3(0, machine_def.outlet_height, 0.8)
+			glow.distance_fade_enabled = true
+			glow.distance_fade_begin = 40.0
 			_body.add_child(glow)
-			_add_part(Vector3(intake_hole.x + 0.5, 0.14, intake_hole.y + 0.5),
-				Vector3(0, _size.y + 0.07, 0), accent, false)
 		&"workbench":
-			_add_part(Vector3(_size.x - 0.4, 0.16, _size.z - 0.4), Vector3(0, _size.y + 0.08, 0),
-				Color(0.55, 0.41, 0.26), false)
-			for i in 3:
-				_add_part(Vector3(0.1, 0.55, 0.1),
-					Vector3(-0.8 + float(i) * 0.8, _size.y + 0.4, -_size.z * 0.5 + 0.35),
-					accent.darkened(0.2), false)
+			# Bench top, a vise, tools on a pegboard and a lamp over it all.
+			_g.block(Vector3(_size.x - 0.2, 0.16, _size.z - 0.4), Vector3(0, _size.y + 0.08, 0), Color(0.55, 0.41, 0.26))
+			_g.box(Vector3(0.5, 0.3, 0.3), Transform3D(Basis(), Vector3(-_size.x * 0.3, _size.y + 0.3, _size.z * 0.3)), steel.darkened(0.2))
+			_g.pipe(Vector3(-_size.x * 0.3, _size.y + 0.3, _size.z * 0.3 + 0.15), Vector3(-_size.x * 0.3, _size.y + 0.3, _size.z * 0.3 + 0.5), 0.03, steel, 4)
+			var board := Transform3D(Basis(), Vector3(0, _size.y + 0.9, -_size.z * 0.5 + 0.25))
+			_g.box(Vector3(_size.x - 0.6, 1.4, 0.08), board, Color(0.72, 0.62, 0.46))
+			for k in 5:
+				var x := -_size.x * 0.35 + float(k) * _size.x * 0.17
+				_g.box(Vector3(0.06, 0.45 + 0.1 * float(k % 2), 0.05), board * Transform3D(Basis(Vector3.FORWARD, 0.15 * float(k - 2)), Vector3(x, 0.1, 0.07)), steel.darkened(0.1 * float(k % 3)))
+				_g.box(Vector3(0.18, 0.1, 0.06), board * Transform3D(Basis(), Vector3(x, 0.35, 0.08)), Color(0.8, 0.25, 0.2) if k % 2 == 0 else Color(0.25, 0.4, 0.75))
+			_g.pipe(Vector3(_size.x * 0.4, _size.y, -_size.z * 0.35), Vector3(_size.x * 0.4, _size.y + 1.8, -_size.z * 0.35), 0.04, trim, 4)
+			_g.pipe(Vector3(_size.x * 0.4, _size.y + 1.8, -_size.z * 0.35), Vector3(_size.x * 0.1, _size.y + 1.9, -_size.z * 0.1), 0.04, trim, 4)
+			_g.lamp(Transform3D(Basis(Vector3.RIGHT, -PI * 0.5), Vector3(_size.x * 0.1, _size.y + 1.8, -_size.z * 0.1)), Color(1.0, 0.92, 0.7), 0.24)
+		&"crusher":
+			# A hopper over the mouth, a flywheel on the side, and a drive belt.
+			var hop := Transform3D(Basis(Vector3.UP, PI * 0.25), Vector3(0, _size.y, 0))
+			_g.prism(4, intake_hole.x * 0.72 + 0.1, intake_hole.x * 0.72 + 0.55, 0.9, hop, accent, false, false)
+			_g.prism(4, intake_hole.x * 0.72 + 0.62, intake_hole.x * 0.72 + 0.62, 0.1, hop.translated_local(Vector3(0, 0.9, 0)), trim)
+			var side := _face_frame("left")
+			var wheel := side * Transform3D(Basis(Vector3.RIGHT, PI * 0.5), Vector3(0.4, _size.y * 0.55, 0.05))
+			_g.prism(10, 0.95, 0.95, 0.18, wheel, Color(0.22, 0.22, 0.24))
+			_g.prism(10, 0.3, 0.3, 0.26, wheel, steel)
+			for k in 5:
+				var a := TAU * float(k) / 5.0
+				var spoke := wheel * Transform3D(Basis(Vector3.UP, a), Vector3(0, 0.09, 0))
+				_g.box(Vector3(0.12, 0.08, 1.7), spoke, Color(0.3, 0.3, 0.32))
+			var motor := side * Transform3D(Basis(Vector3.RIGHT, PI * 0.5), Vector3(-0.9, 0.5, 0.05))
+			_g.prism(8, 0.32, 0.32, 0.7, motor, Color(0.25, 0.42, 0.30))
+			_g.pipe(side * Vector3(-0.9, 0.5, 0.45), side * Vector3(0.4, _size.y * 0.55 + 0.9, 0.2), 0.05, Color(0.1, 0.1, 0.1), 4)
+			_g.pipe(side * Vector3(-0.9, 0.5, 0.45), side * Vector3(0.4, _size.y * 0.55 - 0.9, 0.2), 0.05, Color(0.1, 0.1, 0.1), 4)
+			var out := _face_frame(String(machine_def.outlet_face))
+			_g.box(Vector3(outlet_hole.x + 0.4, 0.12, 0.8), out * Transform3D(Basis(Vector3.RIGHT, 0.25), Vector3(0, machine_def.outlet_height - outlet_hole.y * 0.5 - 0.05, 0.4)), steel.darkened(0.15))
+
+var _lamp_at: Transform3D = Transform3D(Basis(), Vector3(0, -10, 0))
+var _lamp: MeshInstance3D
+
+## The machine's state as a light on its control box: green working, amber
+## waiting for something, red when it has stopped because its outlet is full.
+func _add_status_lamp() -> void:
+	if _lamp_at.origin.y < -5.0:
+		return
+	_lamp = MeshInstance3D.new()
+	_lamp.name = "StatusLamp"
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.16, 0.16, 0.06)
+	_lamp.mesh = bm
+	_lamp.transform = _lamp_at
+	_lamp_material = StandardMaterial3D.new()
+	_lamp_material.emission_enabled = true
+	_lamp.material_override = _lamp_material
+	_body.add_child(_lamp)
+	if not state_changed.is_connected(_refresh_lamp):
+		state_changed.connect(_refresh_lamp)
+	_refresh_lamp(self)
+
+func status_color() -> Color:
+	if stalled:
+		return Color(1.0, 0.25, 0.2)
+	if not job.is_empty():
+		return Color(0.35, 1.0, 0.45)
+	return Color(1.0, 0.72, 0.2)
+
+func _refresh_lamp(_m: Machine) -> void:
+	if _lamp_material == null:
+		return
+	var c := status_color()
+	_lamp_material.albedo_color = c
+	_lamp_material.emission = c
+	_lamp_material.emission_energy_multiplier = 2.0
 
 # --- Intake ----------------------------------------------------------------
 

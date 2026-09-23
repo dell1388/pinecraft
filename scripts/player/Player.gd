@@ -364,7 +364,7 @@ func _owner_of(collider: Object) -> Node:
 				or node is SellYard or node is Schematic or node is VehiclePad \
 				or node is Store \
 				or node is Conveyor or node is Filter or node is Splitter \
-				or node is Hauler:
+				or node is Hauler or node.has_method("interact_prompt"):
 			return node
 		node = node.get_parent()
 	return null
@@ -378,6 +378,9 @@ func _update_prompt() -> void:
 		last_prompt = ""
 		return
 	var target := _owner_of(hit.collider)
+	if target != null and target.has_method("interact_prompt"):
+		last_prompt = String(target.call("interact_prompt"))
+		return
 	if target is ChoppableTree:
 		var t := target as ChoppableTree
 		var limb := t.limb_at(hit.position)
@@ -441,6 +444,9 @@ func _swing() -> void:
 	if hit.is_empty():
 		return
 	var target := _owner_of(hit.collider)
+	if target != null and target.has_method("interact_prompt"):
+		last_prompt = String(target.call("interact_prompt"))
+		return
 	if target is ChoppableTree:
 		_swing_cd = PlayerState.stat(&"axe", "cooldown", 0.4)
 		# The cut lands where the axe lands, so the limb under the crosshair is
@@ -661,6 +667,10 @@ func _interact() -> void:
 	var target := _owner_of(hit.get("collider")) if not hit.is_empty() else null
 	if target == null:
 		interacted.emit("")
+		return
+	# Anything out in the world that just wants a press of [E]: caches, signs.
+	if target.has_method("interact"):
+		interacted.emit(String(target.call("interact", self)))
 		return
 	if target is Conveyor:
 		var belt := target as Conveyor

@@ -43,15 +43,7 @@ func _ready() -> void:
 	cs.shape = box
 	cs.position = Vector3(0, size.y * 0.5, 0)
 	body.add_child(cs)
-	var mesh := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = size
-	mesh.mesh = bm
-	mesh.position = cs.position
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.30, 0.34, 0.30)
-	mesh.material_override = mat
-	body.add_child(mesh)
+	body.add_child(_dress(size).instance("Bin"))
 	add_child(body)
 
 	_area = Area3D.new()
@@ -71,6 +63,33 @@ func _ready() -> void:
 	_output_point.position = Vector3(0, size.y * 0.6, -size.z * 0.5 - 0.8)
 	add_child(_output_point)
 	set_physics_process(true)
+
+## A ribbed steel bin with a framed hopper lip, stripes and a stencil plate.
+func _dress(size: Vector3) -> Greeble:
+	var g := Greeble.new()
+	var body := Color(0.30, 0.38, 0.30)
+	var trim := body.darkened(0.35)
+	var centre := Transform3D(Basis(), Vector3(0, size.y * 0.5, 0))
+	g.box(size, centre, body)
+	g.frame(size, centre, 0.12, trim)
+	# Ribs up each side.
+	for face in 4:
+		var yaw := float(face) * PI * 0.5
+		var half := (size.z if face % 2 == 0 else size.x) * 0.5
+		var along := (size.x if face % 2 == 0 else size.z)
+		var f := Transform3D(Basis(Vector3.UP, yaw), Vector3(0, 0, 0)) * Transform3D(Basis(), Vector3(0, 0, half))
+		for k in 3:
+			var x := -along * 0.3 + along * 0.3 * float(k)
+			g.box(Vector3(0.1, size.y * 0.8, 0.06), f * Transform3D(Basis(), Vector3(x, size.y * 0.5, 0.03)), body.lightened(0.06))
+		g.stripes(along - 0.3, 0.14, f * Transform3D(Basis(), Vector3(0, 0.16, 0.0)))
+	# The hopper lip on top, and a plate saying what it is.
+	g.frame(Vector3(size.x * 0.9, 0.18, size.z * 0.9), Transform3D(Basis(), Vector3(0, size.y + 0.09, 0)), 0.12, Color(0.55, 0.56, 0.58))
+	g.box(Vector3(size.x * 0.78, 0.04, size.z * 0.78), Transform3D(Basis(), Vector3(0, size.y + 0.01, 0)), Color(0.12, 0.12, 0.12))
+	g.plate(size.x * 0.4, size.y * 0.2, Transform3D(Basis(), Vector3(0, size.y * 0.62, size.z * 0.5 + 0.03)), Color(0.85, 0.80, 0.62))
+	# The dispensing port on the front, where Shift+E pours it out.
+	g.box(Vector3(0.9, 0.7, 0.3), Transform3D(Basis(), Vector3(0, size.y * 0.3, -size.z * 0.5 - 0.12)), trim)
+	g.box(Vector3(0.7, 0.5, 0.06), Transform3D(Basis(), Vector3(0, size.y * 0.3, -size.z * 0.5 - 0.28)), Color(0.08, 0.08, 0.08))
+	return g
 
 func count() -> int:
 	return contents.size()

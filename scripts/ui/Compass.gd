@@ -101,7 +101,8 @@ func _draw() -> void:
 		# Name and distance under the strip, only near the middle so the edges
 		# do not turn into a pile of words.
 		if absf(x) < 0.55:
-			var text := "%s  %dm" % [m.name, int(dist)]
+			var label: String = (m.name as Callable).call() if m.name is Callable else String(m.name)
+			var text := "%s  %dm" % [label, int(dist)]
 			_centred(text, px, 46, 13, Color(col, 1.0 - absf(x)), _font, true)
 
 	# The heading pointer.

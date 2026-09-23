@@ -69,15 +69,7 @@ func _build() -> void:
 	deck_shape.transform = deck_pose
 	_deck.add_child(deck_shape)
 
-	var mesh := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = box.size
-	mesh.mesh = bm
-	mesh.transform = deck_pose
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.18, 0.19, 0.22)
-	mesh.material_override = mat
-	_deck.add_child(mesh)
+	_deck.add_child(_dress(deck_pose, run).instance("Belt", false))
 
 	# Side rails keep SURFACE-mode items from wandering off the belt. A
 	# borderless deck goes without, so things can be pushed on and off it.
@@ -119,6 +111,50 @@ func _build() -> void:
 	_output_point = Node3D.new()
 	_output_point.position = Vector3(0, DECK_THICKNESS + 0.4 + rise, -length * 0.5 - 0.3)
 	add_child(_output_point)
+
+## The belt as a built thing: a rubber belt between steel side channels, legs
+## down to the pad, rollers at each end, and chevrons painted on it pointing
+## the way it runs - which is the thing you most need to know about a belt.
+func _dress(deck_pose: Transform3D, run: float) -> Greeble:
+	var g := Greeble.new()
+	var steel := Color(0.40, 0.42, 0.46)
+	var rubber := Color(0.14, 0.14, 0.16)
+	var fast := speed > 4.5
+	var paint := Color(0.35, 0.80, 0.95) if fast else Color(0.96, 0.76, 0.20)
+	g.box(Vector3(width - 0.2, DECK_THICKNESS, run), deck_pose, rubber)
+	for side in [-1.0, 1.0]:
+		g.box(Vector3(0.1, DECK_THICKNESS + 0.1, run + 0.05), deck_pose.translated_local(Vector3(side * (width * 0.5 - 0.05), 0.02, 0)), steel)
+		if railed:
+			g.box(Vector3(0.08, 0.3, run), deck_pose.translated_local(Vector3(side * (width * 0.5 + 0.04), 0.25, 0)), steel.lightened(0.1))
+			var posts := maxi(2, int(run / 1.5) + 1)
+			for i in posts:
+				var z := -run * 0.5 + run * float(i) / float(posts - 1)
+				g.box(Vector3(0.08, 0.34, 0.08), deck_pose.translated_local(Vector3(side * (width * 0.5 + 0.04), 0.18, z)), steel.darkened(0.15))
+	# Chevrons pointing along -Z, the way the belt carries things.
+	var count := maxi(1, int(run / 1.0))
+	for i in count:
+		var z := run * 0.5 - (float(i) + 0.5) * run / float(count)
+		for side in [-1.0, 1.0]:
+			var arm := Transform3D(Basis(Vector3.UP, side * 0.7), Vector3(side * 0.14, DECK_THICKNESS * 0.5 + 0.005, z + 0.1))
+			g.box(Vector3(0.09, 0.012, 0.42), deck_pose * arm, paint)
+	# Rollers at each end.
+	for end in [-1.0, 1.0]:
+		var at := deck_pose * Vector3(0, -0.02, end * run * 0.5)
+		var across := deck_pose.basis.x * (width * 0.5 - 0.02)
+		g.pipe(at - across, at + across, DECK_THICKNESS * 0.62, steel.lightened(0.15), 8)
+	# Legs down to the pad under the deck, at each end and every couple of metres.
+	var legs := maxi(2, int(run / 2.0) + 1)
+	for i in legs:
+		var z := -run * 0.5 + 0.2 + (run - 0.4) * float(i) / float(legs - 1)
+		var top := deck_pose * Vector3(0, -DECK_THICKNESS * 0.5, z)
+		if top.y < 0.12:
+			continue
+		for side in [-1.0, 1.0]:
+			var x: float = side * (width * 0.5 - 0.1)
+			var foot := Vector3((deck_pose * Vector3(x, 0, z)).x, 0.0, (deck_pose * Vector3(x, 0, z)).z)
+			var head := deck_pose * Vector3(x, -DECK_THICKNESS * 0.5, z)
+			g.block(Vector3(0.08, head.y, 0.08), (foot + head) * 0.5, steel.darkened(0.2))
+	return g
 
 func output_transform() -> Transform3D:
 	return _output_point.global_transform

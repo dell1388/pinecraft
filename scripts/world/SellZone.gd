@@ -37,17 +37,28 @@ func _ready() -> void:
 	add_child(_area)
 	set_physics_process(true)
 
-	var mesh := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = Vector3(extents.x, 0.12, extents.z)
-	mesh.mesh = bm
-	mesh.position = Vector3(0, 0.06, 0)
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.85, 0.72, 0.20)
-	mat.emission_enabled = true
-	mat.emission = Color(0.5, 0.42, 0.08)
-	mesh.material_override = mat
-	add_child(mesh)
+	add_child(_dress().instance("Chute"))
+
+## A grated pit with a glowing rim and a coin sign on a post: somewhere you
+## throw things and money comes back.
+func _dress() -> Greeble:
+	var g := Greeble.new()
+	var gold := Color(0.95, 0.76, 0.22)
+	var steel := Color(0.36, 0.37, 0.40)
+	g.block(Vector3(extents.x, 0.1, extents.z), Vector3(0, 0.05, 0), Color(0.10, 0.10, 0.11))
+	var bars := int(extents.x / 0.25)
+	for i in bars:
+		var x := -extents.x * 0.5 + (float(i) + 0.5) * extents.x / float(bars)
+		g.block(Vector3(0.06, 0.06, extents.z - 0.2), Vector3(x, 0.13, 0), steel)
+	g.frame(Vector3(extents.x, 0.2, extents.z), Transform3D(Basis(), Vector3(0, 0.1, 0)), 0.16, gold.darkened(0.2))
+	for sx in [-1.0, 1.0]:
+		g.box(Vector3(0.05, 0.05, extents.z), Transform3D(Basis(), Vector3(sx * extents.x * 0.5, 0.22, 0)), gold, true)
+		g.box(Vector3(extents.x, 0.05, 0.05), Transform3D(Basis(), Vector3(0, 0.22, sx * extents.z * 0.5)), gold, true)
+	var post := Vector3(extents.x * 0.5 - 0.1, 0, -extents.z * 0.5 + 0.1)
+	g.block(Vector3(0.12, 2.2, 0.12), post + Vector3(0, 1.1, 0), steel)
+	g.prism(12, 0.42, 0.42, 0.08, Transform3D(Basis(Vector3.RIGHT, PI * 0.5), post + Vector3(0, 2.3, 0.04)), gold, true)
+	g.box(Vector3(0.1, 0.46, 0.1), Transform3D(Basis(), post + Vector3(0, 2.3, 0.13)), Color(0.55, 0.40, 0.08))
+	return g
 
 func can_accept(_item_id: StringName) -> bool:
 	return true

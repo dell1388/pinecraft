@@ -46,19 +46,65 @@ var _cells: int = 0
 var _heights: PackedFloat32Array = PackedFloat32Array()
 var _biomes: PackedByteArray = PackedByteArray()
 var _road_mask: PackedByteArray = PackedByteArray()
+## Cells left out of the ground altogether, where a cave's shaft goes down.
+var _holes: PackedByteArray = PackedByteArray()
+
+## How many caves to look for. Zero, the default, looks for none, so a test
+## terrain is exactly the ground it asks for.
+@export var cave_count: int = 0
+## Where the caves went: {entrance, dir, ground, name}. Filled by `generate`.
+var caves: Array[Dictionary] = []
+## Places the world wants put somewhere suitable rather than at fixed spots:
+## {name, biomes, radius, near, far}. Each is given a reasonably flat patch of
+## its own country, levelled like any build site. Results go in `found_sites`.
+var site_requests: Array[Dictionary] = []
+var found_sites: Dictionary = {}
 
 var _elevation := FastNoiseLite.new()
 var _moisture := FastNoiseLite.new()
 var _detail := FastNoiseLite.new()
 
+## Flat ground, per biome: the tops of the terraces.
 const BIOME_COLORS := {
-	Biome.WOODLAND: Color(0.22, 0.36, 0.17),
-	Biome.SWAMP: Color(0.24, 0.30, 0.19),
-	Biome.DESERT: Color(0.72, 0.62, 0.36),
-	Biome.MOUNTAIN: Color(0.40, 0.39, 0.37),
-	Biome.TAIGA: Color(0.19, 0.31, 0.24),
-	Biome.SNOW: Color(0.86, 0.88, 0.92),
+	Biome.WOODLAND: Color(0.34, 0.56, 0.23),
+	Biome.SWAMP: Color(0.30, 0.40, 0.21),
+	Biome.DESERT: Color(0.88, 0.75, 0.47),
+	Biome.MOUNTAIN: Color(0.47, 0.47, 0.45),
+	Biome.TAIGA: Color(0.26, 0.44, 0.31),
+	Biome.SNOW: Color(0.88, 0.91, 0.96),
 }
+## Steep ground, per biome: the risers between terraces, and cliffs.
+const CLIFF_COLORS := {
+	Biome.WOODLAND: Color(0.47, 0.41, 0.33),
+	Biome.SWAMP: Color(0.33, 0.30, 0.23),
+	Biome.DESERT: Color(0.80, 0.50, 0.30),
+	Biome.MOUNTAIN: Color(0.42, 0.42, 0.45),
+	Biome.TAIGA: Color(0.41, 0.40, 0.37),
+	Biome.SNOW: Color(0.60, 0.65, 0.74),
+}
+## Faces steeper than this (the normal's vertical part) are drawn as rock.
+const CLIFF_NORMAL_Y := 0.82
+const ROAD_COLOR := Color(0.37, 0.34, 0.31)
+const SHORE_COLOR := Color(0.82, 0.76, 0.54)
+const BED_COLOR := Color(0.28, 0.26, 0.21)
+
+## The land steps rather than rolls: heights are banded into terraces of this
+## many metres, flat on top with a short steep riser between. Big flat panels
+## and sharp edges, which is the look, and ground you can read at a glance -
+## a riser is a step up, a cliff is a cliff. The swamp is left unbanded, as
+## wet ground should be.
+const TERRACE_STEP := {
+	Biome.WOODLAND: 2.0,
+	Biome.SWAMP: 0.0,
+	Biome.DESERT: 3.0,
+	Biome.MOUNTAIN: 4.0,
+	Biome.TAIGA: 2.5,
+	Biome.SNOW: 3.5,
+}
+## Where in each band the riser starts. Higher is flatter tops and steeper risers.
+const TERRACE_EDGE := 0.74
+## How far in from the edge of the map the land starts to fall to the sea.
+const SHORE_WIDTH := 48.0
 
 ## Base height and how much relief each biome gets.
 const BIOME_HEIGHT := {
@@ -117,7 +163,12 @@ func height_at(x: float, z: float) -> float:
 	var h10 := _heights[_index(ix + 1, iz)]
 	var h01 := _heights[_index(ix, iz + 1)]
 	var h11 := _heights[_index(ix + 1, iz + 1)]
-	return lerpf(lerpf(h00, h10, fx), lerpf(h01, h11, fx), fz)
+	# On the same two triangles the mesh is built from, split corner to
+	# corner from (0,0) to (1,1). Blending all four corners instead reads a
+	# terrace edge as a slope the ground does not have.
+	if fx >= fz:
+		return h00 + (h10 - h00) * fx + (h11 - h10) * fz
+	return h00 + (h01 - h00) * fz + (h11 - h01) * fx
 
 func height_at_point(point: Vector3) -> float:
 	return height_at(point.x, point.z)
@@ -215,8 +266,12 @@ func generate() -> void:
 			_biomes[_index(ix, iz)] = int(biome)
 			_heights[_index(ix, iz)] = h
 
+	_holes.resize(_cells * _cells)
+	_holes.fill(0)
 	_carve_rivers()
 	_grade_roads()
+	_place_requested_sites()
+	_plan_caves()
 	_flatten_sites()
 	_build_mesh()
 
@@ -240,13 +295,34 @@ func _pick_biome(x: float, z: float) -> Biome:
 		return Biome.SWAMP
 	return Biome.WOODLAND
 
+## Height comes from the elevation field alone, as one continuous surface, and
+## the biome only decides how it is banded and coloured. Deriving the height
+## from the biome - a base per biome, which is what this used to do - stood the
+## mountains on sheer plinths wherever two biomes met: walls thirty metres high
+## that cut the map into pieces you could not walk between.
 func _raw_height(x: float, z: float, biome: Biome) -> float:
-	var spec: Array = BIOME_HEIGHT[biome]
 	var e := (_elevation.get_noise_2d(x, z) + 1.0) * 0.5
+	var m := (_moisture.get_noise_2d(x, z) + 1.0) * 0.5
 	var d := _detail.get_noise_2d(x, z)
-	var h: float = float(spec[0]) + float(spec[1]) * e + d * 1.2
-	# Quantised, so the land steps in facets rather than rolling smoothly.
-	return snappedf(h, 0.5)
+	# Lowland, then rolling country, then the hills climbing steeply.
+	var h := 1.2 + 9.0 * smoothstep(0.30, 0.66, e) + 150.0 * pow(maxf(0.0, e - 0.60), 1.35)
+	# Wet ground sinks toward the water line.
+	h -= 2.4 * smoothstep(0.64, 0.76, m) * (1.0 - smoothstep(0.40, 0.50, e))
+	# More texture in the high country than in the lowland.
+	h += d * lerpf(0.7, 1.8, smoothstep(0.55, 0.75, e))
+	# The map is an island: the land runs down to a beach and into the sea
+	# round its edge, so the horizon is water rather than the end of the world.
+	var to_edge := half_extent - maxf(absf(x), absf(z))
+	h = lerpf(-3.5, h, smoothstep(4.0, SHORE_WIDTH, to_edge))
+	return terrace(h, float(TERRACE_STEP[biome]))
+
+## Bands a height into terraces: flat for most of each band, then a riser.
+static func terrace(h: float, step: float) -> float:
+	if step <= 0.0:
+		return snappedf(h, 0.25)
+	var t := h / step
+	var k := floorf(t)
+	return (k + smoothstep(TERRACE_EDGE, 1.0, t - k)) * step
 
 ## Spec: rivers, some fordable and some not. A river is cut down through
 ## whatever the land was doing, with banks that fall away over a few metres.
@@ -312,11 +388,13 @@ func _grade_roads() -> void:
 				# rather than filling the river in.
 				if _heights[index] < WATER_LEVEL - 0.3:
 					target = minf(target, -0.35)
-				if d <= ROAD_HALF_WIDTH:
+				# Flat a cell beyond the carriageway too, so no triangle that
+				# reaches onto the road has a corner up a bank.
+				if d <= ROAD_HALF_WIDTH + CELL:
 					_heights[index] = target
 					_road_mask[index] = 1
 				else:
-					var t: float = clampf((d - ROAD_HALF_WIDTH) / ROAD_SHOULDER, 0.0, 1.0)
+					var t: float = clampf((d - ROAD_HALF_WIDTH - CELL) / ROAD_SHOULDER, 0.0, 1.0)
 					_heights[index] = lerpf(target, _heights[index], smoothstep(0.0, 1.0, t))
 
 ## Heights along a road's centre-line, taken off the land it crosses and then
@@ -409,7 +487,10 @@ func _build_mesh() -> void:
 	var verts := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var colors := PackedColorArray()
-	verts.resize(_cells * _cells * 6)
+	var holes := 0
+	for flag in _holes:
+		holes += int(flag != 0)
+	verts.resize((_cells * _cells - holes) * 6)
 	normals.resize(verts.size())
 	colors.resize(verts.size())
 	var v := 0
@@ -421,7 +502,8 @@ func _build_mesh() -> void:
 			var p10 := Vector3(x0 + CELL, _heights[_index(ix + 1, iz)], z0)
 			var p01 := Vector3(x0, _heights[_index(ix, iz + 1)], z0 + CELL)
 			var p11 := Vector3(x0 + CELL, _heights[_index(ix + 1, iz + 1)], z0 + CELL)
-			var color := _quad_color(ix, iz, p00.y)
+			if _holes[iz * _cells + ix] != 0:
+				continue
 			# Wound clockwise seen from above, because that is the front face for
 			# both Godot's renderer and its collision shapes. Wound the other
 			# way the land is one enormous back face: invisible from above, and
@@ -432,6 +514,8 @@ func _build_mesh() -> void:
 			]
 			for tri in tris:
 				var normal: Vector3 = (tri[2] - tri[0]).cross(tri[1] - tri[0]).normalized()
+				# Coloured per face: a flat top is ground, a steep face is rock.
+				var color := _face_color(ix, iz, (tri[0].y + tri[1].y + tri[2].y) / 3.0, normal)
 				for corner in tri:
 					verts[v] = corner
 					normals[v] = normal
@@ -467,7 +551,8 @@ func _build_mesh() -> void:
 func _build_water() -> void:
 	var mi := MeshInstance3D.new()
 	var plane := PlaneMesh.new()
-	plane.size = Vector2(half_extent * 2.0, half_extent * 2.0)
+	# Out to the horizon: the island sits in open water.
+	plane.size = Vector2(half_extent * 8.0, half_extent * 8.0)
 	mi.mesh = plane
 	mi.position = Vector3(0, WATER_LEVEL - 0.02, 0)
 	var mat := StandardMaterial3D.new()
@@ -478,14 +563,251 @@ func _build_water() -> void:
 	mi.material_override = mat
 	add_child(mi)
 
-func _quad_color(ix: int, iz: int, height: float) -> Color:
+func _face_color(ix: int, iz: int, height: float, normal: Vector3) -> Color:
 	var index := _index(ix, iz)
-	if _road_mask[index] != 0:
-		return Color(0.34, 0.31, 0.28)
-	if height < WATER_LEVEL - 0.2:
-		return Color(0.26, 0.24, 0.19)        # riverbed
-	var base: Color = BIOME_COLORS[_biomes[index] as Biome]
+	var biome := _biomes[index] as Biome
+	var steep := normal.y < CLIFF_NORMAL_Y
+	var color: Color
+	if _road_mask[index] != 0 and not steep:
+		color = ROAD_COLOR
+	elif height < WATER_LEVEL - 0.2:
+		color = BED_COLOR
+	elif not steep and biome != Biome.SWAMP and biome != Biome.SNOW and height < WATER_LEVEL + 1.4 \
+			and _near_water(ix, iz):
+		color = SHORE_COLOR
+	elif steep:
+		color = CLIFF_COLORS[biome]
+		# Darker the steeper, so a cliff reads as a cliff and a riser as a step.
+		color = color.darkened(clampf((CLIFF_NORMAL_Y - normal.y) * 0.6, 0.0, 0.25))
+	else:
+		color = BIOME_COLORS[biome]
+		# Each terrace a shade apart from the next, so the bands read at a
+		# distance the way contour lines do.
+		var step: float = TERRACE_STEP[biome]
+		if step > 0.0 and int(floorf(height / step + 0.2)) % 2 == 1:
+			color = color.darkened(0.05)
 	# A little variation per facet, keyed off the cell, so neighbouring quads
 	# differ without needing a texture.
 	var jitter := float((ix * 73 + iz * 151) % 17) / 17.0 - 0.5
-	return base.lightened(jitter * 0.12) if jitter > 0.0 else base.darkened(-jitter * 0.12)
+	return color.lightened(jitter * 0.07) if jitter > 0.0 else color.darkened(-jitter * 0.07)
+
+## Sand only where the water actually is: a cell with water within a cell of it.
+func _near_water(ix: int, iz: int) -> bool:
+	for dz in range(-1, 3):
+		for dx in range(-1, 3):
+			if _heights[_index(ix + dx, iz + dz)] < WATER_LEVEL - 0.05:
+				return true
+	return false
+
+# --- Requested sites ---------------------------------------------------------
+
+func _place_requested_sites() -> void:
+	found_sites.clear()
+	for request in site_requests:
+		var wanted: Array = request.get("biomes", [])
+		var radius: float = float(request.get("radius", 10.0))
+		var near: float = float(request.get("near", 100.0))
+		var far: float = float(request.get("far", half_extent))
+		var best_score := -INF
+		var best := Vector3.ZERO
+		for iz in range(3, _cells - 2, 3):
+			for ix in range(3, _cells - 2, 3):
+				var p := Vector3(-half_extent + float(ix) * CELL, 0.0, -half_extent + float(iz) * CELL)
+				var from_middle := p.length()
+				if from_middle < near or from_middle > far:
+					continue
+				if absf(p.x) > half_extent - radius - 20.0 or absf(p.z) > half_extent - radius - 20.0:
+					continue
+				if not wanted.has(int(_biomes[_index(ix, iz)])):
+					continue
+				var score := _site_score(p, radius)
+				if score > best_score:
+					best_score = score
+					best = p
+		if best_score == -INF:
+			continue
+		var level := maxf(WATER_LEVEL + 0.6, snappedf(_mean_height(best, radius), 0.25))
+		best.y = level
+		found_sites[String(request.get("name", "site"))] = best
+		reserve_site(best, radius)
+
+## Flatter is better; roads, water, other sites and other finds rule a spot out.
+func _site_score(p: Vector3, radius: float) -> float:
+	if _in_build_site(p.x, p.z):
+		return -INF
+	for other in found_sites.values():
+		if (other as Vector3).distance_to(Vector3(p.x, other.y, p.z)) < 140.0:
+			return -INF
+	var lo := INF
+	var hi := -INF
+	for i in 9:
+		var q := p
+		if i > 0:
+			var a := TAU * float(i) / 8.0
+			q += Vector3(cos(a), 0.0, sin(a)) * radius
+		if is_road(q.x, q.z) or height_at(q.x, q.z) < WATER_LEVEL + 0.3:
+			return -INF
+		var h := height_at(q.x, q.z)
+		lo = minf(lo, h)
+		hi = maxf(hi, h)
+	for i in 8:
+		var a := TAU * float(i) / 8.0
+		var q := p + Vector3(cos(a), 0.0, sin(a)) * (radius + 14.0)
+		if is_road(q.x, q.z):
+			return -INF
+	# A tie-break that is steady for a seed but not always the first cell found.
+	var jitter := float(hash(Vector2i(int(p.x), int(p.z))) % 1000) / 1000.0
+	return -(hi - lo) + jitter * 0.8
+
+func _mean_height(p: Vector3, radius: float) -> float:
+	var total := height_at(p.x, p.z)
+	for i in 8:
+		var a := TAU * float(i) / 8.0
+		total += height_at(p.x + cos(a) * radius, p.z + sin(a) * radius)
+	return total / 9.0
+
+# --- Caves -------------------------------------------------------------------
+
+## How far behind the mouth the hill has to have risen.
+const SHAFT_REAR := 26.0
+
+## True near a cave mouth, where nothing should grow or be dropped.
+func in_cave_zone(x: float, z: float) -> bool:
+	for cave in caves:
+		var e: Vector3 = cave.entrance
+		var d: Vector3 = cave.dir
+		var centre := e + d * Cave.SHAFT_LENGTH * 0.5
+		if Vector2(x - centre.x, z - centre.z).length() < 16.0:
+			return true
+	return false
+
+## Looks for places a cave can go: at the foot of high ground, facing into it,
+## with enough rock over the whole of the tunnel and chamber that nothing pokes
+## out of the hillside, and high enough that the chamber floor stays above the
+## water line. The mouth is levelled and the shaft cells are cut out of the
+## ground; `Cave` builds everything else.
+func _plan_caves() -> void:
+	caves.clear()
+	if cave_count <= 0:
+		return
+	var wanted := [Biome.MOUNTAIN, Biome.SNOW, Biome.TAIGA, Biome.DESERT, Biome.WOODLAND]
+	var dirs := [Vector3(1, 0, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1), Vector3(0, 0, -1)]
+	var candidates: Array = []
+	var margin := 90.0
+	for iz in range(2, _cells - 1, 2):
+		for ix in range(2, _cells - 1, 2):
+			var corner := Vector3(-half_extent + float(ix) * CELL, 0.0, -half_extent + float(iz) * CELL)
+			if absf(corner.x) > half_extent - margin or absf(corner.z) > half_extent - margin:
+				continue
+			if not wanted.has(int(_biomes[_index(ix, iz)])):
+				continue
+			if corner.length() < 110.0:
+				continue
+			for dir in dirs:
+				var side := Vector3(-dir.z, 0.0, dir.x)
+				var entrance := corner + side * Cave.SHAFT_WIDTH * 0.5
+				var score := _cave_score(entrance, dir)
+				if score > 0.0:
+					candidates.append([score, entrance, dir])
+	candidates.sort_custom(func(a, b): return a[0] > b[0])
+	var names := ["Glimmer Cave", "Old Seam", "Frostvein Hollow", "Deepcut", "Echo Mine"]
+	for c in candidates:
+		if caves.size() >= cave_count:
+			break
+		var entrance: Vector3 = c[1]
+		var clear := true
+		for other in caves:
+			if (other.entrance as Vector3).distance_to(entrance) < 150.0:
+				clear = false
+				break
+		if not clear:
+			continue
+		var dir: Vector3 = c[2]
+		var ground := height_at(entrance.x, entrance.z)
+		entrance.y = ground
+		caves.append({"entrance": entrance, "dir": dir, "ground": ground,
+			"name": names[caves.size() % names.size()]})
+		# Level the mouth and the approach to it.
+		reserve_site(Vector3(entrance.x, ground, entrance.z) + dir * Cave.SHAFT_LENGTH * 0.4, 14.0)
+		var side := Vector3(-dir.z, 0.0, dir.x)
+		for along in [Cave.SHAFT_LENGTH * 0.25, Cave.SHAFT_LENGTH * 0.75]:
+			var p: Vector3 = entrance + dir * along
+			var gx := int(floor(_grid_coord(p.x)))
+			var gz := int(floor(_grid_coord(p.z)))
+			if gx >= 0 and gz >= 0 and gx < _cells and gz < _cells:
+				_holes[gz * _cells + gx] = 1
+
+## How much rock is over a cave dug here, in metres of spare cover; zero or
+## less means no.
+func _cave_score(entrance: Vector3, dir: Vector3) -> float:
+	var ground := height_at(entrance.x, entrance.z)
+	if ground < Cave.CHAMBER_DROP + 1.0:
+		return 0.0           # the chamber floor would be under the water line
+	var side := Vector3(-dir.z, 0.0, dir.x)
+	# The mouth faces open ground: nothing much higher than it for a way out in
+	# front, or levelling it digs a crater rather than a doorway.
+	var z_out := -24.0
+	while z_out <= -6.0:
+		for x_out in [-8.0, 0.0, 8.0]:
+			var q: Vector3 = entrance + dir * z_out + side * x_out
+			if height_at(q.x, q.z) > ground + 1.0:
+				return 0.0
+		z_out += 6.0
+	# And the hill rises behind it, so it goes in under something.
+	var behind: Vector3 = entrance + dir * (SHAFT_REAR)
+	if height_at(behind.x, behind.z) < ground + 4.0:
+		return 0.0
+	# Nothing in the way of the mouth: roads, rivers and other sites.
+	for along in [-10.0, 0.0, 6.0, 12.0]:
+		var p: Vector3 = entrance + dir * along
+		if is_road(p.x, p.z) or water_depth(p.x, p.z) > 0.0 or _in_build_site(p.x, p.z):
+			return 0.0
+	var spare := INF
+	var z := Cave.SHAFT_LENGTH
+	while z <= Cave.FOOTPRINT_LENGTH + 2.0:
+		var x := -Cave.CHAMBER_WIDTH * 0.5 - 2.0
+		while x <= Cave.CHAMBER_WIDTH * 0.5 + 2.0:
+			var p: Vector3 = entrance + dir * z + side * x
+			if absf(p.x) > half_extent - 4.0 or absf(p.z) > half_extent - 4.0:
+				return 0.0
+			var needed := ground + Cave.roof_at(z) + 0.8
+			spare = minf(spare, height_at(p.x, p.z) - needed)
+			if spare <= 0.0:
+				return 0.0
+			x += 4.0
+		z += 4.0
+	# Some cover is enough; beyond that prefer caves nearer the middle of the
+	# map, so they are a trip but not a pilgrimage.
+	return minf(spare, 6.0) + 60.0 / (1.0 + entrance.length() / 100.0)
+
+# --- The map -------------------------------------------------------------------
+
+## The land drawn from above, one pixel per `scale` metres: ground colours,
+## water, roads, with hill shading, for the journal's map.
+func map_image(px_per_cell: int = 2) -> Image:
+	# One pixel per cell, then scaled up: the cells are what the land is made
+	# of, so drawing each several times over only costs time.
+	var img := Image.create(_cells, _cells, false, Image.FORMAT_RGB8)
+	var sun := Vector3(-0.6, 0.75, -0.4).normalized()
+	for iz in _cells:
+		for ix in _cells:
+			var h00 := _heights[_index(ix, iz)]
+			var h10 := _heights[_index(ix + 1, iz)]
+			var h01 := _heights[_index(ix, iz + 1)]
+			var normal := Vector3(h00 - h10, CELL, h00 - h01).normalized()
+			var height := (h00 + h10 + h01 + _heights[_index(ix + 1, iz + 1)]) * 0.25
+			var color: Color
+			if height < WATER_LEVEL - 0.05:
+				color = Color(0.20, 0.42, 0.60).darkened(clampf(-height * 0.08, 0.0, 0.3))
+			else:
+				color = _face_color(ix, iz, height, normal)
+				color = color.darkened(clampf(0.35 - normal.dot(sun) * 0.45, 0.0, 0.4))
+			img.set_pixel(ix, iz, color)
+	if px_per_cell > 1:
+		img.resize(_cells * px_per_cell, _cells * px_per_cell, Image.INTERPOLATE_NEAREST)
+	return img
+
+## Map pixel for a world position, in an image from `map_image`.
+func map_pixel(point: Vector3, image_size: float) -> Vector2:
+	return Vector2((point.x + half_extent) / (half_extent * 2.0),
+		(point.z + half_extent) / (half_extent * 2.0)) * image_size

@@ -14,6 +14,8 @@ extends Node3D
 
 signal populated(field: ResourceField, node: Node3D)
 signal depleted(field: ResourceField, node: Node3D)
+## A node taken away unused to make room elsewhere: see `churn_seconds`.
+signal retired(field: ResourceField, node: Node3D)
 
 ## How many nodes this field maintains.
 @export var quota: int = 60
@@ -23,6 +25,20 @@ signal depleted(field: ResourceField, node: Node3D)
 @export var min_spacing: float = 3.4
 ## How many positions to try before giving up on this attempt.
 @export var placement_tries: int = 24
+## A full field is not a finished one. Left alone, a field fills to quota and
+## stops, and once the player has cleared the woods near home every tree left
+## is a long walk away - forever. So a full field now and then retires one
+## untouched node far from the player, and the refill that follows can land
+## anywhere, including near them. Zero turns it off.
+@export var churn_seconds: float = 0.0
+## Only nodes at least this far from the player are retired, so nothing ever
+## vanishes in front of them.
+@export var churn_distance: float = 90.0
+## New nodes do not appear right next to the player either.
+@export var spawn_clearance: float = 30.0
+
+## The player, or whatever the distances above are measured from. Optional.
+var focus: Node3D
 
 ## Forms to draw from. Each entry is passed to `builder` as-is.
 var species: Array[Dictionary] = []
@@ -37,7 +53,9 @@ var total_spawned: int = 0
 
 var _rng := RandomNumberGenerator.new()
 var _timer: float = 0.0
+var _churn_timer: float = 0.0
 var _next_index: int = 0
+var total_retired: int = 0
 
 func setup(p_species: Array, p_builder: Callable, p_sampler: Callable, p_seed: int = 0) -> void:
 	species.clear()
@@ -75,6 +93,11 @@ func _process(delta: float) -> void:
 		# Armed while full, so the first loss waits out a refill interval like
 		# any other. Otherwise a felled tree is replaced the same frame it falls.
 		_timer = refill_seconds
+		if churn_seconds > 0.0:
+			_churn_timer -= delta
+			if _churn_timer <= 0.0:
+				_churn_timer = churn_seconds * _rng.randf_range(0.7, 1.3)
+				retire_one()
 		return
 	_timer -= delta
 	if _timer > 0.0:
@@ -103,9 +126,38 @@ func _try_spawn() -> Node3D:
 	populated.emit(self, node)
 	return node
 
+## Takes away one untouched node out of the player's reach, if there is one.
+## Returns what it took, or null.
+func retire_one() -> Node3D:
+	var candidates: Array[Node3D] = []
+	for node in alive:
+		if not is_instance_valid(node) or node.is_queued_for_deletion():
+			continue
+		if node.has_method("untouched") and not node.call("untouched"):
+			continue
+		if _near_focus(node.global_position, churn_distance):
+			continue
+		candidates.append(node)
+	if candidates.is_empty():
+		return null
+	var node := candidates[_rng.randi() % candidates.size()]
+	alive.erase(node)
+	total_retired += 1
+	retired.emit(self, node)
+	node.queue_free()
+	return node
+
+func _near_focus(point: Vector3, distance: float) -> bool:
+	if focus == null or not is_instance_valid(focus):
+		return false
+	var f := focus.global_position
+	return Vector2(point.x - f.x, point.z - f.z).length() < distance
+
 func _find_spot() -> Variant:
 	for i in placement_tries:
 		var candidate: Vector3 = sampler.call(_rng)
+		if spawn_clearance > 0.0 and _near_focus(to_global(candidate), spawn_clearance):
+			continue
 		var clear := true
 		for other in alive:
 			if not is_instance_valid(other):

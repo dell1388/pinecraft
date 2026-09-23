@@ -170,6 +170,20 @@ func _check_ui() -> void:
 	var last := hud._toasts.get_child(hud._toasts.get_child_count() - 1)
 	_require(String(last.get_meta("text", "")).begins_with("Sold 40"), "a burst of sales was not folded into one toast")
 	_require(world.tutorial != null, "no getting-started checklist")
+	# The world out past the plot: caves, outposts and dressing all built, and
+	# walking up to a place puts it on the map.
+	_require(world.caves.size() >= 2, "only %d caves" % world.caves.size())
+	_require(world.outposts.size() >= 6, "only %d outposts" % world.outposts.size())
+	_require(world.decor.instance_count > 2000, "the land is bare: %d decor pieces" % world.decor.instance_count)
+	var place: Outpost = world.outposts[0]
+	var was: Vector3 = world.player.global_position
+	world.player.global_position = place.global_position + Vector3(0, 3, 12)
+	world._discover_timer = 0.0
+	world._check_discovery(0.1)
+	_require(world.discovered(place.place_name), "walking up to %s did not discover it" % place.place_name)
+	world.player.global_position = was
+	print("world: %d caves, %d outposts, %d decor, %d boulders" % [world.caves.size(),
+		world.outposts.size(), world.decor.instance_count, world.decor.boulder_count])
 	print("ui ok: journal %d tabs, pause/resume, %d toasts, checklist %d/%d" % [
 		Journal.TABS.size(), hud._toasts.get_child_count(), world.tutorial.done_count(), Tutorial.STEPS.size()])
 
@@ -221,6 +235,7 @@ func _report() -> void:
 	print("machine output    %d pieces (%.2f m3 in, %.2f m3 out)" % [
 		_produced(), _volume_in(), _volume_out()])
 	print("money             $%d" % Economy.money)
+	print("resurfaced        %d" % world.manager.stat_resurfaced)
 	print("kill-plane saves  %d" % world.manager.stat_killplane)
 	print("bulk sleeps       %d" % world.manager.stat_forced_sleeps)
 	_require(_produced() > 0, "no machine produced anything")

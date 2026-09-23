@@ -25,6 +25,7 @@ var plot_id: int = 0
 ## One shelf slot per product: {box, kind, target, spot, item}
 var slots: Array[Dictionary] = []
 
+var _g: Greeble
 var _counter_area: Area3D
 var _counter_shape: CollisionShape3D
 var _till: Node3D
@@ -245,6 +246,7 @@ func status_line(role: StringName) -> String:
 # --- Geometry --------------------------------------------------------------
 
 func _build() -> void:
+	_g = Greeble.new()
 	var half_x := extents.x * 0.5
 	var half_z := extents.z * 0.5
 	_slab(Vector3(extents.x, 0.2, extents.z), Vector3(0, 0.1, 0), Color(0.48, 0.46, 0.43), true)
@@ -317,6 +319,63 @@ func _build() -> void:
 	_slab(Vector3(2.4, 1.0, 1.2), Vector3(half_x - 2.4, 0.5, counter_z), Color(0.34, 0.40, 0.46), true)
 	_slab(Vector3(1.6, 0.9, 0.08), Vector3(half_x - 2.4, 2.0, counter_z - 0.5),
 		Color(0.80, 0.78, 0.70), false)
+	_storefront(half_x, half_z)
+	add_child(_g.instance("StoreMesh"))
+
+## The outside: a parapet round the roof, a striped awning over the door, lit
+## windows, a sign board, lamps, and some stock stacked by the door.
+func _storefront(half_x: float, half_z: float) -> void:
+	var wall := Color(0.62, 0.58, 0.52)
+	var trim := Color(0.32, 0.30, 0.28)
+	# Parapet and corner pilasters.
+	_g.frame(Vector3(extents.x + 0.3, 0.5, extents.z + 0.3), Transform3D(Basis(), Vector3(0, 4.45, 0)), 0.3, trim)
+	for sx in [-1.0, 1.0]:
+		for sz in [-1.0, 1.0]:
+			_g.block(Vector3(0.5, 4.3, 0.5), Vector3(sx * half_x, 2.15, sz * half_z), trim.lightened(0.1))
+	# A skirting course of darker stone.
+	_g.frame(Vector3(extents.x + 0.1, 0.6, extents.z + 0.1), Transform3D(Basis(), Vector3(0, 0.3, 0)), 0.2, wall.darkened(0.3))
+	# Awning over the doorway, in stripes.
+	var door_w := extents.x * 0.36
+	var stripes := 8
+	for i in stripes:
+		var x := -door_w * 0.5 - 0.5 + (float(i) + 0.5) * (door_w + 1.0) / float(stripes)
+		var color := Color(0.82, 0.22, 0.18) if i % 2 == 0 else Color(0.95, 0.92, 0.86)
+		_g.box(Vector3((door_w + 1.0) / float(stripes), 0.08, 1.8), Transform3D(Basis(Vector3.RIGHT, 0.32), Vector3(x, 3.45, half_z + 0.85)), color)
+	_g.block(Vector3(door_w + 1.2, 0.12, 0.12), Vector3(0, 3.18, half_z + 1.7), trim)
+	# Sign board over the awning.
+	_g.box(Vector3(door_w + 0.6, 0.8, 0.15), Transform3D(Basis(), Vector3(0, 4.0, half_z + 0.25)), Color(0.20, 0.34, 0.24))
+	_g.frame(Vector3(door_w + 0.6, 0.8, 0.15), Transform3D(Basis(), Vector3(0, 4.0, half_z + 0.25)), 0.06, Color(0.92, 0.76, 0.30))
+	var sign := Label3D.new()
+	sign.text = "GENERAL STORE"
+	sign.font_size = 72
+	sign.pixel_size = 0.008
+	sign.outline_size = 0
+	sign.modulate = Color(0.98, 0.88, 0.55)
+	sign.position = Vector3(0, 4.0, half_z + 0.34)
+	add_child(sign)
+	# Lit windows down each side.
+	for sx in [-1.0, 1.0]:
+		for k in 2:
+			var z := -half_z * 0.5 + float(k) * half_z
+			_g.box(Vector3(0.1, 1.2, 1.8), Transform3D(Basis(), Vector3(sx * (half_x + 0.1), 2.3, z)), Color(0.95, 0.85, 0.55), true)
+			_g.frame(Vector3(0.12, 1.3, 1.9), Transform3D(Basis(), Vector3(sx * (half_x + 0.12), 2.3, z)), 0.1, trim)
+			_g.block(Vector3(0.14, 0.06, 1.9), Vector3(sx * (half_x + 0.13), 2.3, z), trim)
+	# Lamps either side of the door, a bench, and crates by the wall.
+	for sx in [-1.0, 1.0]:
+		_g.lamp(Transform3D(Basis(), Vector3(sx * (door_w * 0.5 + 0.5), 2.7, half_z + 0.25)))
+	_g.block(Vector3(2.0, 0.1, 0.5), Vector3(half_x - 2.0, 0.55, half_z + 0.8), Color(0.5, 0.36, 0.22))
+	for sx in [-0.8, 0.8]:
+		_g.block(Vector3(0.1, 0.5, 0.45), Vector3(half_x - 2.0 + sx, 0.25, half_z + 0.8), trim)
+	for i in 3:
+		var at := Vector3(-half_x + 1.2 + float(i % 2) * 0.9, 0.4 + float(i / 2) * 0.8, half_z + 0.9)
+		_g.box(Vector3(0.8, 0.8, 0.8), Transform3D(Basis(Vector3.UP, 0.2 * float(i)), at), Color(0.58, 0.44, 0.26))
+		_g.frame(Vector3(0.8, 0.8, 0.8), Transform3D(Basis(Vector3.UP, 0.2 * float(i)), at), 0.06, Color(0.38, 0.27, 0.15))
+	# Floor tiles inside.
+	for ix in int(extents.x / 2.0):
+		for iz in int(extents.z / 2.0):
+			if (ix + iz) % 2 == 0:
+				continue
+			_g.block(Vector3(1.96, 0.01, 1.96), Vector3(-half_x + 1.0 + float(ix) * 2.0, 0.205, -half_z + 1.0 + float(iz) * 2.0), Color(0.42, 0.40, 0.37))
 
 func _slab(size: Vector3, pos: Vector3, color: Color, collide: bool) -> void:
 	if collide:
@@ -330,13 +389,4 @@ func _slab(size: Vector3, pos: Vector3, color: Color, collide: bool) -> void:
 		cs.position = pos
 		body.add_child(cs)
 		add_child(body)
-	var mi := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = size
-	mi.mesh = bm
-	mi.position = pos
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = color
-	mat.roughness = 0.9
-	mi.material_override = mat
-	add_child(mi)
+	_g.block(size, pos, color)

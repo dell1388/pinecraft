@@ -33,6 +33,12 @@ func _run_all() -> void:
 	await _test(&"terrain has biomes, rivers and roads", test_terrain)
 	await _test(&"you can stand on the terrain anywhere", test_terrain_collision)
 	await _test(&"a species only gets offered its own country", test_biome_pools)
+	await _test(&"the land steps in terraces with no sheer plinths", test_terraces)
+	await _test(&"caves are dug under enough hill, and you can walk into them", test_caves)
+	await _test(&"greebled meshes face outward", test_greeble_winding)
+	await _test(&"a full field retires far, untouched nodes", test_field_churn)
+	await _test(&"things that fall through the ground come back up", test_resurface)
+	await _test(&"traders pay a premium, caches pay once a day", test_trader_and_cache)
 	await _test(&"round stock is drawn as octagons", test_octagonal_stock)
 	await _test(&"bucking splits wood and conserves volume", test_bucking)
 	await _test(&"a chunk is pulled out whole when the pull is enough", test_chunk_pull)
@@ -465,6 +471,10 @@ func test_terrain() -> void:
 			continue
 		var centre := Vector3(along, 0.0, along)
 		if not land.is_road(centre.x, centre.z):
+			continue
+		# The map is an island; where this small test map's road runs down
+		# into the shore it is going into the sea, not over a hill.
+		if land.half_extent - maxf(absf(centre.x), absf(centre.z)) < Terrain.SHORE_WIDTH:
 			continue
 		var middle := land.height_at(centre.x, centre.z)
 		if absf(land.height_at(centre.x + across_dir.x * 26.0,
@@ -1495,6 +1505,211 @@ func test_schematic() -> void:
 		"the material did not come back out of the plan")
 	done()
 
+func test_terraces() -> void:
+	_setup(false)
+	var land := Terrain.new()
+	land.half_extent = 300.0
+	land.noise_seed = 20260921
+	world.add_child(land)
+	await step(2)
+	# Mostly flat panels: most of the ground's faces are level to the eye.
+	var flat := 0
+	var total := 0
+	var worst_step := 0.0
+	var x := -land.half_extent + 60.0
+	while x < land.half_extent - 60.0:
+		var z := -land.half_extent + 60.0
+		while z < land.half_extent - 60.0:
+			var h := land.height_at(x, z)
+			var hx := land.height_at(x + Terrain.CELL, z)
+			var hz := land.height_at(x, z + Terrain.CELL)
+			var n := Vector3(h - hx, Terrain.CELL, h - hz).normalized()
+			total += 1
+			if n.y > 0.985:
+				flat += 1
+			worst_step = maxf(worst_step, maxf(absf(h - hx), absf(h - hz)))
+			z += Terrain.CELL
+		x += Terrain.CELL
+	var share := float(flat) / float(maxi(1, total))
+	check(share > 0.45, "only %.0f%% of the ground is flat panels" % (share * 100.0))
+	# Heights are one continuous surface, so no neighbouring points are a
+	# cliff apart the way the old per-biome plinths were.
+	check(worst_step < 9.0, "a %.1f m wall between neighbouring ground points" % worst_step)
+	# The island runs down into the sea at its edge.
+	for p in [Vector3(-296, 0, 0), Vector3(296, 0, 40), Vector3(0, 0, -296), Vector3(-80, 0, 296)]:
+		check(land.height_at(p.x, p.z) < Terrain.WATER_LEVEL, "the map edge at %s is not sea" % p)
+	check_near(Terrain.terrace(5.0, 2.0), 4.0, 0.01, "the middle of a band is its flat top")
+	check(Terrain.terrace(5.9, 2.0) > 4.0, "the top of a band rises toward the next")
+	done()
+
+func test_caves() -> void:
+	_setup(false)
+	var land := Terrain.new()
+	land.half_extent = 300.0
+	land.noise_seed = 20260921
+	land.cave_count = 3
+	world.add_child(land)
+	await step(2)
+	check(land.caves.size() >= 2, "only %d cave(s) found a site" % land.caves.size())
+	if land.caves.is_empty():
+		done()
+		return
+	var plan: Dictionary = land.caves[0]
+	var cave := Cave.new()
+	cave.setup(plan.entrance, plan.dir, plan.name, 5)
+	world.add_child(cave)
+	await step(2)
+	var ground: float = plan.ground
+	check(ground - Cave.CHAMBER_DROP > Terrain.WATER_LEVEL, "the chamber floor is under the water line")
+	# Rock over the whole of it: nothing pokes out of the hillside.
+	var least := INF
+	var z := Cave.SHAFT_LENGTH + 1.0
+	while z <= Cave.FOOTPRINT_LENGTH:
+		var x := -Cave.CHAMBER_WIDTH * 0.5
+		while x <= Cave.CHAMBER_WIDTH * 0.5:
+			if z >= Cave.SHAFT_LENGTH + Cave.TUNNEL_LENGTH or absf(x) < Cave.SHAFT_WIDTH * 0.5 + 1.0:
+				var p := cave.to_global(Vector3(x, Cave.roof_at(z), z))
+				least = minf(least, land.height_at(p.x, p.z) - p.y)
+			x += 2.0
+		z += 2.0
+	check(least > 0.3, "the cave roof is only %.2f m under the hill somewhere" % least)
+	# The trench is open - no ground over it - and has a floor you land on.
+	var space := world.get_world_3d().direct_space_state
+	var mid := cave.to_global(Vector3(0, 0, Cave.SHAFT_LENGTH * 0.5))
+	var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(mid + Vector3(0, 10, 0), mid + Vector3(0, -30, 0), Layers.WORLD))
+	check(not hit.is_empty() and hit.collider != land, "the trench is still covered by the ground")
+	if not hit.is_empty():
+		check_near(hit.position.y, ground + Cave.floor_at(Cave.SHAFT_LENGTH * 0.5), 0.2, "the trench floor is not where the ramp should be")
+	# And the chamber has a floor under the hill.
+	var inside := cave.to_global(Vector3(0, -Cave.CHAMBER_DROP + 2.0, Cave.SHAFT_LENGTH + Cave.TUNNEL_LENGTH + 10.0))
+	hit = space.intersect_ray(PhysicsRayQueryParameters3D.create(inside, inside + Vector3(0, -6, 0), Layers.WORLD))
+	check(not hit.is_empty(), "the chamber has no floor")
+	if not hit.is_empty():
+		check_near(hit.position.y, ground - Cave.CHAMBER_DROP, 0.1, "the chamber floor is at the wrong depth")
+	check(cave.depth_factor(inside) > 0.9, "the chamber does not count as underground")
+	check_eq(cave.depth_factor(cave.to_global(Vector3(0, 2, -10))), 0.0, "outside the mouth counts as underground")
+	done()
+
+func test_greeble_winding() -> void:
+	var g := Greeble.new()
+	var centre := Vector3(1, 2, 3)
+	g.box(Vector3(2, 1, 3), Transform3D(Basis(Vector3.UP, 0.6) * Basis(Vector3.RIGHT, 0.3), centre), Color.RED)
+	g.prism(7, 1.0, 0.5, 2.0, Transform3D(Basis(), centre + Vector3(0, -1, 0)), Color.GREEN)
+	var mesh := g.commit()
+	var verts: PackedVector3Array = mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	var inward := 0
+	var i := 0
+	while i < verts.size():
+		var a := verts[i]
+		var b := verts[i + 1]
+		var c := verts[i + 2]
+		# Godot's front face: (C - A) x (B - A) points out of the solid.
+		var n := (c - a).cross(b - a)
+		var mid := (a + b + c) / 3.0
+		if n.dot(mid - centre) < 0.0:
+			inward += 1
+		i += 3
+	check(verts.size() > 0, "the greeble mesh is empty")
+	check_eq(inward, 0, "%d triangles face into the solid and would render inside-out" % inward)
+	done()
+
+func test_field_churn() -> void:
+	_setup(false)
+	var field := ResourceField.new()
+	field.quota = 12
+	field.min_spacing = 1.0
+	field.churn_distance = 50.0
+	field.spawn_clearance = 20.0
+	var near := Node3D.new()
+	world.add_child(near)
+	field.focus = near
+	var built := func(_kind: Dictionary, _seed: int) -> Node3D:
+		var rock := OreRock.new()
+		rock.manager = manager
+		rock.volume = 0.4
+		return rock
+	# Half the spots are right by the player, half far off.
+	var flip := [0]
+	field.setup([{}], built, func(rng: RandomNumberGenerator) -> Vector3:
+		flip[0] += 1
+		return Vector3(rng.randf_range(-60, -40) if flip[0] % 2 == 0 else rng.randf_range(15, 25), 0.5, rng.randf_range(-5, 5)), 7)
+	world.add_child(field)
+	field.prefill()
+	check(field.at_quota(), "the field did not fill")
+	for node in field.alive:
+		check(node.global_position.distance_to(near.global_position) >= 20.0, "a node spawned inside the player's clearance")
+	# Touch every far node but one: that one is all churn may take.
+	var far: Array[Node3D] = []
+	for node in field.alive:
+		if node.global_position.distance_to(near.global_position) > 50.0:
+			far.append(node)
+	check(far.size() >= 2, "the test needs far nodes to work with")
+	for k in range(1, far.size()):
+		(far[k] as OreRock).touched = true
+	var taken := field.retire_one()
+	check(taken == far[0], "churn took something other than the only far, untouched node")
+	check(field.retire_one() == null, "churn took a touched or nearby node")
+	check_eq(field.total_retired, 1, "retired count is off")
+	check_eq(field.count(), field.quota - 1, "retiring should open the quota for a regrow")
+	done()
+
+func test_resurface() -> void:
+	_setup(false)
+	manager.ground_height = func(p: Vector3) -> float: return 0.0 if p.x < 50.0 else -INF
+	var sunk := spawn(&"wood_pine", Vector3(3, -6, 3), Solid.cylinder(0.2, 0.18, 1.2))
+	var ignored := spawn(&"wood_pine", Vector3(60, -6, 3), Solid.cylinder(0.2, 0.18, 1.2))
+	sunk.gravity_scale = 0.0
+	ignored.gravity_scale = 0.0
+	await step(20)
+	check(sunk.global_position.y > -0.5, "a piece under the ground was left there (y %.1f)" % sunk.global_position.y)
+	check_near(sunk.global_position.x, 3.0, 0.5, "a resurfaced piece should come up where it went down")
+	check(ignored.global_position.y < -4.0, "a piece where the ground has no answer (a cave) was moved")
+	check(manager.stat_resurfaced >= 1, "nothing counted as resurfaced")
+	done()
+
+func test_trader_and_cache() -> void:
+	_setup()
+	var yard := SellYard.new()
+	yard.setup(manager, null)
+	yard.keeper = "Trader"
+	yard.premium = {&"lumber": 1.5}
+	yard.extents = Vector3(12.0, 4.0, 12.0)
+	yard.position = Vector3(0, 0, 40)
+	world.add_child(yard)
+	await step(4)
+	Economy.from_dict({"money": 0, "day": 2})
+	var plank := spawn(&"lumber_pine", yard.position + Vector3(1, 1, 1), Solid.box(Vector3(0.3, 0.3, 2.0)))
+	var log := spawn(&"wood_pine", yard.position + Vector3(-1, 1, -1), Solid.cylinder(0.2, 0.18, 1.2))
+	plank.owned = true
+	log.owned = true
+	await step(4)
+	var base := Economy.price_of(&"lumber_pine", plank.dims) + Economy.price_of(&"wood_pine", log.dims)
+	var premium := int(round(float(Economy.price_of(&"lumber_pine", plank.dims)) * 0.5))
+	var receipt := yard.sell_all()
+	check_eq(int(receipt.total), base, "the trader's base price is off")
+	check_eq(Economy.money, base + premium, "the trader paid no premium on lumber, or paid it on wood")
+	check(yard.status_line().contains("lumber +50%"), "the trader does not say what they pay extra for")
+
+	var cache := SupplyCache.new()
+	cache.setup("Test Cache", 200)
+	world.add_child(cache)
+	await step(1)
+	var before := Economy.money
+	check(cache.ready_to_open(), "a new cache should be full")
+	cache.interact(null)
+	var paid := Economy.money - before
+	check(paid >= 150 and paid <= 260, "the cache paid %d, outside its range" % paid)
+	check(not cache.ready_to_open(), "a cache should be empty once opened")
+	cache.interact(null)
+	check_eq(Economy.money - before, paid, "an opened cache paid out twice in one day")
+	var saved := PlayerState.to_dict()
+	PlayerState.reset()
+	PlayerState.from_dict(saved)
+	check(not cache.ready_to_open(), "an opened cache came back full after a save")
+	Economy.advance_day()
+	check(cache.ready_to_open(), "the cache did not restock the next day")
+	done()
+
 func test_save_summary() -> void:
 	_setup()
 	await step(2)
@@ -2002,7 +2217,7 @@ func test_hauler() -> void:
 		var prop := child as MeshInstance3D
 		if prop == null:
 			continue
-		if prop.mesh is CylinderMesh and prop.position.y < 0.0:
+		if truck._wheels.has(prop) and prop.position.y < 0.0:
 			wheels += 1
 		elif prop.mesh is CylinderMesh and prop.position.y > 0.3:
 			cargo_props += 1

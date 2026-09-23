@@ -48,15 +48,7 @@ func _ready() -> void:
 	# meets the ground, so a plate centred there is half buried.
 	cs.position = Vector3(0, PLATE_THICKNESS * 0.5, 0)
 	body.add_child(cs)
-	var mesh := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = box.size
-	mesh.mesh = bm
-	mesh.position = cs.position
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = body_color
-	mesh.material_override = mat
-	body.add_child(mesh)
+	body.add_child(_dress(size).instance("Plate", false))
 	add_child(body)
 
 	_area = Area3D.new()
@@ -72,6 +64,26 @@ func _ready() -> void:
 	_area.body_entered.connect(_on_body)
 	add_child(_area)
 	set_physics_process(true)
+
+## A turntable on a bolted plate, with an arrow painted toward each output.
+func _dress(size: Vector3) -> Greeble:
+	var g := Greeble.new()
+	var steel := Color(0.40, 0.42, 0.46)
+	g.block(Vector3(size.x, PLATE_THICKNESS, size.z), Vector3(0, PLATE_THICKNESS * 0.5, 0), body_color)
+	g.frame(Vector3(size.x, PLATE_THICKNESS, size.z), Transform3D(Basis(), Vector3(0, PLATE_THICKNESS * 0.5, 0)), 0.08, body_color.darkened(0.35))
+	g.prism(10, minf(size.x, size.z) * 0.3, minf(size.x, size.z) * 0.28, 0.05,
+		Transform3D(Basis(), Vector3(0, PLATE_THICKNESS, 0)), steel)
+	g.prism(6, 0.12, 0.12, 0.09, Transform3D(Basis(), Vector3(0, PLATE_THICKNESS, 0)), body_color.lightened(0.25))
+	for sx in [-1.0, 1.0]:
+		for sz in [-1.0, 1.0]:
+			g.block(Vector3(0.08, 0.05, 0.08), Vector3(sx * (size.x * 0.5 - 0.15), PLATE_THICKNESS + 0.02, sz * (size.z * 0.5 - 0.15)), Color(0.72, 0.72, 0.7))
+	for dir in OUTPUT_DIRS:
+		var d: Vector3 = dir
+		var basis := Basis.looking_at(d, Vector3.UP)
+		var at := d * minf(size.x, size.z) * 0.36 + Vector3(0, PLATE_THICKNESS + 0.01, 0)
+		for side in [-1.0, 1.0]:
+			g.box(Vector3(0.07, 0.012, 0.3), Transform3D(basis * Basis(Vector3.UP, side * 0.7), at + basis * Vector3(side * 0.1, 0, 0.08)), Color(0.96, 0.76, 0.20))
+	return g
 
 func _on_body(body: Node) -> void:
 	var item := body as LooseItem

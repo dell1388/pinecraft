@@ -86,14 +86,6 @@ func _build() -> void:
 	chassis.shape = box
 	add_child(chassis)
 
-	var mesh := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = BODY_SIZE
-	mesh.mesh = bm
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.55, 0.22, 0.18)
-	mesh.material_override = mat
-	add_child(mesh)
 
 	# Bed walls, so cargo that is released on board does not slide off.
 	for spec in [
@@ -137,52 +129,83 @@ func _build() -> void:
 ## the only thing the solver sees, and the "wheels" are the four suspension
 ## rays in _apply_wheels.
 func _build_dressing() -> void:
-	var paint := Color(0.55, 0.22, 0.18)
-	_add_mesh(BoxMesh.new(), Vector3(2.3, 0.95, 1.5), Vector3(0, 0.75, -1.55), paint.darkened(0.1))
-	_add_mesh(BoxMesh.new(), Vector3(2.0, 0.5, 0.12), Vector3(0, 1.0, -2.28), Color(0.28, 0.35, 0.40))
+	var g := Greeble.new()
+	var paint := Color(0.62, 0.20, 0.16)
+	var dark := Color(0.14, 0.14, 0.15)
+	var steel := Color(0.60, 0.61, 0.64)
+	var glass := Color(0.22, 0.32, 0.40)
+	# Chassis and a steel sill down each side.
+	g.block(BODY_SIZE, Vector3.ZERO, paint)
 	for side in [-1.0, 1.0]:
-		_add_mesh(BoxMesh.new(), Vector3(0.12, 0.45, 1.2), Vector3(side * 1.16, 1.0, -1.55),
-			Color(0.28, 0.35, 0.40))
-		_add_mesh(BoxMesh.new(), Vector3(0.22, 0.16, 0.1), Vector3(side * 0.9, 0.2, -2.52),
-			Color(0.95, 0.92, 0.72))
-	# Deck boards, so the bed does not read as one slab.
+		g.block(Vector3(0.1, 0.18, BODY_SIZE.z - 0.4), Vector3(side * (BODY_SIZE.x * 0.5 + 0.03), -0.2, 0), dark)
+	# The cab: body, glass, roof, a light bar and a door line.
+	var cab := Vector3(0, 0.75, -1.55)
+	g.block(Vector3(2.3, 0.95, 1.5), cab, paint.darkened(0.08))
+	g.block(Vector3(2.36, 0.1, 1.56), cab + Vector3(0, 0.5, 0), paint.darkened(0.25))
+	g.block(Vector3(2.0, 0.5, 0.06), cab + Vector3(0, 0.22, -0.76), glass)
+	for side in [-1.0, 1.0]:
+		g.block(Vector3(0.06, 0.42, 1.1), cab + Vector3(side * 1.16, 0.22, 0.05), glass)
+		g.block(Vector3(0.05, 0.85, 0.04), cab + Vector3(side * 1.16, -0.05, 0.62), paint.darkened(0.35))
+		g.block(Vector3(0.12, 0.05, 0.05), cab + Vector3(side * 1.16, -0.1, 0.3), steel)
+		# Mirrors.
+		g.block(Vector3(0.3, 0.05, 0.05), cab + Vector3(side * 1.3, 0.2, -0.6), dark)
+		g.block(Vector3(0.06, 0.28, 0.18), cab + Vector3(side * 1.45, 0.2, -0.6), dark)
+	for i in 4:
+		g.box(Vector3(0.28, 0.1, 0.14), Transform3D(Basis(), cab + Vector3(-0.6 + float(i) * 0.4, 0.62, -0.5)), Color(1.0, 0.62, 0.15), true)
+	g.block(Vector3(1.8, 0.06, 0.2), cab + Vector3(0, 0.57, -0.5), dark)
+	# Front: grille, bumper, headlights. Back: tail lights and a step.
+	var nose := -BODY_SIZE.z * 0.5
+	g.vent(1.3, 0.42, Transform3D(Basis(Vector3.UP, PI), Vector3(0, 0.05, nose)), Color(0.35, 0.35, 0.37), 5)
+	g.block(Vector3(BODY_SIZE.x + 0.1, 0.22, 0.22), Vector3(0, -0.28, nose - 0.08), steel)
+	for side in [-1.0, 1.0]:
+		g.block(Vector3(0.32, 0.2, 0.08), Vector3(side * 0.95, 0.1, nose - 0.03), Color(1.0, 0.95, 0.75), true)
+		g.block(Vector3(0.24, 0.16, 0.06), Vector3(side * 1.05, 0.05, -nose + 0.03), Color(1.0, 0.15, 0.1), true)
+	g.block(Vector3(1.2, 0.08, 0.3), Vector3(0, -0.3, -nose + 0.1), steel)
+	# Exhaust stack behind the cab.
+	g.pipe(Vector3(1.05, 0.3, -0.72), Vector3(1.05, 1.9, -0.72), 0.08, steel.darkened(0.2), 6)
+	g.prism(6, 0.1, 0.1, 0.2, Transform3D(Basis(Vector3.FORWARD, 0.4), Vector3(1.05, 1.9, -0.72)), dark)
+	# Mudguards over the wheels.
+	for offset in WHEEL_OFFSETS:
+		var o: Vector3 = offset
+		var x: float = o.x + signf(o.x) * 0.12
+		g.box(Vector3(wheel_width + 0.16, 0.08, wheel_radius * 2.3), Transform3D(Basis(), Vector3(x, o.y + wheel_radius + 0.12, o.z)), dark)
+	# The bed: boards, walls (the colliders are already there), and stake posts.
 	for i in 5:
-		_add_mesh(BoxMesh.new(), Vector3(2.3, 0.06, 0.62),
-			Vector3(0, 0.37, -0.55 + float(i) * 0.68), paint.darkened(0.3))
+		g.block(Vector3(2.3, 0.06, 0.62), Vector3(0, 0.37, -0.55 + float(i) * 0.68), paint.darkened(0.35))
+	g.block(Vector3(2.6, 0.9, 0.2), Vector3(0, 0.55, 2.4), paint.darkened(0.15))
+	for side in [-1.0, 1.0]:
+		g.block(Vector3(0.2, 0.9, 3.8), Vector3(side * 1.3, 0.55, 0.6), paint.darkened(0.15))
+		for k in 4:
+			g.block(Vector3(0.24, 0.96, 0.12), Vector3(side * 1.3, 0.55, -1.0 + float(k) * 1.1), dark)
+		g.block(Vector3(0.26, 0.08, 3.8), Vector3(side * 1.3, 1.0, 0.6), steel)
+	g.block(Vector3(2.66, 0.08, 0.26), Vector3(0, 1.0, 2.4), steel)
+	add_child(g.instance("Body"))
 
-	var tyre := Color(0.10, 0.10, 0.11)
+	var wheel_mesh := _wheel_mesh()
 	for offset in WHEEL_OFFSETS:
 		var wheel := MeshInstance3D.new()
-		var cyl := CylinderMesh.new()
-		cyl.top_radius = wheel_radius
-		cyl.bottom_radius = wheel_radius
-		cyl.height = wheel_width
-		cyl.radial_segments = 16
-		wheel.mesh = cyl
+		wheel.mesh = wheel_mesh
 		wheel.position = Vector3(offset.x + signf(offset.x) * 0.12, offset.y, offset.z)
-		# Cylinders stand on Y; a wheel spins about X.
+		# The wheel mesh stands on Y; a wheel spins about X.
 		wheel.rotation = Vector3(0, 0, PI * 0.5)
-		var mat := StandardMaterial3D.new()
-		mat.albedo_color = tyre
-		mat.roughness = 0.95
-		wheel.material_override = mat
 		add_child(wheel)
 		_wheels.append(wheel)
-		var hub := MeshInstance3D.new()
-		var hub_mesh := CylinderMesh.new()
-		hub_mesh.top_radius = wheel_radius * 0.42
-		hub_mesh.bottom_radius = wheel_radius * 0.42
-		hub_mesh.height = wheel_width + 0.04
-		hub_mesh.radial_segments = 12
-		hub.mesh = hub_mesh
-		hub.position = wheel.position
-		hub.rotation = wheel.rotation
-		var hub_mat := StandardMaterial3D.new()
-		hub_mat.albedo_color = Color(0.72, 0.72, 0.75)
-		hub_mat.metallic = 0.5
-		hub_mat.roughness = 0.4
-		hub.material_override = hub_mat
-		add_child(hub)
+
+## A tyre with a tread, a rim and lug nuts, so you can see it turn.
+func _wheel_mesh() -> ArrayMesh:
+	var g := Greeble.new()
+	var half := wheel_width * 0.5
+	var base := Transform3D(Basis(), Vector3(0, -half, 0))
+	g.prism(12, wheel_radius, wheel_radius, wheel_width, base, Color(0.10, 0.10, 0.11))
+	for i in 12:
+		var a := TAU * (float(i) + 0.5) / 12.0
+		g.box(Vector3(0.1, wheel_width * 0.9, 0.06), Transform3D(Basis(Vector3.UP, -a), Vector3(cos(a), 0, sin(a)) * (wheel_radius + 0.01)), Color(0.07, 0.07, 0.08))
+	for s in [-1.0, 1.0]:
+		g.prism(8, wheel_radius * 0.5, wheel_radius * 0.45, 0.04, Transform3D(Basis(), Vector3(0, s * half, 0)).rotated_local(Vector3.RIGHT, 0.0 if s > 0 else PI), Color(0.72, 0.72, 0.75))
+		for k in 5:
+			var a := TAU * float(k) / 5.0
+			g.block(Vector3(0.05, 0.05, 0.05), Vector3(cos(a) * wheel_radius * 0.3, s * (half + 0.05), sin(a) * wheel_radius * 0.3), Color(0.35, 0.35, 0.37))
+	return g.commit()
 
 func _add_mesh(mesh: Mesh, size: Vector3, pos: Vector3, color: Color) -> void:
 	var mi := MeshInstance3D.new()

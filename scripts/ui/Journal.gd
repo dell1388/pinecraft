@@ -5,15 +5,19 @@ extends Control
 ## controls. Opens over play without pausing it - the belts keep running while
 ## you read the market.
 
-const TABS := ["Orders", "Market", "Upgrades", "Controls"]
+const TABS := ["Orders", "Map", "Market", "Upgrades", "Controls"]
 
 var quests: QuestLog
 var plot: Plot
 var tutorial: Tutorial
+var world: Node
+var _map: MapView
 var _tab_buttons: Array[Button] = []
 var _body: VBoxContainer
 var _tab: int = 0
 var _refresh: float = 0.0
+var _built_sig: String = ""
+var _clock_label: Label
 var _title: Label
 
 func _ready() -> void:
@@ -70,27 +74,94 @@ func show_tab(i: int) -> void:
 		_tab_buttons[j].set_pressed_no_signal(j == _tab)
 	_rebuild()
 
+## Rebuilding a page is tens of milliseconds of UI, so a page is rebuilt only
+## when what it shows has changed - not once a second while it is open, which
+## is a stutter you can feel.
 func _process(delta: float) -> void:
 	if not visible:
 		return
 	_refresh -= delta
-	if _refresh <= 0.0:
-		_refresh = 1.0
-		if TABS[_tab] != "Controls":
-			_rebuild()
+	if _refresh > 0.0:
+		return
+	_refresh = 0.5
+	if _clock_label != null and is_instance_valid(_clock_label):
+		_clock_label.text = _market_note()
+	var sig := _signature()
+	if sig != _built_sig:
+		_rebuild()
+
+func _signature() -> String:
+	match TABS[_tab]:
+		"Orders":
+			var sig := ""
+			if quests != null:
+				for q in quests.active:
+					sig += "%s:%.3f;" % [q.id, float(q.delivered)]
+			if tutorial != null:
+				sig += "t%d" % tutorial.done_count()
+			return sig
+		"Market":
+			return "day%d" % Economy.day
+		"Upgrades":
+			var sig := "m%d;" % Economy.money
+			for track in GameData.upgrade_tracks:
+				sig += "%d" % PlayerState.level(track)
+			return sig + "u%d" % PlayerState.unlocked_buildings.size()
+	return TABS[_tab]
+
+func _market_note() -> String:
+	return "Day %d  ·  prices redraw in %s. Wood, lumber and billets are priced by volume, so milling never creates or destroys value - only the rate changes." % [
+		Economy.day, UIKit.clock(Economy.seconds_left_today())]
 
 func _rebuild() -> void:
+	_built_sig = _signature()
+	_clock_label = null
 	for child in _body.get_children():
 		child.queue_free()
 	match TABS[_tab]:
 		"Orders":
 			_orders()
+		"Map":
+			_map_page()
 		"Market":
 			_market()
 		"Upgrades":
 			_upgrades()
 		"Controls":
 			_body.add_child(KeyGuide.sheet())
+
+func _map_page() -> void:
+	var row := UIKit.hbox(18)
+	_map = MapView.new()
+	_map.world = world
+	_map.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(_map)
+	var side := UIKit.vbox(6)
+	side.custom_minimum_size.x = 230
+	side.add_child(UIKit.label("PLACES", "Subheader"))
+	if world != null:
+		var found := 0
+		var pois: Array = world.call("points_of_interest")
+		for poi in pois:
+			var known: bool = world.call("discovered", poi.name)
+			if known:
+				found += 1
+			var line := UIKit.hbox(8)
+			var dot := ColorRect.new()
+			dot.custom_minimum_size = Vector2(10, 10)
+			dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			dot.color = poi.color if known else UITheme.FAINT
+			line.add_child(dot)
+			line.add_child(UIKit.label(poi.name if known else "undiscovered", "", 15,
+				UITheme.INK if known else UITheme.FAINT))
+			side.add_child(line)
+		side.add_child(UIKit.spacer(false, 8))
+		side.add_child(UIKit.label("%d of %d found" % [found, pois.size()], "Small"))
+	var note := UIKit.label("Traders pay over the day's rate for what they are short of. Supply caches restock every market day. Caves are dark - and where most of the gold is.", "Small")
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	side.add_child(note)
+	row.add_child(side)
+	_body.add_child(row)
 
 func _note(text: String) -> void:
 	var l := UIKit.label(text, "Muted", 15)
@@ -141,8 +212,8 @@ static func _order_row(quest: Dictionary) -> Control:
 	return shell
 
 func _market() -> void:
-	_note("Day %d  ·  prices redraw in %s. Wood, lumber and billets are priced by volume, so milling never creates or destroys value - only the rate changes." % [
-		Economy.day, UIKit.clock(Economy.seconds_left_today())])
+	_note(_market_note())
+	_clock_label = _body.get_child(_body.get_child_count() - 1) as Label
 	var grid := GridContainer.new()
 	grid.columns = 4
 	grid.add_theme_constant_override("h_separation", 26)

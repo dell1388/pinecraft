@@ -14,6 +14,9 @@ const QUARRY_CENTRE := Vector3(-150, 0, -40)
 const PLOT_GROUND := 0.45
 const PAD_HEIGHT := 0.5
 const AUTOSAVE_SECONDS := 60.0
+## Sky light outdoors. Kept low enough that a grey rock still reads as grey in
+## full sun rather than bleaching to white.
+const OUTDOOR_AMBIENT := 0.6
 const STARTING_MONEY := 250
 
 @export var tree_count: int = 90
@@ -33,6 +36,45 @@ var hauler: Hauler
 ## One field per species, each keeping its own ring or patch stocked.
 var tree_fields: Array[ResourceField] = []
 var rock_fields: Array[ResourceField] = []
+var caves: Array[Cave] = []
+var outposts: Array[Outpost] = []
+var decor: Decor
+var _discover_timer: float = 0.0
+
+## Where the land is under a loose item, for the manager's fall-through
+## check. Nothing is claimed inside a cave, where everything is below the land.
+func _ground_for_items(p: Vector3) -> float:
+	for cave in caves:
+		var local := cave.to_local(p)
+		if absf(local.x) < Cave.CHAMBER_WIDTH * 0.5 + 2.0 and local.z > -2.0 \
+				and local.z < Cave.FOOTPRINT_LENGTH + 2.0:
+			return -INF
+	if absf(p.x) > MAP_HALF or absf(p.z) > MAP_HALF:
+		return -INF
+	return terrain.height_at(p.x, p.z)
+
+## Places out on the map, found for their country by the terrain rather than
+## put at fixed spots, so each sits on a level patch of the right ground.
+const OUTPOSTS := [
+	{"name": "Dune Trading Post", "kind": Outpost.Kind.TRADING_POST, "radius": 15.0,
+		"biomes": [Terrain.Biome.DESERT], "near": 110.0, "far": 290.0,
+		"premium": {&"lumber": 1.45, &"goods": 1.3}},
+	{"name": "Frostline Post", "kind": Outpost.Kind.TRADING_POST, "radius": 15.0,
+		"biomes": [Terrain.Biome.SNOW, Terrain.Biome.TAIGA], "near": 110.0, "far": 290.0,
+		"premium": {&"ore": 1.35, &"metal": 1.45}},
+	{"name": "Ranger Lookout", "kind": Outpost.Kind.LOOKOUT, "radius": 9.0,
+		"biomes": [Terrain.Biome.WOODLAND, Terrain.Biome.TAIGA, Terrain.Biome.MOUNTAIN], "near": 90.0, "far": 260.0},
+	{"name": "Old Logging Camp", "kind": Outpost.Kind.CAMP, "radius": 11.0,
+		"biomes": [Terrain.Biome.TAIGA, Terrain.Biome.WOODLAND], "near": 100.0, "far": 280.0},
+	{"name": "Stilt Shack", "kind": Outpost.Kind.SHACK, "radius": 10.0,
+		"biomes": [Terrain.Biome.SWAMP], "near": 60.0, "far": 290.0},
+	{"name": "Sunken Ruins", "kind": Outpost.Kind.RUINS, "radius": 11.0,
+		"biomes": [Terrain.Biome.DESERT, Terrain.Biome.WOODLAND], "near": 120.0, "far": 290.0},
+]
+## 0 in daylight, 1 deep in a cave: eased, so going underground is a descent.
+var underground: float = 0.0
+var _headlamp: OmniLight3D
+var _plates_shown: bool = true
 
 var tutorial: Tutorial
 var main_menu: MainMenu
@@ -54,11 +96,16 @@ func _ready() -> void:
 	InputSetup.ensure()
 	_build_environment()
 	_build_terrain()
+	decor = Decor.new()
+	decor.name = "Decor"
+	decor.setup(terrain, 7331)
+	add_child(decor)
 
 	manager = LooseItemManager.new()
 	manager.name = "LooseItems"
 	add_child(manager)
 	manager.register_plot(0, Vector3(0, 6, 0))
+	manager.ground_height = _ground_for_items
 
 	plot = Plot.new()
 	plot.name = "Plot"
@@ -76,11 +123,16 @@ func _ready() -> void:
 
 	_build_forest()
 	_build_quarry()
+	_build_caves()
+	_build_outposts()
 	_build_depot()
 	_build_store()
 
 	player = _make_player()
 	add_child(player)
+	# Fields keep their churn and spawning away from wherever the player is.
+	for field in tree_fields + rock_fields:
+		field.focus = player
 	player.manager = manager
 	player.plot = plot
 	player.store = store
@@ -141,17 +193,17 @@ func _build_environment() -> void:
 	sky.sky_top_color = Color(0.24, 0.45, 0.78)
 	sky.sky_horizon_color = Color(0.70, 0.80, 0.88)
 	sky.sky_curve = 0.12
-	sky.ground_bottom_color = Color(0.20, 0.24, 0.20)
-	sky.ground_horizon_color = Color(0.70, 0.80, 0.88)
+	sky.ground_bottom_color = Color(0.22, 0.38, 0.50)
+	sky.ground_horizon_color = Color(0.62, 0.74, 0.84)
 	sky.sun_angle_max = 24.0
 	sky.sun_curve = 0.08
 	env.sky.sky_material = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.9
+	env.ambient_light_energy = OUTDOOR_AMBIENT
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	# Filmic response, so bright ground and snow roll off rather than clip.
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.tonemap_exposure = 1.05
+	env.tonemap_exposure = 0.95
 	env.tonemap_white = 6.0
 	env.ssao_radius = 1.4
 	env.ssao_intensity = 1.6
@@ -205,6 +257,10 @@ func _build_terrain() -> void:
 	terrain.reserve_site(Vector3(DEPOT_POSITION.x, 0.6, DEPOT_POSITION.z), 16.0)
 	terrain.reserve_site(Vector3(STORE_POSITION.x, 0.6, STORE_POSITION.z), 14.0)
 	terrain.reserve_site(Vector3(QUARRY_CENTRE.x, 0.5, QUARRY_CENTRE.z), 34.0)
+	terrain.cave_count = 3
+	for spec in OUTPOSTS:
+		terrain.site_requests.append({"name": spec.name, "biomes": spec.biomes,
+			"radius": spec.radius, "near": spec.near, "far": spec.far})
 	add_child(terrain)
 
 	# A wall at the map edge, so nothing drives off the world.
@@ -316,16 +372,28 @@ func _build_forest() -> void:
 		field.quota = quota
 		field.min_spacing = 4.2
 		field.refill_seconds = 6.0
+		field.churn_seconds = 30.0
 		field.setup([kind], _build_tree, _from_pool(pool), _rng.randi())
 		add_child(field)
 		field.prefill()
 		tree_fields.append(field)
 
 ## A sampler that draws from a fixed set of spots the terrain already vetted -
-## right biome, dry, off the roads and outside the build sites.
+## right biome, dry, off the roads and outside the build sites - and then
+## shuffles each one a little, so a forest does not stand on the terrain grid
+## like an orchard. A nudge that lands somewhere it should not falls back to
+## the vetted spot.
 func _from_pool(points: PackedVector3Array) -> Callable:
 	return func(rng: RandomNumberGenerator) -> Vector3:
-		return points[rng.randi() % points.size()]
+		var spot := points[rng.randi() % points.size()]
+		var reach := Terrain.CELL * 0.8
+		var nudged := Vector3(spot.x + rng.randf_range(-reach, reach), 0.0,
+			spot.z + rng.randf_range(-reach, reach))
+		if terrain.water_depth(nudged.x, nudged.z) > terrain.water_depth(spot.x, spot.z) \
+				or terrain.is_road(nudged.x, nudged.z) or terrain.in_cave_zone(nudged.x, nudged.z) \
+				or terrain.biome_at(nudged.x, nudged.z) != terrain.biome_at(spot.x, spot.z):
+			return spot
+		return terrain.place(nudged)
 
 ## Wraps a flat-plane sampler so what it returns sits on the actual ground, and
 ## not in a river or on a road.
@@ -362,6 +430,19 @@ func _build_tree(kind: Dictionary, form_seed: int) -> Node3D:
 	tree.crown_height = float(kind.crown[1])
 	return tree
 
+## Ore is not only in the quarry. Each kind has country it turns up in out on
+## the map - iron in the hills, copper in the desert, a little gold up in the
+## snow - and the quarry is simply where there is most of everything, close to
+## home. Gold is mostly underground: see the caves.
+const WILD_ORE := [
+	{"item": &"ore_iron", "biomes": [Terrain.Biome.MOUNTAIN, Terrain.Biome.TAIGA, Terrain.Biome.WOODLAND],
+		"quota": 16, "volume": [0.35, 2.4], "embed": [0.30, 0.55]},
+	{"item": &"ore_copper", "biomes": [Terrain.Biome.DESERT, Terrain.Biome.MOUNTAIN],
+		"quota": 12, "volume": [0.30, 2.0], "embed": [0.35, 0.60]},
+	{"item": &"ore_gold", "biomes": [Terrain.Biome.SNOW],
+		"quota": 4, "volume": [0.20, 1.0], "embed": [0.45, 0.70]},
+]
+
 ## The quarry works the same way: a patch per ore, stocked to a quota.
 func _build_quarry() -> void:
 	# Chunk sizes straddle the player's pull: the small end of iron comes out of
@@ -376,7 +457,8 @@ func _build_quarry() -> void:
 		var kind: Dictionary = ores[i]
 		var field := ResourceField.new()
 		field.name = "Quarry_%s" % kind.item
-		field.quota = per_ore
+		# Gold is scarce even here; the caves are where it is.
+		field.quota = per_ore if kind.item != &"ore_gold" else maxi(1, per_ore / 3)
 		field.min_spacing = 4.0
 		field.refill_seconds = 8.0
 		# Its own corner of the map, so mining is a trip.
@@ -385,6 +467,118 @@ func _build_quarry() -> void:
 		add_child(field)
 		field.prefill()
 		rock_fields.append(field)
+
+	for kind in WILD_ORE:
+		var pool := terrain.points_in_biomes(kind.biomes, 3)
+		if pool.is_empty():
+			continue
+		var field := ResourceField.new()
+		field.name = "Wild_%s" % kind.item
+		field.quota = int(kind.quota)
+		field.min_spacing = 14.0
+		field.refill_seconds = 20.0
+		field.churn_seconds = 60.0
+		field.setup([kind], _build_rock, _from_pool(pool), _rng.randi())
+		add_child(field)
+		field.prefill()
+		rock_fields.append(field)
+
+## Spec (play-test): caves. The terrain chose where; each gets its geometry and
+## a field of ore on the chamber floor - richer than the surface, and most of
+## the gold on the map.
+func _build_caves() -> void:
+	var cave_ores := [
+		{"item": &"ore_gold", "volume": [0.3, 1.6], "embed": [0.35, 0.6]},
+		{"item": &"ore_copper", "volume": [0.4, 2.0], "embed": [0.3, 0.55]},
+		{"item": &"ore_gold", "volume": [0.3, 1.6], "embed": [0.35, 0.6]},
+		{"item": &"ore_iron", "volume": [0.5, 2.4], "embed": [0.3, 0.55]},
+	]
+	for plan in terrain.caves:
+		var cave := Cave.new()
+		cave.name = String(plan.name).replace(" ", "")
+		cave.setup(plan.entrance, plan.dir, String(plan.name), _rng.randi())
+		add_child(cave)
+		caves.append(cave)
+		var field := ResourceField.new()
+		field.name = "Cave_%s" % cave.name
+		field.quota = 8
+		field.min_spacing = 3.6
+		field.refill_seconds = 30.0
+		field.spawn_clearance = 0.0
+		field.setup(cave_ores, _build_rock, cave.chamber_point, _rng.randi())
+		add_child(field)
+		field.prefill()
+		rock_fields.append(field)
+
+func _build_outposts() -> void:
+	for spec in OUTPOSTS:
+		if not terrain.found_sites.has(spec.name):
+			continue
+		var at: Vector3 = terrain.found_sites[spec.name]
+		var outpost := Outpost.new()
+		outpost.name = String(spec.name).replace(" ", "")
+		# The further out, the more a cache is worth the trip.
+		var reward := int(60.0 + Vector2(at.x, at.z).length() * 0.7)
+		outpost.setup(spec.kind, spec.name, _rng.randi(), reward)
+		if spec.kind == Outpost.Kind.TRADING_POST:
+			outpost.setup_trade(manager, quests, spec.premium)
+		outpost.position = at
+		# Facing home, so a trader's sign reads as you arrive from the plot.
+		outpost.rotation.y = atan2(-at.x, -at.z)
+		add_child(outpost)
+		outposts.append(outpost)
+	# A miner's camp by each cave mouth, off to one side of the trench.
+	for cave in caves:
+		var camp := Outpost.new()
+		camp.name = "%sCamp" % cave.name
+		var mouth := cave.global_transform
+		camp.setup(Outpost.Kind.MINERS_CAMP, "%s Camp" % cave.cave_name, _rng.randi(),
+			int(80.0 + mouth.origin.length() * 0.6))
+		camp.position = mouth * Vector3(-9.0, 0.0, -3.0)
+		camp.rotation.y = atan2(-mouth.basis.z.x, -mouth.basis.z.z)
+		add_child(camp)
+		outposts.append(camp)
+
+## Everything worth marking on the map and the compass.
+func points_of_interest() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for cave in caves:
+		out.append({"name": cave.cave_name, "kind": "cave", "pos": cave.global_position,
+			"color": Color(0.78, 0.66, 1.0)})
+	for outpost in outposts:
+		if outpost.kind == Outpost.Kind.MINERS_CAMP:
+			continue
+		var trade := outpost.kind == Outpost.Kind.TRADING_POST
+		out.append({"name": outpost.place_name, "kind": "trade" if trade else "place",
+			"pos": outpost.global_position,
+			"color": Color(0.98, 0.72, 0.35) if trade else Color(0.70, 0.90, 0.62)})
+	return out
+
+var _map_texture: Texture2D
+
+## The land from above for the journal's map, drawn once per world.
+func map_texture() -> Texture2D:
+	if _map_texture == null:
+		_map_texture = ImageTexture.create_from_image(terrain.map_image(4))
+	return _map_texture
+
+func discovered(name: String) -> bool:
+	return PlayerState.discovered.has(name)
+
+## Walking up to a place puts its name on the map for good.
+func _check_discovery(delta: float) -> void:
+	_discover_timer -= delta
+	if _discover_timer > 0.0:
+		return
+	_discover_timer = 0.5
+	var here := player.global_position
+	for poi in points_of_interest():
+		if discovered(poi.name):
+			continue
+		var p: Vector3 = poi.pos
+		if Vector2(p.x - here.x, p.z - here.z).length() < 40.0:
+			PlayerState.discovered.append(poi.name)
+			hud.show_banner("Discovered", poi.name)
 
 func _build_rock(kind: Dictionary, form_seed: int) -> Node3D:
 	var rng := RandomNumberGenerator.new()
@@ -501,7 +695,7 @@ func _on_vehicle_spawned(vehicle: Node3D) -> void:
 
 ## Places the compass marks. Each returns null while it does not exist.
 func compass_markers() -> Array[Dictionary]:
-	return [
+	var base: Array[Dictionary] = [
 		{"name": "Plot", "color": Color(0.55, 0.85, 0.50), "where": func(): return plot.global_position},
 		{"name": "Sell Yard", "color": Color(0.98, 0.80, 0.30), "where": func(): return depot.global_position},
 		{"name": "Store", "color": Color(0.55, 0.78, 1.0), "where": func(): return store.global_position},
@@ -511,6 +705,17 @@ func compass_markers() -> Array[Dictionary]:
 				return null
 			return hauler.global_position},
 	]
+	# Places out on the map: named once found, a "?" when close and not yet.
+	var markers: Array[Dictionary] = base
+	for poi in points_of_interest():
+		var poi_name: String = poi.name
+		var pos: Vector3 = poi.pos
+		markers.append({"name": func(): return poi_name if discovered(poi_name) else "?",
+			"color": poi.color, "where": func():
+				if discovered(poi_name) or player.global_position.distance_to(pos) < 220.0:
+					return pos
+				return null})
+	return markers
 
 func _build_menus() -> void:
 	_fader = ColorRect.new()
@@ -664,8 +869,49 @@ func _update_sun() -> void:
 
 # --- Runtime ---------------------------------------------------------------
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	_update_sun()
+	_update_underground(delta)
+	_check_discovery(delta)
+
+## Underground the sky goes away: ambient light and the sun fade, the haze
+## turns dark, and a lamp on the player's hat comes on. The caves' own lamps
+## and crystals are then what you see by.
+func _update_underground(delta: float) -> void:
+	var target := 0.0
+	var eye := player.camera.global_position
+	for cave in caves:
+		target = maxf(target, cave.depth_factor(eye))
+	underground = move_toward(underground, target, delta * 1.5)
+	# Underground the ambient light is the cave's own - dim and cool - rather
+	# than the sky's; the lamps and crystals do the rest.
+	if underground > 0.02:
+		environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+		environment.ambient_light_color = Color(0.62, 0.70, 0.80).lerp(Color(0.34, 0.32, 0.42), underground)
+		environment.ambient_light_energy = lerpf(OUTDOOR_AMBIENT, 1.1, underground)
+		# Without this the "colour" ambient is still mostly the (dimmed) sky.
+		environment.ambient_light_sky_contribution = 1.0 - underground
+	else:
+		environment.ambient_light_sky_contribution = 1.0
+		environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+		environment.ambient_light_energy = OUTDOOR_AMBIENT
+	environment.fog_light_color = Color(0.68, 0.78, 0.87).lerp(Color(0.03, 0.03, 0.05), underground)
+	environment.background_energy_multiplier = lerpf(1.0, 0.05, underground)
+	sun.light_energy = lerpf(sun.light_energy, 0.0, underground)
+	if _headlamp == null:
+		_headlamp = OmniLight3D.new()
+		_headlamp.name = "Headlamp"
+		_headlamp.light_color = Color(1.0, 0.92, 0.80)
+		_headlamp.omni_range = 14.0
+		_headlamp.shadow_enabled = false
+		_headlamp.position = Vector3(0.3, 0.2, 0.0)
+		player.camera.add_child(_headlamp)
+	_headlamp.light_energy = underground * 1.8
+	_headlamp.visible = underground > 0.01
+	var plates_on := underground < 0.5
+	if plates_on != _plates_shown:
+		_plates_shown = plates_on
+		get_tree().call_group(Nameplate.LANDMARK_GROUP, "set_visible", plates_on)
 
 func _physics_process(delta: float) -> void:
 	if player != null and player.driving() and hauler != null:

@@ -45,8 +45,9 @@ const GROUPS := [
 	]},
 	{"title": "Game", "rows": [
 		[["Esc"], "Pause menu"],
-		[["Tab"], "Journal: orders, market, upgrades"],
-		[["M"], "Market prices"],
+		[["Tab"], "Journal: orders, map, market, upgrades"],
+		[["M"], "Map"],
+		[["P"], "Market prices"],
 		[["U"], "Upgrades and land"],
 		[["F1"], "This list"],
 		[["H"], "Show or hide key hints"],

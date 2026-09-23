@@ -45,6 +45,8 @@ var _parts: Array[MeshInstance3D] = []
 var _crack_meshes: Array[MeshInstance3D] = []
 var _shape: CollisionShape3D
 var _consumed: bool = false
+## Set by the first blow or heave. A field only retires chunks nobody has worked.
+var touched: bool = false
 var _rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
@@ -80,6 +82,9 @@ func mass() -> float:
 func pull_required() -> float:
 	return mass() * (1.0 + embed)
 
+func untouched() -> bool:
+	return not _consumed and not touched
+
 func consumed() -> bool:
 	return _consumed
 
@@ -97,6 +102,7 @@ func worst_crack() -> float:
 func strike(head_kg: float) -> String:
 	if _consumed:
 		return ""
+	touched = true
 	var t := _rng.randf()
 	var index := _crack_near(t)
 	if index < 0:
@@ -144,6 +150,7 @@ func _fracture(index: int) -> String:
 func try_free(pull_kg: float) -> LooseItem:
 	if _consumed:
 		return null
+	touched = true
 	if pull_kg < pull_required():
 		return null
 	var freed := _drop_ore(volume, Vector3.UP * 0.6)
@@ -191,7 +198,7 @@ func _rebuild() -> void:
 	_parts.clear()
 	var r := radius()
 	var ore_def := GameData.item(ore_item)
-	var stone := Color(0.34, 0.33, 0.31)
+	var stone := Color(0.47, 0.45, 0.42)
 	var seam: Color = ore_def.color if ore_def != null else Color(0.5, 0.5, 0.5)
 	# Buried up to `embed`, so the chunk reads as part of the ground rather
 	# than something dropped on it.
@@ -207,38 +214,37 @@ func _rebuild() -> void:
 	var form := RandomNumberGenerator.new()
 	form.seed = _rng.seed                 # same rock, same lumps, as it shrinks
 
-	_add_block(Vector3(r * 1.7, r * 1.4, r * 1.6),
-		Vector3(0, lift + r * 0.7, 0), form.randf_range(-0.2, 0.2), stone, form)
+	# One merged mesh: a slabby main block, a few shoulders of rock leaning on
+	# it, and the ore itself as crystals breaking out of the surface - so iron,
+	# copper and gold read differently at a glance, and gold catches the light.
+	var g := Greeble.new()
+	g.box(Vector3(r * 1.7, r * 1.4, r * 1.6), Transform3D(
+		Basis(Vector3.UP, form.randf() * PI) * Basis(Vector3.FORWARD, form.randf_range(-0.2, 0.2)),
+		Vector3(0, lift + r * 0.7, 0)), stone)
 	for i in 3:
 		var scale: float = form.randf_range(0.45, 0.75)
 		var angle: float = TAU * float(i) / 3.0 + form.randf_range(-0.4, 0.4)
-		_add_block(Vector3(r * scale, r * scale * 0.9, r * scale),
-			Vector3(cos(angle) * r * 0.7, lift + r * form.randf_range(0.3, 0.95),
-				sin(angle) * r * 0.7),
-			form.randf_range(-0.5, 0.5), stone.lightened(form.randf_range(0.0, 0.12)), form)
-	# Ore seams: small bright blocks, so iron reads differently from gold.
-	for i in 3:
+		g.box(Vector3(r * scale, r * scale * 0.9, r * scale),
+			Transform3D(Basis(Vector3.UP, form.randf() * PI) * Basis(Vector3.RIGHT, form.randf_range(-0.4, 0.4)),
+				Vector3(cos(angle) * r * 0.7, lift + r * form.randf_range(0.3, 0.95), sin(angle) * r * 0.7)),
+			stone.lightened(form.randf_range(0.0, 0.12)))
+	var glint := ore_item == &"ore_gold"
+	for i in 5:
 		var angle2: float = TAU * form.randf()
-		_add_block(Vector3(r * 0.32, r * 0.22, r * 0.3),
-			Vector3(cos(angle2) * r * 0.78, lift + r * form.randf_range(0.4, 1.1),
-				sin(angle2) * r * 0.78),
-			form.randf_range(-0.6, 0.6), seam, form)
-	_refresh_cracks()
-
-func _add_block(size: Vector3, pos: Vector3, tilt: float, color: Color,
-		form: RandomNumberGenerator) -> void:
-	var mi := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = size
-	mi.mesh = bm
-	mi.position = pos
-	mi.rotation = Vector3(tilt * 0.6, form.randf_range(0.0, PI), tilt)
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = color
-	mat.roughness = 1.0
-	mi.material_override = mat
+		var out := Vector3(cos(angle2), form.randf_range(0.2, 0.9), sin(angle2)).normalized()
+		var at := Vector3(0, lift + r * 0.75, 0) + out * r * 0.72
+		var up := out.lerp(Vector3.UP, 0.3).normalized()
+		var side := up.cross(Vector3.FORWARD if absf(up.z) < 0.9 else Vector3.RIGHT).normalized()
+		var basis := Basis(side, up, side.cross(up))
+		for k in 2:
+			var tilt := Basis(Vector3.FORWARD, form.randf_range(-0.4, 0.4))
+			g.prism(6, r * form.randf_range(0.08, 0.14), 0.0, r * form.randf_range(0.35, 0.6),
+				Transform3D(basis * tilt, at + side * r * 0.1 * float(k)), seam, glint)
+		g.box(Vector3(r * 0.34, r * 0.1, r * 0.3), Transform3D(basis, at - up * r * 0.02), seam.darkened(0.2))
+	var mi := g.instance("Rock")
 	add_child(mi)
 	_parts.append(mi)
+	_refresh_cracks()
 
 ## Cracks are drawn as dark seams that lengthen as they deepen, so a chunk that
 ## is nearly through looks it.

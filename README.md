@@ -43,7 +43,7 @@ you play. The full list of keys is on the Controls page and in the journal
 | Z / X / C (build) | rotate the ghost about each axis, in quarter turns |
 | LMB / RMB (build) | place / remove |
 | Esc | pause menu (leaves build mode first, closes the journal first) |
-| Tab / M / U / F1 | journal: orders / market / upgrades / controls |
+| Tab / M / P / U / F1 | journal: orders / map / market / upgrades / controls |
 | H / F3 | hide the key hints / debug readout |
 | F5 / F9 / F8 | quick save / quick load / new game (asks first) |
 | V | get in and out of the hauler (third-person while driving) |
@@ -75,8 +75,9 @@ you play. The full list of keys is on the Controls page and in the journal
   will not go where you are pointing. The pad's grid brightens so you can see
   what it will snap to.
 - **Driving**: speed and cargo gauges.
-- **Journal**: orders, today's market with each price's move, upgrade tracks
-  and what is still on the shelf, and the controls.
+- **Journal**: orders, a map of the island (every place you have found, a "?"
+  for the rest, your truck and you), today's market with each price's move,
+  upgrade tracks and what is still on the shelf, and the controls.
 - **Getting started**: a checklist from felling a first tree to filling a first
   order. It watches what you actually do, and a later step ticks off the ones
   before it, so a loaded game with a sawmill is not asked to chop a tree.
@@ -134,11 +135,29 @@ its cell grid and a hazard-striped edge.
 
 ## The map
 
-The land is one large faceted heightfield, 600 m across. Height and biome come
-from two low-frequency fields, elevation and moisture, the way a real biome
-table works - so it is procedural but legible, and the same seed gives the same
-country every time. Woodland, swamp, desert, mountains, taiga and snowland all
-appear; each has its own base height, relief and colour.
+The land is an island, 600 m across, running down to beaches and a sea that
+goes to the horizon. Height and biome come from two low-frequency fields,
+elevation and moisture, the way a real biome table works - so it is procedural
+but legible, and the same seed gives the same country every time. Woodland,
+swamp, desert, mountains, taiga and snowland all appear.
+
+**The look is big flat panels and hard edges.** Height is one continuous
+surface banded into terraces - flat tops, short steep risers - with each
+biome banding it at its own step (two metres in the woods, four in the
+mountains, none in the swamp). Every triangle is coloured by its own slope:
+flat faces are the biome's ground, steep ones are rock, terraces alternate a
+shade so the bands read at a distance like contour lines, and there is sand
+only where there is water beside it. Height used to come from a base per biome,
+which stood the mountains on sheer plinths thirty metres high wherever two
+biomes met; now the worst step between neighbouring ground points is a riser,
+and every mountain can be walked up.
+
+**It is dressed.** About 9,000 pieces of set dressing are scattered by biome -
+grass and flowers in the woods, ferns and toadstools in the taiga, reeds and
+lily pads in the swamp, cacti and scrub in the desert, scree on the hills,
+drifts and ice in the snow - as MultiMeshes in 75 m tiles that fade out past
+150 m, so the whole island costs a few dozen draw calls in view. About 130
+boulders, big enough to walk round, have colliders.
 
 Everything else is carved into that afterwards, in order:
 
@@ -160,6 +179,57 @@ Everything else is carved into that afterwards, in order:
 
 Resource fields sample the ground, so trees and rocks stand on it and avoid the
 water, the roads and the levelled build sites.
+
+**Fields churn.** A field fills to its quota and used to stop there for good,
+so once you had cleared the woods near home every tree left was a long walk
+away. Now a full field every half-minute or so retires one *untouched* tree or
+chunk at least 90 m from you, and the refill that follows can land anywhere -
+including near you. Nothing you have started on is ever taken, nothing vanishes
+in view, and nothing new appears within 30 m of you.
+
+**Ore is all over the map**, not only in the quarry: iron in the hills and
+woods, copper in the desert and mountains, a little gold up in the snow. The
+quarry is still where there is most of everything, close to home. Most of the
+gold is underground.
+
+### Caves
+
+Three caves, placed where the hill is high enough over the whole footprint that
+nothing pokes out, the mouth faces open ground, and the chamber floor stays
+above the sea. The heightfield leaves out the two cells a cave's trench runs
+through; everything below is built: a timber-shored trench down to a portal, a
+sloping tunnel with rails and lamps, and a chamber under the hill with pillars,
+a ledge, stalagmites, glowing crystals and a mine cart. Each has a field of
+ore on the floor - richer than the surface, mostly gold. Going underground
+dims the sky light to the cave's own, turns on a lamp on your hat, and hides
+the landmark labels that would otherwise show through the rock.
+
+### Places
+
+Found for their own country by the terrain rather than put at fixed spots, so
+each sits on a level patch of the right ground:
+
+| Place | Where | What for |
+| --- | --- | --- |
+| Dune Trading Post | desert | pays +45% for lumber, +30% for goods |
+| Frostline Post | snow or taiga | pays +45% for metal, +35% for ore |
+| Ranger Lookout | woods or hills | a tower you can climb, and the view |
+| Old Logging Camp | taiga or woods | tents, a fire, a log pile |
+| Stilt Shack | swamp | a cabin on stilts with a jetty |
+| Sunken Ruins | desert or woods | broken walls and fallen columns |
+| Miner's camps | at each cave mouth | |
+
+Traders buy the same way the home yard does - drop it inside the fence and
+ask - and pay the day's price plus their premium, which is what makes the long
+haul pay. Every place has a **supply cache** that pays out once a market day,
+more the further it is from home. Walking within 40 m of a place **discovers**
+it: until then the compass and the map show a "?" when you are near, and after
+that its name for good.
+
+Roads that meet a river cross at a ford rather than filling it in. Anything
+that punches through the ground (the land is a surface with no thickness, and
+a log landing hard on a steep face can go through it) is put back on top where
+it went in, rather than sent home by the kill plane.
 
 **The forest belongs to the biomes.** A species is offered a pool of ground the
 terrain has already vetted - right biome, dry, off the roads, outside the build
@@ -230,26 +300,45 @@ them than before.
   in silhouette rather than in colour alone: where branches start up the trunk,
   how far they are swept up or out, how long they are, how wide the foliage
   clumps are, and whether there is a crown on top at all.
-* **Ore chunks** are a cluster of tilted boxes with bright ore seams, sunk into
-  the ground by however much of them is buried, and drawn from the ore left in
-  them - so hammering a piece off visibly shrinks the rock. Open cracks are
-  dark seams that lengthen as they deepen.
+* **Ore chunks** are slabs of rock with the ore breaking out of them as
+  crystals, so iron, copper and gold read differently at a glance and gold
+  catches the light - sunk into the ground by however much is buried, and
+  drawn from the ore left in them, so hammering a piece off visibly shrinks the
+  rock. Open cracks are dark seams that lengthen as they deepen.
 * **Machines** are shells, not blocks: each wall is built as up to four boxes
   around a rectangular opening, so the intake and outlet are real holes you can
   see material go into and come out of - and they *are* real holes, since a
   piece has to fit through one to go in. Upgrading a machine rebuilds its shell
-  around the new mouth. The sawmill carries a blade through a slot in its roof;
-  the furnace has a chimney and a glowing vent.
-* **The hauler** has a cab, deck boards, headlights, and four wheels with hubs
-  that spin with ground speed and steer with the front axle. Its winch cable and
-  crane boom are drawn last, from the hook to wherever the load ended up.
+  around the new mouth. Every machine is framed on its edges, plated and vented
+  on its solid faces, stripes under its holes, and has a control box with a
+  **status light**: green working, amber waiting, red stopped with its outlet
+  full. Then each is its machine - the sawmill a toothed blade through the roof,
+  a finned motor, in-feed rollers and a sawdust chute; the furnace brick
+  courses, a banded chimney and a glowing mouth that lights the ground; the
+  crusher a hopper, a spoked flywheel and a drive belt; the workbench a vise,
+  a pegboard of tools and a lamp.
+* **Belts** are a rubber belt between steel channels, with rollers at the ends,
+  legs down to the pad on ramps, visible rails where they have them, and
+  **chevrons painted on the belt pointing the way it runs** (cyan on the fast
+  belt). Splitters and filters have a turntable and an arrow to each output.
+* **The hauler** has a cab with glass and mirrors, a light bar, a grille,
+  bumper, headlights and tail lights, an exhaust stack, mudguards, stake posts
+  round the bed, and wheels with a tread, rims and lug nuts that spin with
+  ground speed and steer with the front axle. Its winch cable and crane boom
+  are drawn last, from the hook to wherever the load ended up.
 * **Nameplates.** Primitives can only say so much, and a plot is a field of
   similar boxes, so every placed building, the build ghost and the two landmarks
   carry a billboarded label. It is a stopgap until the models speak for
   themselves, and it is the difference between a factory and a guessing game.
-* **The yard** is a fenced pad with a hut and a shopkeep you can walk up to and
-  aim at. **The store** is a room with three walls and a doorway, shelving down
-  the back, a counter with a till and a land desk by the door.
+* **The yard** is a fenced pad with a weighbridge, a plank hut with a tin roof
+  and a serving hatch, and a shopkeep in an apron and a hat. **The store** has
+  a parapet, a striped awning over the door, a sign, lit windows, lamps, a
+  bench and crates outside, and shelving, a counter and a land desk inside.
+* **Greeble.** All of this detail is built by `Greeble` into one merged,
+  flat-shaded, vertex-coloured mesh per model with one shared material (plus a
+  glow surface for lamps and crystals), so a busy model is still one draw call.
+  Faces are wound by an outward hint rather than by bookkeeping, and a test
+  checks every triangle faces out.
 * Collision stays primitive throughout: one cylinder or box per loose piece, a
   handful of boxes per machine shell, one cylinder per tree limb, one box per
   chunk. The land is the only trimesh, and nothing dynamic uses one.
@@ -258,19 +347,21 @@ them than before.
 
 ```
 scripts/core/      Layers, Tuning, InputSetup, Trigger (trigger-volume guard),
-                   Solid (volume, fitting and cutting maths)
+                   Solid (volume, fitting and cutting maths), Greeble (merged
+                   detail meshes), Nameplate
 scripts/systems/   GameData (autoload), Economy (autoload), PlayerState (autoload),
                    Settings (autoload), SaveSystem, QuestLog, Tutorial
 scripts/data/      RecipeDef, MachineDef, BuildingDef
 scripts/physics/   LooseItem, LooseItemManager, ItemDef
-scripts/world/     Terrain, ResourceField, ChoppableTree, OreRock, Machine,
+scripts/world/     Terrain, Decor, Cave, Outpost, SupplyCache, ResourceField,
+                   ChoppableTree, OreRock, Machine,
                    StorageBin, SellZone, SellYard, Store, VehiclePad,
                    Conveyor, Splitter, Filter, World, StressWorld, StressTest
 scripts/build/     Plot (grid, placement, persistence), BuildSystem (freecam
                    ghost), Schematic (shapes filled with material)
 scripts/player/    Player
 scripts/vehicle/   Hauler, VehicleRig (winch and crane)
-scripts/ui/        UITheme, UIKit, GameHUD, Compass, Journal, KeyGuide,
+scripts/ui/        UITheme, UIKit, GameHUD, Compass, Journal, MapView, KeyGuide,
                    MainMenu, PauseMenu, SettingsPanel, StressHUD
 assets/fonts/      Rubik, Lilita One (SIL OFL)
 data/              items, recipes, buildings, upgrades, prices, quests, store
@@ -363,7 +454,7 @@ Budget is 16.67 ms.
 
 ### Integration tests (`scenes/tests.tscn`)
 
-855 checks across 49 tests, all passing. Every test has to say it reached its
+906 checks across 55 tests, all passing. Every test has to say it reached its
 own end, so one that dies part way through - a parse error in what it exercises,
 say - is reported as a failure instead of quietly contributing fewer checks.
 
@@ -393,7 +484,11 @@ and the interface's logic - settings coercing, persisting and resetting, the
 title screen reading a save without loading it, prompt keys told apart from
 counts in brackets (`[E]` is a key, `[2/5]` is not), compass bearings through
 north, and the getting-started checklist catching up with a loaded game but not
-counting a starting float as a sale.
+counting a starting float as a sale; and the world - terraces with no sheer
+plinths and a sea round the edge, caves with rock over every part of them and a
+floor you land on, greeble meshes that all face outward, fields that retire only
+far, untouched nodes, pieces that fell through the ground coming back up, and
+traders' premiums and once-a-day caches (including across a save).
 
 ### Physics benchmark (`scenes/bench.tscn`)
 
@@ -427,10 +522,12 @@ third of the table, at a fifth to a quarter of budget.
 
 The assembled world - a 600 m biome map with rivers and roads, 90 trees and 33
 ore chunks kept stocked by their fields, the plot, machines, belts, the sell
-yard, the store, the hauler, the HUD and ~130 loose pieces - runs at **about
-1.2 ms/frame average**, with trees felling, chunks breaking, machines milling and
-the sell chute paying out. Generating the land and building the interface cost
-one frame of about 55 ms at startup and nothing afterwards.
+yard, the store, the hauler, the HUD and ~130 loose pieces - plus three caves,
+nine outposts, ~9,000 pieces of dressing and ~130 boulders - runs at **about
+1.5 ms/frame average**, with trees felling, chunks breaking, machines milling
+and the sell chute paying out. Building the world and the interface costs one
+frame of about 75 ms at startup; opening a journal page costs 15-25 ms of UI
+the first time, and pages are only rebuilt when what they show changes.
 
 The smoke run asserts the world's *contents* as well as its frame cost, which is
 what makes it worth having: it was an empty forest that caught a broken species

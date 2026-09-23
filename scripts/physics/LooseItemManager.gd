@@ -25,6 +25,18 @@ var _plot_quiet: Dictionary = {}   # plot_id -> seconds the whole plot has been 
 # Cheap counters the HUD/benchmark read.
 var stat_recycled: int = 0
 var stat_killplane: int = 0
+var stat_resurfaced: int = 0
+## Ground height under a point, or -INF where there is no answer (underground
+## in a cave, off the map). Set by the world; unset, nothing is resurfaced.
+##
+## The land is a surface with no thickness, so a log that lands hard enough on
+## a steep face can punch through it and fall forever. The kill plane would
+## catch it eventually and send it home to the plot, which is no help to
+## someone who just felled a tree a long walk away. Anything found well below
+## the ground is put back on top of it where it went through.
+var ground_height: Callable = Callable()
+var _ground_timer: float = 0.0
+const RESURFACE_DEPTH := 1.5
 var stat_ccd_on: int = 0
 var stat_forced_sleeps: int = 0
 
@@ -184,6 +196,10 @@ func _oldest(items: Array) -> LooseItem:
 # --- Per-frame maintenance -------------------------------------------------
 
 func _physics_process(delta: float) -> void:
+	_ground_timer -= delta
+	if _ground_timer <= 0.0 and ground_height.is_valid():
+		_ground_timer = 0.2
+		_resurface()
 	var review_ccd := false
 	_ccd_accum += delta
 	if _ccd_accum >= 1.0 / Tuning.CCD_REVIEW_HZ:
@@ -270,6 +286,18 @@ func _update_bulk_sleep(delta: float, plot_peak: Dictionary) -> void:
 			item.angular_velocity = Vector3.ZERO
 			item.sleeping = true
 			stat_forced_sleeps += 1
+
+func _resurface() -> void:
+	for item in _active:
+		if not is_instance_valid(item) or item.state != LooseItem.State.FREE:
+			continue
+		var p := item.global_position
+		var ground: float = ground_height.call(p)
+		if ground == -INF or p.y > ground - RESURFACE_DEPTH:
+			continue
+		stat_resurfaced += 1
+		item.teleport(Transform3D(item.global_transform.basis,
+			Vector3(p.x, ground + item.get_aabb_half_height() + 0.3, p.z)))
 
 func _rescue(item: LooseItem) -> void:
 	stat_killplane += 1

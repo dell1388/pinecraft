@@ -11,6 +11,11 @@ extends Node3D
 signal sold(total: int, count: int)
 
 @export var extents: Vector3 = Vector3(18.0, 4.0, 18.0)
+## Who is buying. The home yard is "Shopkeep"; out on the map, traders.
+@export var keeper: String = "Shopkeep"
+## Out-of-town traders pay over the day's rate for what they are short of:
+## item id or category -> multiplier. That is what makes the long haul pay.
+var premium: Dictionary = {}
 
 var manager: LooseItemManager
 var quests: QuestLog
@@ -51,10 +56,26 @@ func stock() -> Array[LooseItem]:
 	return out
 
 func stock_value() -> int:
-	var total := 0
+	var total := 0.0
 	for item in stock():
-		total += Economy.price_of(item.item_id, item.dims)
-	return total
+		total += float(Economy.price_of(item.item_id, item.dims)) * maxf(1.0, premium_for(item.item_id))
+	return int(total)
+
+## What this buyer pays over the day's rate for an item, as a multiplier.
+func premium_for(item_id: StringName) -> float:
+	if premium.has(item_id):
+		return float(premium[item_id])
+	var def := GameData.item(item_id)
+	if def != null and premium.has(def.category):
+		return float(premium[def.category])
+	return 1.0
+
+## "lumber and metal", for the prompt.
+func premium_text() -> String:
+	var parts: Array[String] = []
+	for key in premium:
+		parts.append("%s +%d%%" % [String(key), int(round((float(premium[key]) - 1.0) * 100.0))])
+	return ", ".join(parts)
 
 ## Spec: speaking to the shopkeep makes every owned material in the yard
 ## disappear and pays the equivalent in cash. `carried` is whatever the player
@@ -73,13 +94,23 @@ func sell_all(carried: Array[LooseItem] = []) -> Dictionary:
 		return {"count": 0, "total": 0, "bonus": 0}
 	var total := 0
 	var bonus := 0
+	var extra := 0
 	for item in items:
-		total += Economy.sell(item.item_id, item.dims)
+		var paid := Economy.sell(item.item_id, item.dims)
+		total += paid
+		var mult := premium_for(item.item_id)
+		if mult > 1.0:
+			extra += int(round(float(paid) * (mult - 1.0)))
 		if quests != null:
 			bonus += quests.deliver(item.item_id, item.category, item.volume())
 		manager.despawn(item)
+	if extra > 0:
+		Economy.add_money(extra)
+		bonus += extra
 	session_total += total + bonus
 	last_receipt = "sold %d piece(s) for $%d" % [items.size(), total]
+	if extra > 0:
+		last_receipt += "  (+$%d trader's premium)" % extra
 	if bonus > 0:
 		last_receipt += "  (+$%d in filled orders)" % bonus
 	sold.emit(total + bonus, items.size())
@@ -122,9 +153,27 @@ func _build() -> void:
 	add_child(_keep)
 	_figure(_keep)
 
-	# A hut behind the shopkeep, so the yard reads as somewhere staffed.
-	_slab(Vector3(4.0, 2.6, 3.0), Vector3(0, 1.3, -half_z - 1.2), Color(0.46, 0.34, 0.24))
-	_slab(Vector3(4.6, 0.25, 3.6), Vector3(0, 2.7, -half_z - 1.2), Color(0.34, 0.24, 0.17))
+	# A hut behind the shopkeep, so the yard reads as somewhere staffed: plank
+	# walls, a pitched tin roof, a serving hatch, and a weighbridge in the yard.
+	var g := Greeble.new()
+	var wood := Color(0.50, 0.37, 0.24)
+	var dark := wood.darkened(0.35)
+	var hut := Vector3(0, 0, -half_z - 1.2)
+	g.block(Vector3(4.0, 2.6, 3.0), hut + Vector3(0, 1.3, 0), wood)
+	for k in 6:
+		g.block(Vector3(4.04, 0.04, 3.04), hut + Vector3(0, 0.3 + float(k) * 0.4, 0), dark)
+	g.frame(Vector3(4.0, 2.6, 3.0), Transform3D(Basis(), hut + Vector3(0, 1.3, 0)), 0.16, dark)
+	for sx in [-1.0, 1.0]:
+		g.box(Vector3(2.5, 0.12, 3.8), Transform3D(Basis(Vector3.FORWARD, sx * 0.35), hut + Vector3(sx * 1.05, 3.0, 0)), Color(0.55, 0.57, 0.60))
+	g.block(Vector3(2.0, 0.9, 0.06), hut + Vector3(0, 1.5, 1.53), Color(0.12, 0.10, 0.08))
+	g.block(Vector3(2.3, 0.12, 0.5), hut + Vector3(0, 1.0, 1.7), dark)
+	g.lamp(Transform3D(Basis(), hut + Vector3(1.6, 2.3, 1.55)))
+	# The weighbridge: a steel deck in the middle of the yard.
+	g.block(Vector3(5.0, 0.1, 3.0), Vector3(0, 0.14, 1.0), Color(0.40, 0.41, 0.44))
+	g.frame(Vector3(5.0, 0.1, 3.0), Transform3D(Basis(), Vector3(0, 0.14, 1.0)), 0.12, Color(0.95, 0.76, 0.2))
+	for k in 6:
+		g.block(Vector3(0.05, 0.02, 2.8), Vector3(-2.0 + float(k) * 0.8, 0.2, 1.0), Color(0.3, 0.3, 0.32))
+	add_child(g.instance("Hut"))
 
 func _post(pos: Vector3, mat: StandardMaterial3D) -> void:
 	var mi := MeshInstance3D.new()
@@ -182,6 +231,13 @@ func _figure(parent: Node3D) -> void:
 	head.material_override = skin
 	body.add_child(head)
 
+	var extras := Greeble.new()
+	extras.block(Vector3(0.64, 0.7, 0.05), Vector3(0, 0.95, 0.2), Color(0.85, 0.80, 0.66))
+	extras.prism(8, 0.34, 0.34, 0.05, Transform3D(Basis(), Vector3(0, 1.84, 0)), Color(0.35, 0.25, 0.14))
+	extras.prism(8, 0.2, 0.18, 0.2, Transform3D(Basis(), Vector3(0, 1.86, 0)), Color(0.35, 0.25, 0.14))
+	for side in [-1.0, 1.0]:
+		extras.box(Vector3(0.16, 0.62, 0.18), Transform3D(Basis(Vector3.FORWARD, side * 0.15), Vector3(side * 0.4, 1.12, 0)), Color(0.22, 0.34, 0.48))
+	body.add_child(extras.instance("Details"))
 	for side in [-1.0, 1.0]:
 		var leg := MeshInstance3D.new()
 		var lb := BoxMesh.new()
@@ -195,7 +251,8 @@ func _figure(parent: Node3D) -> void:
 
 func status_line() -> String:
 	var items := stock()
+	var wants := "" if premium.is_empty() else "  (pays %s)" % premium_text()
 	if items.is_empty():
-		return "Shopkeep: bring material into the yard and I will buy it"
-	return "Shopkeep: [E] sell %d piece(s) in the yard for about $%d" % [
-		items.size(), stock_value()]
+		return "%s: bring material into the yard and I will buy it%s" % [keeper, wants]
+	return "%s: [E] sell %d piece(s) in the yard for about $%d%s" % [
+		keeper, items.size(), stock_value(), wants]

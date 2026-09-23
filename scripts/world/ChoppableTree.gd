@@ -65,6 +65,8 @@ var _crown: MeshInstance3D
 var _trunk_shape: CollisionShape3D
 var _standing: bool = true
 var _rng := RandomNumberGenerator.new()
+## Set by the first blow. A field only ever retires trees nobody has started on.
+var touched: bool = false
 
 func _ready() -> void:
 	collision_layer = Layers.TREE
@@ -76,6 +78,10 @@ func _ready() -> void:
 ## Lets the spawner decide the tree's form deterministically.
 func seed_form(value: int) -> void:
 	_rng.seed = value
+
+## Standing and never cut: safe for a field to take away and grow elsewhere.
+func untouched() -> bool:
+	return _standing and not touched
 
 func standing() -> bool:
 	return _standing
@@ -237,6 +243,7 @@ func limb_at(world_point: Vector3) -> int:
 func cut(damage: float, world_point: Vector3, from: Vector3) -> String:
 	if not _standing:
 		return ""
+	touched = true
 	var index := limb_at(world_point)
 	if index >= 0:
 		return _cut_branch(index, damage)

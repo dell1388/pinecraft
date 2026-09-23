@@ -87,18 +87,28 @@ func _build() -> void:
 	body.add_child(cs)
 	add_child(body)
 
-	_slab(Vector3(_size.x, 0.2, _size.z), Vector3(0, 0.1, 0), Color(0.24, 0.25, 0.27))
+	var g := Greeble.new()
+	g.block(Vector3(_size.x, 0.2, _size.z), Vector3(0, 0.1, 0), Color(0.24, 0.25, 0.27))
+	g.frame(Vector3(_size.x, 0.2, _size.z), Transform3D(Basis(), Vector3(0, 0.1, 0)), 0.1, Color(0.16, 0.16, 0.18))
 	# Hazard stripes down the long edges, so the pad reads as somewhere a
 	# vehicle lands rather than as a floor tile.
-	var stripes := int(_size.z / 0.9)
-	for i in stripes:
-		var z: float = -_size.z * 0.5 + 0.45 + float(i) * 0.9
-		var color := Color(0.86, 0.72, 0.16) if i % 2 == 0 else Color(0.16, 0.16, 0.18)
-		for side in [-1.0, 1.0]:
-			_slab(Vector3(0.35, 0.06, 0.8), Vector3(side * (_size.x * 0.5 - 0.22), 0.22, z), color)
-	# A post at the head of the pad with a plate on it.
-	_slab(Vector3(0.16, 1.6, 0.16), Vector3(0, 0.8, -_size.z * 0.5 + 0.3), Color(0.35, 0.36, 0.38))
-	_slab(Vector3(1.0, 0.45, 0.1), Vector3(0, 1.7, -_size.z * 0.5 + 0.3), Color(0.86, 0.72, 0.16))
+	for side in [-1.0, 1.0]:
+		g.stripes(_size.z - 0.3, 0.32, Transform3D(Basis(Vector3.UP, PI * 0.5) * Basis(Vector3.RIGHT, -PI * 0.5),
+			Vector3(side * (_size.x * 0.5 - 0.24), 0.2, 0)))
+	# A painted "H" and parking lines.
+	var paint := Color(0.92, 0.92, 0.88)
+	g.block(Vector3(0.2, 0.02, 1.6), Vector3(-0.55, 0.21, 0), paint)
+	g.block(Vector3(0.2, 0.02, 1.6), Vector3(0.55, 0.21, 0), paint)
+	g.block(Vector3(1.1, 0.02, 0.2), Vector3(0, 0.21, 0), paint)
+	# A post at the head of the pad with a sign, and lamps on the corners.
+	g.block(Vector3(0.16, 1.6, 0.16), Vector3(0, 0.8, -_size.z * 0.5 + 0.3), Color(0.35, 0.36, 0.38))
+	g.plate(1.1, 0.5, Transform3D(Basis(), Vector3(0, 1.7, -_size.z * 0.5 + 0.38)), Color(0.86, 0.72, 0.16))
+	for sx in [-1.0, 1.0]:
+		for sz in [-1.0, 1.0]:
+			var at := Vector3(sx * (_size.x * 0.5 - 0.1), 0.2, sz * (_size.z * 0.5 - 0.1))
+			g.block(Vector3(0.14, 0.5, 0.14), at + Vector3(0, 0.25, 0), Color(0.2, 0.2, 0.22))
+			g.block(Vector3(0.18, 0.12, 0.18), at + Vector3(0, 0.56, 0), Color(1.0, 0.62, 0.2), true)
+	add_child(g.instance("Pad"))
 
 func _slab(size: Vector3, pos: Vector3, color: Color) -> void:
 	var mi := MeshInstance3D.new()

@@ -87,7 +87,7 @@ func setup(p_player: Player, p_plot: Plot, p_manager: LooseItemManager, p_world:
 	Economy.day_changed.connect(func(day: int):
 		# Not while a save is being read in: that is not a new day.
 		if day > 1 and bool(world.get("playing")):
-			show_banner("Day %d" % day, "The market has moved - check prices with [M]"))
+			show_banner("Day %d" % day, "The market has moved - check prices with [P]"))
 	Economy.money_changed.connect(_on_money_changed)
 	PlayerState.upgraded.connect(func(track: StringName, _level: int):
 		toast("Upgraded: %s" % PlayerState.label(track), UITheme.ACCENT))
@@ -129,6 +129,7 @@ func _ready() -> void:
 	_root.add_child(journal)
 	journal.quests = quests
 	journal.plot = plot
+	journal.world = world
 	journal.visibility_changed.connect(_on_journal_visibility)
 	_ignore_mouse(_root)
 	journal.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -451,7 +452,7 @@ func _restart_fade(card: Control) -> void:
 
 ## A big line across the upper middle: a new day, an order filled.
 func show_banner(title: String, subtitle: String = "") -> void:
-	_banner.text = title if subtitle == "" else "%s\n%s" % [title, subtitle.replace("[M]", "(M)")]
+	_banner.text = title if subtitle == "" else "%s\n%s" % [title, subtitle.replace("[P]", "(P)")]
 	var tween := _banner.create_tween()
 	_banner.modulate.a = 0.0
 	tween.tween_property(_banner, "modulate:a", 1.0, 0.25)
@@ -566,6 +567,8 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		KEY_TAB, KEY_J:
 			open_journal("Orders")
 		KEY_M:
+			open_journal("Map")
+		KEY_P:
 			open_journal("Market")
 		KEY_U:
 			open_journal("Upgrades")

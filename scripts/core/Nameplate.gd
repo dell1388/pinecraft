@@ -12,6 +12,9 @@ extends RefCounted
 ## the whole map shouting at once is not.
 const NEAR := 48.0
 const FAR := 140.0
+## Landmark plates draw through everything, which is right on the surface and
+## wrong underground; the world hides this group in caves.
+const LANDMARK_GROUP := &"landmark_plates"
 
 static func attach(parent: Node3D, text: String, height: float,
 		tint: Color = Color(0.96, 0.95, 0.90), reach: float = NEAR) -> Label3D:
@@ -39,4 +42,5 @@ static func landmark(parent: Node3D, text: String, height: float,
 		tint: Color = Color(0.98, 0.90, 0.55)) -> Label3D:
 	var label := attach(parent, text, height, tint, FAR)
 	label.pixel_size = 0.012
+	label.add_to_group(LANDMARK_GROUP)
 	return label
