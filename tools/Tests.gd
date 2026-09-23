@@ -55,6 +55,11 @@ func _run_all() -> void:
 	await _test(&"buildings sit on the pad, not in it", test_buildings_sit_on_pad)
 	await _test(&"plans fill with material and turn solid", test_schematic)
 	await _test(&"save/load round-trip", test_save_load)
+	await _test(&"the title screen reads the save without loading it", test_save_summary)
+	await _test(&"settings coerce, persist and reset", test_settings)
+	await _test(&"prompt keys are drawn as keycaps", test_prompt_keys)
+	await _test(&"the compass points the right way", test_compass)
+	await _test(&"the checklist follows what the player has done", test_tutorial)
 	await _test(&"plot expansion raises bounds and cap", test_expansion)
 	await _test(&"tool upgrades apply and charge", test_upgrades)
 	await _test(&"the store sells boxes over a counter", test_store)
@@ -1488,6 +1493,141 @@ func test_schematic() -> void:
 	check_near(reclaimed, 4.0, 0.0001, "reclaiming returned the wrong volume")
 	check_near(loose_volume(&"lumber_pine") - before, 4.0, 0.0001,
 		"the material did not come back out of the plan")
+	done()
+
+func test_save_summary() -> void:
+	_setup()
+	await step(2)
+	plot.place(GameData.building(&"sawmill"), Vector2i(0, 0), 0)
+	plot.place(GameData.building(&"storage"), Vector2i(4, -6), 0)
+	Economy.from_dict({"money": 12345, "day": 6})
+	var path := "user://test_summary.json"
+	check(SaveSystem.save_game(plot, null, path), "saving failed")
+	var info := SaveSystem.summary(path)
+	check_eq(int(info.get("day", 0)), 6, "summary has the wrong day")
+	check_eq(int(info.get("money", 0)), 12345, "summary has the wrong money")
+	check_eq(int(info.get("buildings", 0)), 2, "summary has the wrong building count")
+	check(UIKit.ago(String(info.get("saved_at", ""))) == "just now",
+		"a save made this second should read 'just now', got '%s'" % UIKit.ago(String(info.get("saved_at", ""))))
+	check(SaveSystem.summary("user://no_such_save.json").is_empty(), "a missing save should summarise to nothing")
+	SaveSystem.delete_save(path)
+	# The tutorial rides along in the player's progress.
+	PlayerState.reset()
+	PlayerState.tutorial_done.append(&"chop")
+	var progress := PlayerState.to_dict()
+	PlayerState.reset()
+	check(PlayerState.tutorial_done.is_empty(), "reset should clear the checklist")
+	PlayerState.from_dict(progress)
+	check(PlayerState.tutorial_done.has(&"chop"), "the checklist did not survive a save")
+	done()
+
+func test_settings() -> void:
+	var original_path: String = Settings.path
+	var path := "user://test_settings.cfg"
+	if FileAccess.file_exists(path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	Settings.path = path
+	Settings.load_from(path)
+	check_eq(Settings.value(&"fov"), 75.0, "missing file should give defaults")
+	var heard: Array[StringName] = []
+	var listener := func(key: StringName): heard.append(key)
+	Settings.changed.connect(listener)
+	Settings.set_value(&"fov", 90)
+	check(typeof(Settings.value(&"fov")) == TYPE_FLOAT, "an int written to a float setting should come back a float")
+	check_eq(Settings.value(&"fov"), 90.0, "set_value did not stick")
+	Settings.set_value(&"shadows", 1.0)
+	check(typeof(Settings.value(&"shadows")) == TYPE_INT, "a float written to an int setting should come back an int")
+	Settings.set_value(&"invert_y", 1)
+	check(Settings.invert_y(), "invert_y should read true")
+	Settings.set_value(&"fov", 90)
+	check_eq(heard.count(&"fov"), 1, "setting the same value twice should only announce once")
+	Settings.set_value(&"no_such_setting", 3)
+	check(not heard.has(&"no_such_setting"), "an unknown key should be ignored")
+	check(FileAccess.file_exists(path), "set_value should persist to disk")
+	Settings.load_from(path)
+	check_eq(Settings.value(&"fov"), 90.0, "fov did not survive a reload")
+	check_eq(Settings.value(&"shadows"), 1, "shadows did not survive a reload")
+	Settings.reset_to_defaults()
+	check_eq(Settings.value(&"fov"), 75.0, "reset should restore the default fov")
+	check(not Settings.invert_y(), "reset should restore invert_y")
+	Settings.changed.disconnect(listener)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	Settings.path = original_path
+	Settings.load_from(original_path)
+	done()
+
+func test_prompt_keys() -> void:
+	check_eq(UIKit.money(1234567), "$1,234,567", "thousands separators")
+	check_eq(UIKit.money(-450), "-$450", "negative money")
+	check_eq(UIKit.money(0), "$0", "zero money")
+	check_eq(UIKit.clock(125.4), "2:05", "clock formatting")
+	for text in ["E", "LMB", "Shift+E", "R/T", "WASD", "E+shift", "F1", "Shift/Ctrl", "Tab"]:
+		check(UIKit.is_key_text(text), "'%s' should read as a key" % text)
+	for text in ["1/17", "locked", "full", "", "F100", "12"]:
+		check(not UIKit.is_key_text(text), "'%s' should not read as a key" % text)
+	var parts := UIKit.parse_keys("Till: [E] pay $40 for [2/5] boxes")
+	var keys: Array = parts.filter(func(p): return p[0] == "key")
+	check_eq(keys.size(), 1, "only [E] is a key in that prompt")
+	check_eq(keys[0][1] if not keys.is_empty() else "", "E", "the key should be E")
+	var joined := "".join(parts.map(func(p): return ("[%s]" % p[1]) if p[0] == "key" else p[1]))
+	check_eq(joined, "Till: [E] pay $40 for [2/5] boxes", "parsing should lose no text")
+	# Every key the controls sheet names must draw as a keycap.
+	for group in KeyGuide.GROUPS:
+		for row in group.rows:
+			for k in row[0]:
+				if k != "/":
+					check(UIKit.is_key_text(String(k)), "controls sheet names '%s', which is not a key" % k)
+	for state in ["foot", "carrying", "dragging", "build", "drive", "crane"]:
+		check(not KeyGuide.hints_for(state).is_empty(), "no hints for %s" % state)
+	done()
+
+func test_compass() -> void:
+	check_near(Compass.heading_of(Vector3(0, 0, -1)), 0.0, 0.001, "-Z is north")
+	check_near(Compass.heading_of(Vector3(1, 0, 0)), PI * 0.5, 0.001, "+X is east")
+	check_near(Compass.heading_of(Vector3(0, 0, 1)), PI, 0.001, "+Z is south")
+	check_near(Compass.heading_of(Vector3(-1, 0, 0)), PI * 1.5, 0.001, "-X is west")
+	check_near(Compass.offset_of(0.0, 0.0), 0.0, 0.001, "dead ahead is the middle")
+	check(Compass.offset_of(deg_to_rad(30.0), 0.0) > 0.0, "a place to the east of north is right of centre")
+	check(Compass.offset_of(deg_to_rad(330.0), 0.0) < 0.0, "a place to the west of north is left of centre")
+	check_near(Compass.offset_of(deg_to_rad(10.0), deg_to_rad(350.0)),
+		Compass.offset_of(deg_to_rad(20.0), 0.0), 0.001, "wrapping through north")
+	done()
+
+func test_tutorial() -> void:
+	_setup()
+	await step(2)
+	var t := Tutorial.new()
+	t.setup(null, plot, null, null, null, [])
+	world.add_child(t)
+	var completed: Array = []
+	t.step_completed.connect(func(s: Dictionary): completed.append(s.id))
+	t.evaluate()
+	check_eq(t.done_count(), 0, "nothing done on a fresh game")
+	check_eq(t.current().get("id"), &"chop", "the first step is to fell a tree")
+	t.note(&"chop")
+	check(t.done(&"chop"), "felling a tree should tick the first step")
+	check_eq(t.current().get("id"), &"pick", "then pick up the wood")
+	# A building on the plot means the player got there somehow; everything
+	# before it is done, without being asked to go back and do it.
+	plot.place(GameData.building(&"sawmill"), Vector2i(0, 0), 0)
+	t.evaluate()
+	for id in [&"pick", &"sell", &"store", &"build", &"place"]:
+		check(t.done(id), "placing a building should also tick '%s'" % id)
+	check_eq(t.current().get("id"), &"order", "the last step is an order")
+	check(not t.finished(), "not finished until an order is filled")
+	t.note(&"order")
+	check(t.finished(), "filling an order finishes the list")
+	check_eq(completed.size(), Tutorial.STEPS.size(), "each step should announce itself once")
+	# Money that did not come from a sale is not a sale.
+	PlayerState.reset()
+	plot.clear_buildings()
+	Economy.from_dict({})
+	Economy.add_money(250)
+	var fresh := Tutorial.new()
+	fresh.setup(null, plot, null, null, null, [])
+	world.add_child(fresh)
+	fresh.evaluate()
+	check(not fresh.done(&"sell"), "a starting float is not selling anything")
 	done()
 
 func test_save_load() -> void:

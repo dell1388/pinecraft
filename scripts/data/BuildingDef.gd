@@ -5,6 +5,8 @@ extends Resource
 
 @export var id: StringName = &""
 @export var display_name: String = ""
+## One line saying what it is for, shown on the build bar.
+@export var blurb: String = ""
 @export var kind: StringName = &"machine"   ## machine | conveyor | splitter | storage | sell
 @export var cost: int = 100
 @export var size: Vector3i = Vector3i(2, 2, 2)
@@ -21,6 +23,7 @@ static func from_dict(d: Dictionary) -> BuildingDef:
 	var b := BuildingDef.new()
 	b.id = StringName(d.get("id", "unknown"))
 	b.display_name = String(d.get("display_name", "Building"))
+	b.blurb = String(d.get("blurb", ""))
 	b.kind = StringName(d.get("kind", "machine"))
 	b.cost = int(d.get("cost", 100))
 	var s: Array = d.get("size", [2, 2, 2])

@@ -10,7 +10,8 @@
         1,
         4
       ],
-      "speed": 3.0
+      "speed": 3.0,
+      "blurb": "Carries items along. Feeds machines, bins and chutes."
     },
     {
       "id": "conveyor_fast",
@@ -23,7 +24,8 @@
         4
       ],
       "speed": 6.0,
-      "unlock_cost": 1200
+      "unlock_cost": 1200,
+      "blurb": "A belt at twice the speed."
     },
     {
       "id": "splitter",
@@ -34,7 +36,8 @@
         2,
         1,
         2
-      ]
+      ],
+      "blurb": "Deals items out to its outputs in turn."
     },
     {
       "id": "filter",
@@ -46,7 +49,8 @@
         1,
         2
       ],
-      "unlock_cost": 800
+      "unlock_cost": 800,
+      "blurb": "Sends one kind of item one way and the rest the other. [E] to set it."
     },
     {
       "id": "sawmill",
@@ -58,7 +62,8 @@
         3,
         7
       ],
-      "machine": "sawmill"
+      "machine": "sawmill",
+      "blurb": "Mills logs into lumber, which sells for more per m³."
     },
     {
       "id": "furnace",
@@ -71,7 +76,8 @@
         3
       ],
       "machine": "furnace",
-      "unlock_cost": 600
+      "unlock_cost": 600,
+      "blurb": "Smelts ore into metal billets."
     },
     {
       "id": "workbench",
@@ -84,7 +90,8 @@
         4
       ],
       "machine": "workbench",
-      "unlock_cost": 2500
+      "unlock_cost": 2500,
+      "blurb": "Builds crates and toolkits from lumber and billets."
     },
     {
       "id": "storage",
@@ -96,7 +103,8 @@
         2,
         2
       ],
-      "capacity": 6.0
+      "capacity": 6.0,
+      "blurb": "Holds material until you want it. [Shift+E] empties it."
     },
     {
       "id": "sell_chute",
@@ -107,7 +115,8 @@
         2,
         2,
         2
-      ]
+      ],
+      "blurb": "Sells whatever drops in at today's price."
     },
     {
       "id": "crusher",
@@ -120,7 +129,8 @@
         3
       ],
       "machine": "crusher",
-      "unlock_cost": 400
+      "unlock_cost": 400,
+      "blurb": "Breaks ore chunks down, much faster than a hammer."
     },
     {
       "id": "schematic_block",
@@ -131,7 +141,8 @@
         1
       ],
       "cost": 10,
-      "kind": "schematic"
+      "kind": "schematic",
+      "blurb": "A plan. Fill it with material and it turns solid."
     },
     {
       "id": "schematic_slab",
@@ -142,7 +153,8 @@
         2
       ],
       "cost": 20,
-      "kind": "schematic"
+      "kind": "schematic",
+      "blurb": "A plan. Fill it with material and it turns solid."
     },
     {
       "id": "schematic_wall",
@@ -153,7 +165,8 @@
         1
       ],
       "cost": 30,
-      "kind": "schematic"
+      "kind": "schematic",
+      "blurb": "A plan. Fill it with material and it turns solid."
     },
     {
       "id": "schematic_pillar",
@@ -164,7 +177,8 @@
         1
       ],
       "cost": 20,
-      "kind": "schematic"
+      "kind": "schematic",
+      "blurb": "A plan. Fill it with material and it turns solid."
     },
     {
       "id": "vehicle_pad",
@@ -176,7 +190,8 @@
         1,
         6
       ],
-      "unlock_cost": 5000
+      "unlock_cost": 5000,
+      "blurb": "Spawns your hauler, and brings it back when it is lost."
     },
     {
       "id": "conveyor_ramp",
@@ -189,7 +204,8 @@
         4
       ],
       "speed": 3.0,
-      "rise": 2.0
+      "rise": 2.0,
+      "blurb": "A belt that climbs as it goes."
     },
     {
       "id": "conveyor_open",
@@ -202,7 +218,8 @@
         4
       ],
       "speed": 3.0,
-      "railed": false
+      "railed": false,
+      "blurb": "A belt without rails: push things on and off the side."
     }
   ],
   "_machines_note": "mill and smelt conserve volume: everything that goes in comes back out as pieces with the exit hole's cross-section and whatever length that volume needs.",

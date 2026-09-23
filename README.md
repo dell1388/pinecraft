@@ -23,6 +23,12 @@ it up; headless runs resolve class names from that cache.
 
 ### Controls
 
+The game opens on a title screen over a flyover of the valley: **Continue**
+picks up the save (it tells you the day, money and when it was saved), **New
+Game** starts over after asking, and Settings and Controls are there before
+you play. The full list of keys is on the Controls page and in the journal
+(F1), and the few that matter right now are always in the bottom-right corner.
+
 | Key | Action |
 | --- | --- |
 | WASD / Shift / Space | move, sprint, jump |
@@ -33,15 +39,54 @@ it up; headless runs resolve class names from that cache.
 | E | deposit, open a paid box, talk to the shopkeep, stop or start a belt |
 | Shift+E | empty a storage bin back onto the ground |
 | B | build mode (freecam: WASD, mouse, Shift/Ctrl for height) |
-| Z / X / C | rotate the ghost about each axis, in quarter turns |
+| Wheel / 1-7 (build) | choose from the build bar |
+| Z / X / C (build) | rotate the ghost about each axis, in quarter turns |
 | LMB / RMB (build) | place / remove |
-| M / U / F1 | market board / shop board / help |
-| F5 / F9 / F8 | save / load / new game |
+| Esc | pause menu (leaves build mode first, closes the journal first) |
+| Tab / M / U / F1 | journal: orders / market / upgrades / controls |
+| H / F3 | hide the key hints / debug readout |
+| F5 / F9 / F8 | quick save / quick load / new game (asks first) |
 | V | get in and out of the hauler (third-person while driving) |
 | E / G (driving) | hook and unhook the winch / reel it in |
 | F (driving) | crane: take hold of a piece, or let it go |
 | WASD / Shift / Ctrl / R / T (crane) | drive the load itself, and turn it |
-| X / Z / C | unload all / drop one / flip the truck upright |
+| X / Z / C (not in build mode) | unload all / drop one / flip the truck upright |
+
+## Interface
+
+- **Title screen** over the live world, with a camera circling the valley.
+  New Game rebuilds the scene from nothing rather than scrubbing the old one.
+- **Pause menu** (Esc, or alt-tab) over frosted glass: resume, settings,
+  controls, save, load, back to the title, quit. Leaving for the title or
+  quitting saves; so does closing the window.
+- **Settings** (`user://settings.cfg`, kept apart from the save so a new game
+  keeps them): mouse sensitivity, invert Y, field of view; fullscreen, v-sync,
+  render scale, shadows, ambient occlusion, bloom, view distance, and whether
+  the sun moves; interface scale, key hints, compass, checklist, frame rate;
+  autosave. Everything applies as you move it.
+- **HUD**: money that counts up, with the change floating off it; the day and
+  how long until prices move; the carry rack as a bar; a compass with the plot,
+  the sell yard, the store, the quarry and your truck on it; the open orders
+  with progress bars; the prompt for what you are aiming at, with its keys drawn
+  as keycaps; a feed of what just happened (a yard of fifty logs is one line,
+  not fifty); and the keys for what you are doing now.
+- **Build bar**: in build mode, every building you own with its size and cost
+  (red when you cannot afford it), a line on what it is for, and why the ghost
+  will not go where you are pointing. The pad's grid brightens so you can see
+  what it will snap to.
+- **Driving**: speed and cargo gauges.
+- **Journal**: orders, today's market with each price's move, upgrade tracks
+  and what is still on the shelf, and the controls.
+- **Getting started**: a checklist from felling a first tree to filling a first
+  order. It watches what you actually do, and a later step ticks off the ones
+  before it, so a loaded game with a sawmill is not asked to chop a tree.
+
+The look is one theme built in code (`UITheme`): Rubik for text and Lilita One
+for the logo and big numbers (both SIL OFL, in `assets/fonts/`), dark glass
+panels, amber for focus and selection. The world got the same pass: a blue
+procedural sky, filmic tone mapping, haze the colour of the horizon, a sun
+that crosses the sky over a market day (it never sets), and a concrete pad with
+its cell grid and a hazard-striped edge.
 
 ## The loop
 
@@ -215,7 +260,7 @@ them than before.
 scripts/core/      Layers, Tuning, InputSetup, Trigger (trigger-volume guard),
                    Solid (volume, fitting and cutting maths)
 scripts/systems/   GameData (autoload), Economy (autoload), PlayerState (autoload),
-                   SaveSystem, QuestLog
+                   Settings (autoload), SaveSystem, QuestLog, Tutorial
 scripts/data/      RecipeDef, MachineDef, BuildingDef
 scripts/physics/   LooseItem, LooseItemManager, ItemDef
 scripts/world/     Terrain, ResourceField, ChoppableTree, OreRock, Machine,
@@ -225,7 +270,9 @@ scripts/build/     Plot (grid, placement, persistence), BuildSystem (freecam
                    ghost), Schematic (shapes filled with material)
 scripts/player/    Player
 scripts/vehicle/   Hauler, VehicleRig (winch and crane)
-scripts/ui/        GameHUD, StressHUD
+scripts/ui/        UITheme, UIKit, GameHUD, Compass, Journal, KeyGuide,
+                   MainMenu, PauseMenu, SettingsPanel, StressHUD
+assets/fonts/      Rubik, Lilita One (SIL OFL)
 data/              items, recipes, buildings, upgrades, prices, quests, store
 tools/             Bench, Tests, SmokeWorld, Probe
 ```
@@ -316,7 +363,7 @@ Budget is 16.67 ms.
 
 ### Integration tests (`scenes/tests.tscn`)
 
-664 checks across 36 tests, all passing. Every test has to say it reached its
+855 checks across 49 tests, all passing. Every test has to say it reached its
 own end, so one that dies part way through - a parse error in what it exercises,
 say - is reported as a failure instead of quietly contributing fewer checks.
 
@@ -341,7 +388,12 @@ till, opening a paid box, unpaid stock going back on the shelf, land at the
 desk); carry limits by length and lift limits by weight; ownership and its
 persistence; hauler driving and cargo retention through a collision, a rollover
 and a save/load; vehicle pads spawning one truck and replacing it; winch and
-crane power ratings; kill plane; item cap; and a full automated base under load.
+crane power ratings; kill plane; item cap; a full automated base under load;
+and the interface's logic - settings coercing, persisting and resetting, the
+title screen reading a save without loading it, prompt keys told apart from
+counts in brackets (`[E]` is a key, `[2/5]` is not), compass bearings through
+north, and the getting-started checklist catching up with a loaded game but not
+counting a starting float as a sale.
 
 ### Physics benchmark (`scenes/bench.tscn`)
 
@@ -375,15 +427,16 @@ third of the table, at a fifth to a quarter of budget.
 
 The assembled world - a 600 m biome map with rivers and roads, 90 trees and 33
 ore chunks kept stocked by their fields, the plot, machines, belts, the sell
-yard, the store, the hauler and ~130 loose pieces - runs at **2.1 ms/frame
-average**, with trees felling, chunks breaking, machines milling and the sell
-chute paying out. Generating the land costs one frame of about 37 ms at startup
-and nothing afterwards.
+yard, the store, the hauler, the HUD and ~130 loose pieces - runs at **about
+1.2 ms/frame average**, with trees felling, chunks breaking, machines milling and
+the sell chute paying out. Generating the land and building the interface cost
+one frame of about 55 ms at startup and nothing afterwards.
 
 The smoke run asserts the world's *contents* as well as its frame cost, which is
 what makes it worth having: it was an empty forest that caught a broken species
 table, and a missing signal handler that caught a world scene which compiled in
-the test suite but not in the game.
+the test suite but not in the game. It also opens every journal tab, pauses and
+resumes, and sells forty logs at once to check the feed folds them into one line.
 
 ## Against the design doc
 

@@ -34,8 +34,20 @@ var hauler: Hauler
 var tree_fields: Array[ResourceField] = []
 var rock_fields: Array[ResourceField] = []
 
+var tutorial: Tutorial
+var main_menu: MainMenu
+var pause_menu: PauseMenu
+## Off for the headless runs that instance the world as a child and drive it.
+@export var show_menu: bool = true
+## True once the player has left the title screen, so quitting from it does not
+## write a save for a game nobody played.
+var playing: bool = false
+
+var sun: DirectionalLight3D
+var environment: Environment
 var _rng := RandomNumberGenerator.new()
 var _autosave_timer: float = AUTOSAVE_SECONDS
+var _fader: ColorRect
 
 func _ready() -> void:
 	_rng.seed = 20260921
@@ -82,34 +94,80 @@ func _ready() -> void:
 	hud.setup(player, plot, manager, self)
 	add_child(hud)
 
+	var loaded := false
 	if SaveSystem.has_save():
-		if SaveSystem.load_game(plot, player, SaveSystem.SAVE_PATH, manager, _spawn_vehicle_for_load, quests):
-			hud.log_message("save loaded")
-	else:
+		loaded = SaveSystem.load_game(plot, player, SaveSystem.SAVE_PATH, manager,
+			_spawn_vehicle_for_load, quests)
+	if not loaded:
 		# A starting float, so the first sawmill is a few tree-loads away
 		# rather than an hour of hauling.
 		Economy.add_money(STARTING_MONEY)
-		hud.log_message("start: $%d. Fell trees, bring the wood to the yard at z=%d and ask the shopkeep." % [
-			STARTING_MONEY, int(DEPOT_POSITION.z)])
+
+	# The checklist catches up with the save before anyone is listening, so a
+	# loaded game does not open with a volley of "done" messages.
+	tutorial = Tutorial.new()
+	tutorial.name = "Tutorial"
+	tutorial.setup(player, plot, store, build_system, quests, tree_fields)
+	add_child(tutorial)
+	tutorial.evaluate()
+	hud.bind_tutorial(tutorial)
+	hud.toast("Welcome back - day %d" % Economy.day if loaded else
+		"You have %s. Fell a tree to get started." % UIKit.money(Economy.money), UITheme.ACCENT)
+
+	Settings.changed.connect(_on_setting_changed)
+	_apply_all_settings()
+	_build_menus()
 	set_physics_process(true)
 
 # --- World construction ----------------------------------------------------
 
 func _build_environment() -> void:
-	var light := DirectionalLight3D.new()
-	light.rotation_degrees = Vector3(-52, -38, 0)
-	light.shadow_enabled = true
-	light.light_energy = 1.1
-	add_child(light)
+	sun = DirectionalLight3D.new()
+	sun.name = "Sun"
+	sun.rotation_degrees = Vector3(-52, -38, 0)
+	sun.light_color = Color(1.0, 0.95, 0.86)
+	sun.light_energy = 1.25
+	sun.shadow_enabled = true
+	sun.shadow_blur = 1.2
+	sun.directional_shadow_blend_splits = true
+	add_child(sun)
 
 	var env_node := WorldEnvironment.new()
-	var env := Environment.new()
+	environment = Environment.new()
+	var env := environment
 	env.background_mode = Environment.BG_SKY
 	env.sky = Sky.new()
-	env.sky.sky_material = ProceduralSkyMaterial.new()
+	var sky := ProceduralSkyMaterial.new()
+	sky.sky_top_color = Color(0.24, 0.45, 0.78)
+	sky.sky_horizon_color = Color(0.70, 0.80, 0.88)
+	sky.sky_curve = 0.12
+	sky.ground_bottom_color = Color(0.20, 0.24, 0.20)
+	sky.ground_horizon_color = Color(0.70, 0.80, 0.88)
+	sky.sun_angle_max = 24.0
+	sky.sun_curve = 0.08
+	env.sky.sky_material = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	env.ambient_light_energy = 0.9
+	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
+	# Filmic response, so bright ground and snow roll off rather than clip.
+	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.tonemap_exposure = 1.05
+	env.tonemap_white = 6.0
+	env.ssao_radius = 1.4
+	env.ssao_intensity = 1.6
+	env.glow_intensity = 0.35
+	env.glow_bloom = 0.04
+	env.glow_hdr_threshold = 1.1
+	env.adjustment_enabled = true
+	env.adjustment_saturation = 1.12
+	env.adjustment_contrast = 1.04
+	# Haze the colour of the horizon, so distance reads as air rather than grey.
 	env.fog_enabled = true
-	env.fog_density = 0.004
+	env.fog_light_color = Color(0.68, 0.78, 0.87)
+	env.fog_sun_scatter = 0.18
+	env.fog_density = 0.0028
+	env.fog_aerial_perspective = 0.35
+	env.fog_sky_affect = 0.0
 	env_node.environment = env
 	add_child(env_node)
 
@@ -376,6 +434,8 @@ func _make_player() -> Player:
 	var p := Player.new()
 	p.name = "Player"
 	p.position = Vector3(0, 2.0, 12.0)
+	# Facing down the road to the yard and the store, not at a hillside.
+	p.rotation.y = PI
 	p.terrain = terrain
 	var cs := CollisionShape3D.new()
 	var cap := CapsuleShape3D.new()
@@ -437,7 +497,175 @@ func _on_vehicle_spawned(vehicle: Node3D) -> void:
 		player.exit_vehicle()
 	hauler = vehicle as Hauler
 
+# --- Menus, settings and the HUD's view of the world -----------------------
+
+## Places the compass marks. Each returns null while it does not exist.
+func compass_markers() -> Array[Dictionary]:
+	return [
+		{"name": "Plot", "color": Color(0.55, 0.85, 0.50), "where": func(): return plot.global_position},
+		{"name": "Sell Yard", "color": Color(0.98, 0.80, 0.30), "where": func(): return depot.global_position},
+		{"name": "Store", "color": Color(0.55, 0.78, 1.0), "where": func(): return store.global_position},
+		{"name": "Quarry", "color": Color(0.80, 0.70, 0.62), "where": func(): return QUARRY_CENTRE},
+		{"name": "Hauler", "color": Color(1.0, 0.55, 0.40), "where": func():
+			if hauler == null or not is_instance_valid(hauler) or player.driving():
+				return null
+			return hauler.global_position},
+	]
+
+func _build_menus() -> void:
+	_fader = ColorRect.new()
+	_fader.color = Color(0.03, 0.05, 0.04)
+	_fader.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var fade_layer := CanvasLayer.new()
+	fade_layer.layer = 100
+	fade_layer.process_mode = Node.PROCESS_MODE_ALWAYS
+	fade_layer.add_child(UIKit.fill(_fader))
+	add_child(fade_layer)
+	var tween := _fader.create_tween()
+	tween.set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
+	tween.tween_property(_fader, "color:a", 0.0, 0.9).set_ease(Tween.EASE_IN)
+
+	pause_menu = PauseMenu.new()
+	pause_menu.resume_requested.connect(resume_play)
+	pause_menu.save_requested.connect(func():
+		quick_save()
+		resume_play())
+	pause_menu.load_requested.connect(func():
+		quick_load()
+		resume_play())
+	pause_menu.main_menu_requested.connect(func():
+		quick_save()
+		pause_menu.close()
+		show_main_menu())
+	pause_menu.quit_requested.connect(quit_game)
+	add_child(pause_menu)
+
+	var menu_wanted := show_menu and get_tree().current_scene == self and not MainMenu.skip_once
+	MainMenu.skip_once = false
+	if menu_wanted:
+		main_menu = MainMenu.new()
+		main_menu.continue_requested.connect(resume_play)
+		main_menu.new_game_requested.connect(start_new_game)
+		main_menu.quit_requested.connect(quit_game)
+		add_child(main_menu)
+		show_main_menu()
+	else:
+		playing = true
+
+func show_main_menu() -> void:
+	if main_menu == null:
+		main_menu = MainMenu.new()
+		main_menu.continue_requested.connect(resume_play)
+		main_menu.new_game_requested.connect(start_new_game)
+		main_menu.quit_requested.connect(quit_game)
+		add_child(main_menu)
+	hud.visible = false
+	get_tree().paused = true
+	main_menu.open(self)
+
+func pause_game() -> void:
+	if get_tree().paused:
+		return
+	get_tree().paused = true
+	pause_menu.open()
+
+func resume_play() -> void:
+	if main_menu != null and main_menu.visible:
+		main_menu.close()
+	pause_menu.close()
+	hud.visible = true
+	playing = true
+	get_tree().paused = false
+	player.capture_mouse(not hud.journal_open())
+
+func quick_save() -> bool:
+	var ok := SaveSystem.save_game(plot, player, SaveSystem.SAVE_PATH, manager, hauler, quests)
+	if ok:
+		hud.flash_saved()
+	else:
+		hud.toast("Save failed", UITheme.BAD)
+	return ok
+
+func quick_load() -> void:
+	if SaveSystem.load_game(plot, player, SaveSystem.SAVE_PATH, manager,
+			_spawn_vehicle_for_load, quests):
+		hud.toast("Loaded your last save", UITheme.ACCENT)
+	else:
+		hud.toast("No save to load", UITheme.BAD)
+
+## A fresh world, not this one scrubbed: the progress autoloads are reset and
+## the scene is built again from nothing.
+func start_new_game() -> void:
+	if not SaveSystem.has_save() and not playing:
+		# Nothing to throw away - the world behind the menu is already new.
+		resume_play()
+		return
+	SaveSystem.delete_save()
+	PlayerState.reset()
+	Economy.from_dict({})
+	MainMenu.skip_once = true
+	var tween := _fader.create_tween()
+	tween.set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
+	tween.tween_property(_fader, "color:a", 1.0, 0.35)
+	tween.tween_callback(func():
+		get_tree().paused = false
+		get_tree().reload_current_scene())
+
+func quit_game() -> void:
+	if playing:
+		SaveSystem.save_game(plot, player, SaveSystem.SAVE_PATH, manager, hauler, quests)
+	get_tree().quit()
+
+func _notification(what: int) -> void:
+	match what:
+		NOTIFICATION_WM_CLOSE_REQUEST:
+			if playing and hud != null:
+				SaveSystem.save_game(plot, player, SaveSystem.SAVE_PATH, manager, hauler, quests)
+		NOTIFICATION_APPLICATION_FOCUS_OUT:
+			# Alt-tab pauses, rather than leaving the truck rolling.
+			if playing and pause_menu != null and not get_tree().paused \
+					and DisplayServer.get_name() != "headless":
+				pause_game()
+
+func _on_setting_changed(_key: StringName) -> void:
+	_apply_all_settings()
+
+func _apply_all_settings() -> void:
+	var cam := player.camera
+	cam.fov = float(Settings.value(&"fov"))
+	var reach := float(Settings.value(&"view_distance"))
+	cam.far = reach
+	# Fog thick enough that the far plane is lost in haze, never a hard edge.
+	environment.fog_density = clampf(1.1 / reach, 0.0016, 0.0075)
+	var shadows := int(Settings.value(&"shadows"))
+	sun.shadow_enabled = shadows > 0
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS if shadows >= 2 \
+		else DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+	sun.directional_shadow_max_distance = 160.0 if shadows >= 2 else 70.0
+	environment.ssao_enabled = Settings.flag(&"ambient_occlusion")
+	environment.glow_enabled = Settings.flag(&"bloom")
+	if not Settings.flag(&"moving_sun"):
+		sun.rotation_degrees = Vector3(-52, -38, 0)
+		sun.light_color = Color(1.0, 0.95, 0.86)
+
+## Spec: a market day. The sun crosses the sky with it - morning light when the
+## prices are new, long shadows when they are about to change - but it never
+## sets, because nobody wants to chop trees in the dark.
+func _update_sun() -> void:
+	if not Settings.flag(&"moving_sun"):
+		return
+	var t := Economy.day_progress()
+	var arc := sin(t * PI)
+	var elevation := lerpf(16.0, 62.0, arc)
+	var azimuth := lerpf(-110.0, 70.0, t)
+	sun.rotation_degrees = Vector3(-elevation, azimuth, 0.0)
+	sun.light_color = Color(1.0, 0.80, 0.62).lerp(Color(1.0, 0.96, 0.88), clampf(arc * 1.6, 0.0, 1.0))
+	sun.light_energy = lerpf(1.0, 1.3, arc)
+
 # --- Runtime ---------------------------------------------------------------
+
+func _process(_delta: float) -> void:
+	_update_sun()
 
 func _physics_process(delta: float) -> void:
 	if player != null and player.driving() and hauler != null:
@@ -445,53 +673,47 @@ func _physics_process(delta: float) -> void:
 		# this doubles as the driving camera.
 		player.global_position = hauler.seat_transform().origin
 		player.velocity = Vector3.ZERO
-	if not autosave:
+	if not autosave or not playing or not Settings.flag(&"autosave"):
 		return
 	_autosave_timer -= delta
 	if _autosave_timer <= 0.0:
 		_autosave_timer = AUTOSAVE_SECONDS
-		SaveSystem.save_game(plot, player, SaveSystem.SAVE_PATH, manager, hauler, quests)
+		quick_save()
 
 func _unhandled_key_input(event: InputEvent) -> void:
 	var key := event as InputEventKey
-	if key == null or not key.pressed or key.echo:
+	if key == null or not key.pressed or key.echo or hud.journal_open():
 		return
+	# In build mode Z, X and C turn the ghost; they must not also empty the truck.
+	var building := build_system != null and build_system.active
 	match key.keycode:
 		KEY_F5:
-			hud.log_message("saved" if SaveSystem.save_game(
-				plot, player, SaveSystem.SAVE_PATH, manager, hauler, quests) else "save failed")
+			if quick_save():
+				hud.toast("Saved", UITheme.GOOD)
 		KEY_F9:
-			hud.log_message("loaded" if SaveSystem.load_game(
-				plot, player, SaveSystem.SAVE_PATH, manager, _spawn_vehicle_for_load, quests) else "no save found")
+			quick_load()
 		KEY_F8:
-			_new_game()
+			pause_game()
+			pause_menu.ask("Start a new game?",
+				"Your saved game will be replaced. Settings are kept.", "Start over",
+				start_new_game)
 		KEY_V:
-			_toggle_vehicle()
+			if not building:
+				_toggle_vehicle()
 		KEY_X:
-			if hauler != null:
+			if hauler != null and not building:
 				hud.log_message("unloaded %d item(s)" % hauler.unload())
 		KEY_Z:
-			if hauler != null and hauler.unload_one():
+			if hauler != null and not building and hauler.unload_one():
 				hud.log_message("dropped one (%d left)" % hauler.cargo_count())
 		KEY_C:
-			if hauler != null:
+			if hauler != null and not building:
 				hauler.recover()
-
-func _new_game() -> void:
-	SaveSystem.delete_save()
-	plot.clear_buildings()
-	manager.despawn_all()
-	PlayerState.reset()
-	Economy.from_dict({})
-	if hauler != null:
-		hauler.queue_free()
-		hauler = null
-	player.global_position = Vector3(0, 2, 12)
-	hud.log_message("new game")
+				hud.toast("Hauler recovered", UITheme.ACCENT)
 
 func _toggle_vehicle() -> void:
 	if hauler == null:
-		hud.log_message("no hauler - buy one in the shop [U]")
+		hud.log_message("No hauler yet - it is sold at the Store, and spawns on a Hauler Pad")
 		return
 	if player.driving():
 		player.exit_vehicle()
@@ -506,5 +728,5 @@ func _toggle_vehicle() -> void:
 	hauler.driver = player
 	# Everything loose in the bed becomes part of the truck before it moves.
 	var secured := hauler.secure_load()
-	hud.log_message("driving - WASD, Space brake, X unload, Z drop one%s" % (
-		"  (secured %d item(s))" % secured if secured > 0 else ""))
+	if secured > 0:
+		hud.log_message("secured %d item(s) in the bed" % secured)

@@ -68,6 +68,8 @@ func set_active(value: bool) -> void:
 		return
 	active = value
 	_ghost.visible = value
+	if plot != null:
+		plot.show_grid(value)
 	if value:
 		refresh_palette()
 		_enter_freecam()
@@ -82,8 +84,14 @@ func _enter_freecam() -> void:
 		return
 	_stowed = camera.transform
 	# Detached from the player, so flying the camera does not walk the body.
+	var start := camera.global_transform
 	camera.top_level = true
-	camera.global_transform = camera.global_transform
+	# Up a few metres and tipped down at the ground, so the first thing you see
+	# is where the building will go rather than the horizon.
+	var e := start.basis.get_euler()
+	camera.global_transform = Transform3D(
+		Basis.from_euler(Vector3(minf(e.x, deg_to_rad(-32.0)), e.y, 0.0)),
+		start.origin + Vector3(0, 5.0, 0))
 	_flying = true
 
 func _leave_freecam() -> void:
@@ -124,6 +132,18 @@ func select_index(i: int) -> void:
 		return
 	index = i
 	selection_changed.emit(current())
+
+## The build bar shows the palette a page at a time, so the number keys keep
+## meaning the same slots while you scroll within a page.
+const BAR_SLOTS := 7
+
+func bar_first() -> int:
+	return (index / BAR_SLOTS) * BAR_SLOTS
+
+## Number key 1-7: a slot on the page the selection is on.
+func select_slot(slot: int) -> void:
+	if slot >= 0 and slot < BAR_SLOTS:
+		select_index(bar_first() + slot)
 
 ## Spec: Z, X and C each control an axis of rotation.
 func rotate_axis(axis: int, step: int = 1) -> void:

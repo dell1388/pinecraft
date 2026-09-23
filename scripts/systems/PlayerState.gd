@@ -11,6 +11,9 @@ const VEHICLE_PAD := &"vehicle_pad"
 
 var levels: Dictionary = {}              ## StringName -> int
 var unlocked_buildings: Array[StringName] = []
+## Getting-started steps already done, so a loaded game does not teach you to
+## chop a tree again.
+var tutorial_done: Array[StringName] = []
 
 func _ready() -> void:
 	reset()
@@ -20,6 +23,7 @@ func reset() -> void:
 	for track_id in GameData.upgrade_tracks:
 		levels[track_id] = 1
 	unlocked_buildings.clear()
+	tutorial_done.clear()
 	for def: BuildingDef in GameData.buildings.values():
 		if def.unlock_cost <= 0:
 			unlocked_buildings.append(def.id)
@@ -104,7 +108,10 @@ func to_dict() -> Dictionary:
 	var ub: Array = []
 	for b in unlocked_buildings:
 		ub.append(String(b))
-	return {"levels": lv, "unlocked": ub}
+	var tut: Array = []
+	for step in tutorial_done:
+		tut.append(String(step))
+	return {"levels": lv, "unlocked": ub, "tutorial": tut}
 
 func from_dict(d: Dictionary) -> void:
 	reset()
@@ -115,6 +122,8 @@ func from_dict(d: Dictionary) -> void:
 		unlocked_buildings.clear()
 		for b in ub:
 			unlocked_buildings.append(StringName(b))
+	for step in d.get("tutorial", []):
+		tutorial_done.append(StringName(step))
 	# Older saves recorded the truck as a flag rather than as an unlocked pad.
 	if bool(d.get("owns_vehicle", false)) and not is_unlocked(VEHICLE_PAD):
 		unlocked_buildings.append(VEHICLE_PAD)

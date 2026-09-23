@@ -109,6 +109,23 @@ static func _loose_from_array(manager: LooseItemManager, entries: Array, plot_id
 			Transform3D(basis, Vector3(pos[0], pos[1], pos[2])), plot_id,
 			Vector3.ZERO, Solid.from_dict(entry.get("dims", {})), true)
 
+## What the main menu shows under Continue, read without loading anything.
+static func summary(path: String = SAVE_PATH) -> Dictionary:
+	if not FileAccess.file_exists(path):
+		return {}
+	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return {}
+	var doc: Dictionary = parsed
+	var economy: Dictionary = doc.get("economy", {})
+	var plot: Dictionary = doc.get("plot", {})
+	return {
+		"day": int(economy.get("day", 1)),
+		"money": int(economy.get("money", 0)),
+		"buildings": (plot.get("buildings", []) as Array).size(),
+		"saved_at": String(doc.get("saved_at", "")),
+	}
+
 static func delete_save(path: String = SAVE_PATH) -> void:
 	if FileAccess.file_exists(path):
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(path))

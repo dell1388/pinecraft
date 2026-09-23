@@ -135,6 +135,8 @@ func _physics_process(_delta: float) -> void:
 			if zone != null:
 				world.manager.spawn(&"lumber_pine", Transform3D(Basis(),
 					zone.global_position + Vector3(0, 1.5, 0)), 0)
+	if frames == 420:
+		_check_ui()
 	if frames == 400:
 		print("mid-run: %d loose, %d awake, $%d, machines produced %d, %.2f m3 in / %.2f m3 out" % [
 			world.manager.active_count(), world.manager.awake_count(), Economy.money,
@@ -143,6 +145,33 @@ func _physics_process(_delta: float) -> void:
 		_report()
 
 var problems: Array[String] = []
+
+## The screens over the world: none of this is visible headless, but all of it
+## builds, lays out and runs, so a broken menu fails here rather than on launch.
+func _check_ui() -> void:
+	var hud: GameHUD = world.hud
+	_require(world.main_menu == null, "the title screen opened in a world run as a child")
+	_require(world.playing, "a world with no title screen should be in play")
+	for tab in Journal.TABS:
+		hud.open_journal(tab)
+		_require(hud.journal_open() and hud.journal.current_tab() == tab, "journal did not open on %s" % tab)
+	hud.open_journal("Controls")
+	_require(not hud.journal_open(), "the same key again should close the journal")
+	world.pause_game()
+	_require(get_tree().paused and world.pause_menu.visible, "pausing did not pause")
+	world.resume_play()
+	_require(not get_tree().paused and not world.pause_menu.visible, "resuming did not resume")
+	# Sales arrive one signal per item; the HUD has to fold a yard's worth into
+	# one line rather than burying the screen.
+	for i in 40:
+		Economy.sell(&"wood_pine", {})
+	hud._flush_events()
+	_require(hud._toasts.get_child_count() <= GameHUD.TOAST_MAX, "toasts are not capped")
+	var last := hud._toasts.get_child(hud._toasts.get_child_count() - 1)
+	_require(String(last.get_meta("text", "")).begins_with("Sold 40"), "a burst of sales was not folded into one toast")
+	_require(world.tutorial != null, "no getting-started checklist")
+	print("ui ok: journal %d tabs, pause/resume, %d toasts, checklist %d/%d" % [
+		Journal.TABS.size(), hud._toasts.get_child_count(), world.tutorial.done_count(), Tutorial.STEPS.size()])
 
 func _require(condition: bool, message: String) -> void:
 	if not condition:

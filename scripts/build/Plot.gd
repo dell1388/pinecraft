@@ -26,6 +26,8 @@ var _floor_body: StaticBody3D
 var _floor_shape: CollisionShape3D
 var _floor_mesh: MeshInstance3D
 var _kerb_body: StaticBody3D
+var _kerb_mesh: MeshInstance3D
+var _floor_material: ShaderMaterial
 var _wall_shapes: Array[CollisionShape3D] = []
 
 func setup(p_manager: LooseItemManager, p_plot_id: int = 0) -> void:
@@ -52,11 +54,18 @@ func _ensure_floor() -> void:
 	_floor_body.add_child(_floor_shape)
 	_floor_mesh = MeshInstance3D.new()
 	_floor_mesh.mesh = BoxMesh.new()
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.27, 0.30, 0.24)
-	_floor_mesh.material_override = mat
+	_floor_material = ShaderMaterial.new()
+	_floor_material.shader = _pad_shader()
+	_floor_mesh.material_override = _floor_material
 	_floor_body.add_child(_floor_mesh)
 	add_child(_floor_body)
+	_kerb_mesh = MeshInstance3D.new()
+	_kerb_mesh.name = "KerbMesh"
+	var kerb_mat := StandardMaterial3D.new()
+	kerb_mat.albedo_color = Color(0.46, 0.47, 0.43)
+	kerb_mat.roughness = 0.9
+	_kerb_mesh.material_override = kerb_mat
+	add_child(_kerb_mesh)
 
 	# Kerbing sits on its own layer: loose items and cargo bounce off it, the
 	# player and vehicles drive straight over.
@@ -94,8 +103,76 @@ func _apply_expansion(new_tier: int, announce: bool = true) -> void:
 	for i in _wall_shapes.size():
 		(_wall_shapes[i].shape as BoxShape3D).size = offsets[i][1]
 		_wall_shapes[i].position = offsets[i][0]
+	# The kerb is drawn lower than it collides, as a lip rather than a wall.
+	var kerb := ArrayMesh.new()
+	var st := SurfaceTool.new()
+	for spec in offsets:
+		var b := BoxMesh.new()
+		b.size = Vector3(spec[1].x, 0.22, spec[1].z)
+		st.append_from(b, 0, Transform3D(Basis(), Vector3(spec[0].x, 0.11, spec[0].z)))
+	_kerb_mesh.mesh = st.commit(kerb)
+	_floor_material.set_shader_parameter("half_extent", half_extent)
 	if announce:
 		expanded.emit(tier, half_extent)
+
+## Build mode brings the grid up; the rest of the time it is a faint hint on
+## the concrete.
+func show_grid(on: bool) -> void:
+	if _floor_material != null:
+		_floor_material.set_shader_parameter("grid_strength", 0.42 if on else 0.10)
+
+static var _shader_cache: Shader
+
+## Concrete with the cell grid drawn on it (every metre, heavier every four) and
+## a hazard stripe round the edge, so the plot reads as a build site and the
+## grid a building will snap to is visible before you open build mode.
+static func _pad_shader() -> Shader:
+	if _shader_cache != null:
+		return _shader_cache
+	_shader_cache = Shader.new()
+	_shader_cache.code = """
+shader_type spatial;
+render_mode cull_back;
+uniform vec3 base : source_color = vec3(0.31, 0.33, 0.29);
+uniform vec3 line : source_color = vec3(0.88, 0.90, 0.80);
+uniform float grid_strength = 0.10;
+uniform float half_extent = 22.0;
+varying vec3 local_pos;
+varying vec3 local_normal;
+
+void vertex() {
+	local_pos = VERTEX;
+	local_normal = NORMAL;
+}
+
+float grid_line(vec2 p, float width) {
+	vec2 g = abs(fract(p - 0.5) - 0.5) / max(fwidth(p), vec2(1e-4));
+	return 1.0 - min(min(g.x, g.y) / width, 1.0);
+}
+
+void fragment() {
+	vec3 c = base;
+	if (local_normal.y > 0.5) {
+		// A little unevenness in the concrete, in tiles.
+		vec2 tile = floor(local_pos.xz / 4.0);
+		float n = fract(sin(dot(tile, vec2(12.9898, 78.233))) * 43758.5453);
+		c *= 0.94 + n * 0.08;
+		float fine = grid_line(local_pos.xz, 1.0);
+		float major = grid_line(local_pos.xz / 4.0, 1.6);
+		c = mix(c, line, clamp(fine * grid_strength + major * grid_strength * 1.6, 0.0, 1.0));
+		float edge = max(abs(local_pos.x), abs(local_pos.z));
+		if (edge > half_extent - 0.7) {
+			float stripe = step(0.5, fract((local_pos.x + local_pos.z) * 0.5));
+			c = mix(vec3(0.10, 0.10, 0.09), vec3(0.92, 0.70, 0.18), stripe);
+		}
+	} else {
+		c *= 0.7;
+	}
+	ALBEDO = c;
+	ROUGHNESS = 0.93;
+}
+"""
+	return _shader_cache
 
 # --- Grid helpers ----------------------------------------------------------
 

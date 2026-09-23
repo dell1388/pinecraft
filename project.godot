@@ -6,17 +6,21 @@ config/name="Pinecraft"
 config/description="Single-player 3D sandbox/tycoon: chop, process, sell, build, automate."
 run/main_scene="res://scenes/world.tscn"
 config/features=PackedStringArray("4.4", "Forward Plus")
+boot_splash/bg_color=Color(0.055, 0.075, 0.065, 1)
+boot_splash/show_image=false
 
 [autoload]
 
 GameData="*res://scripts/systems/GameData.gd"
 Economy="*res://scripts/systems/Economy.gd"
 PlayerState="*res://scripts/systems/PlayerState.gd"
+Settings="*res://scripts/systems/Settings.gd"
 
 [display]
 window/size/viewport_width=1600
 window/size/viewport_height=900
 window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
 
 [physics]
 common/physics_ticks_per_second=60

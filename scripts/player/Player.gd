@@ -133,15 +133,16 @@ func steering_load() -> bool:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and _mouse_captured:
+		var sens := mouse_sensitivity * Settings.mouse_scale()
+		var look_y: float = event.relative.y * (-1.0 if Settings.invert_y() else 1.0)
 		if camera.top_level:
 			# Freecam: the camera carries its own yaw, since it is no longer
 			# hanging off the player's shoulders.
-			camera.rotation.y -= event.relative.x * mouse_sensitivity
-			camera.rotation.x = clampf(
-				camera.rotation.x - event.relative.y * mouse_sensitivity, -1.45, 1.45)
+			camera.rotation.y -= event.relative.x * sens
+			camera.rotation.x = clampf(camera.rotation.x - look_y * sens, -1.45, 1.45)
 			return
-		rotate_y(-event.relative.x * mouse_sensitivity)
-		camera.rotate_x(-event.relative.y * mouse_sensitivity)
+		rotate_y(-event.relative.x * sens)
+		camera.rotate_x(-look_y * sens)
 		camera.rotation.x = clampf(camera.rotation.x, -1.45, 1.45)
 		return
 	if _ui_blocking:
@@ -177,6 +178,11 @@ func _on_mouse_button(event: InputEventMouseButton) -> void:
 
 func _on_key(event: InputEventKey) -> void:
 	if driving() and _on_driving_key(event):
+		return
+	# The number row picks off the build bar.
+	if build_system != null and build_system.active \
+			and event.keycode >= KEY_1 and event.keycode <= KEY_9:
+		build_system.select_slot(int(event.keycode - KEY_1))
 		return
 	match event.keycode:
 		KEY_E:
@@ -386,7 +392,7 @@ func _update_prompt() -> void:
 			r.status_line()]
 	elif target is LooseItem:
 		var i := target as LooseItem
-		var label := "%s  %.2f m  %.3f m3  %.0f kg" % [
+		var label := "%s   ·   %.2f m   ·   %.3f m³   ·   %.0f kg" % [
 			GameData.item_name(i.item_id), i.length(), i.volume(), i.mass]
 		var verbs: Array[String] = []
 		if i.is_wood() and i.length() > MIN_BUCK_LENGTH:
