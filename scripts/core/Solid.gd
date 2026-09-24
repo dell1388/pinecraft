@@ -27,8 +27,9 @@ static func cube(volume_m3: float) -> Dictionary:
 
 ## What a piece has been through that makes it worth more: sanded wood, refined
 ## metal. Carried in the dims, so it survives cutting, saving and machines.
-const FINISH_VALUE := {&"sanded": 1.35, &"refined": 1.45}
-const FINISH_NAME := {&"sanded": "Sanded", &"refined": "Refined"}
+## Defaults; each material sets its own (see the materials table in items.json).
+const FINISH_VALUE := {&"sanded": 1.35, &"refined": 1.45, &"polished": 1.3}
+const FINISH_NAME := {&"sanded": "Sanded", &"refined": "Refined", &"polished": "Polished"}
 
 static func finishes(d: Dictionary) -> Array:
 	return d.get("finish", [])
@@ -52,11 +53,13 @@ static func keep_finish(from: Dictionary, to: Dictionary) -> Dictionary:
 	to["finish"] = finishes(from).duplicate()
 	return to
 
-## The price multiplier the finishes add up to.
-static func quality(d: Dictionary) -> float:
+## The price multiplier the finishes add up to. `table` is the material's own
+## finish bonuses, where it has them; anything it does not name uses the default.
+static func quality(d: Dictionary, table: Dictionary = {}) -> float:
 	var q := 1.0
 	for f in finishes(d):
-		q *= float(FINISH_VALUE.get(StringName(f), 1.0))
+		var key := StringName(f)
+		q *= float(table.get(key, FINISH_VALUE.get(key, 1.0)))
 	return q
 
 static func finish_prefix(d: Dictionary) -> String:

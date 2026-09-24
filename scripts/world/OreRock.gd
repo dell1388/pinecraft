@@ -194,11 +194,20 @@ func _consume() -> void:
 ## shrinks the rock in the ground.
 ## Ores that catch the light, and the rock each tends to sit in, so a sunstone
 ## in sandstone and cobalt in dark slate read differently from across a valley.
-const GLOWING_ORES := [&"ore_gold", &"ore_cobalt", &"ore_sunstone"]
+const GLOWING_ORES := [&"ore_gold", &"ore_cobalt", &"ore_sunstone", &"ore_bismuth",
+	&"ore_platinum", &"ore_starmetal"]
 const HOST_STONE := {
 	&"ore_copper": Color(0.55, 0.46, 0.38), &"ore_silver": Color(0.56, 0.58, 0.62),
 	&"ore_cobalt": Color(0.28, 0.30, 0.34), &"ore_sunstone": Color(0.78, 0.64, 0.44),
-	&"ore_gold": Color(0.50, 0.47, 0.43),
+	&"ore_gold": Color(0.50, 0.47, 0.43), &"ore_tin": Color(0.55, 0.52, 0.47),
+	&"ore_zinc": Color(0.45, 0.47, 0.44), &"ore_magnetite": Color(0.36, 0.34, 0.33),
+	&"ore_nickel": Color(0.42, 0.44, 0.38), &"ore_bismuth": Color(0.60, 0.58, 0.56),
+	&"ore_tungsten": Color(0.50, 0.44, 0.38), &"ore_platinum": Color(0.40, 0.40, 0.44),
+	&"ore_starmetal": Color(0.12, 0.11, 0.14),
+	&"gem_quartz": Color(0.62, 0.60, 0.56), &"gem_jade": Color(0.46, 0.50, 0.44),
+	&"gem_amethyst": Color(0.44, 0.40, 0.42), &"gem_obsidian": Color(0.30, 0.22, 0.20),
+	&"gem_emerald": Color(0.40, 0.42, 0.40), &"gem_ruby": Color(0.52, 0.46, 0.44),
+	&"gem_diamond": Color(0.20, 0.20, 0.24),
 }
 
 func _rebuild() -> void:
@@ -237,8 +246,11 @@ func _rebuild() -> void:
 			Transform3D(Basis(Vector3.UP, form.randf() * PI) * Basis(Vector3.RIGHT, form.randf_range(-0.4, 0.4)),
 				Vector3(cos(angle) * r * 0.7, lift + r * form.randf_range(0.3, 0.95), sin(angle) * r * 0.7)),
 			stone.lightened(form.randf_range(0.0, 0.12)))
-	var glint := GLOWING_ORES.has(ore_item)
-	for i in 5:
+	# Stones grow as bigger, glassier crystals than metal ores do.
+	var gem := ore_def != null and ore_def.category == &"gem"
+	var glint := GLOWING_ORES.has(ore_item) or gem
+	var grow := 1.7 if gem else 1.0
+	for i in (7 if gem else 5):
 		var angle2: float = TAU * form.randf()
 		var out := Vector3(cos(angle2), form.randf_range(0.2, 0.9), sin(angle2)).normalized()
 		var at := Vector3(0, lift + r * 0.75, 0) + out * r * 0.72
@@ -247,7 +259,7 @@ func _rebuild() -> void:
 		var basis := Basis(side, up, side.cross(up))
 		for k in 2:
 			var tilt := Basis(Vector3.FORWARD, form.randf_range(-0.4, 0.4))
-			g.prism(6, r * form.randf_range(0.08, 0.14), 0.0, r * form.randf_range(0.35, 0.6),
+			g.prism(6, r * form.randf_range(0.08, 0.14) * grow, 0.0, r * form.randf_range(0.35, 0.6) * grow,
 				Transform3D(basis * tilt, at + side * r * 0.1 * float(k)), seam, glint)
 		g.box(Vector3(r * 0.34, r * 0.1, r * 0.3), Transform3D(basis, at - up * r * 0.02), seam.darkened(0.2))
 	var mi := g.instance("Rock")

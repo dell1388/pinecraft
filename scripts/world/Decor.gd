@@ -161,6 +161,9 @@ func _scatter() -> void:
 			var x0 := -half + float(ix) * Terrain.CELL
 			var z0 := -half + float(iz) * Terrain.CELL
 			var centre := Vector3(x0 + Terrain.CELL * 0.5, 0, z0 + Terrain.CELL * 0.5)
+			# Open water between the islands: nothing grows there.
+			if terrain.height_at(centre.x, centre.z) < Terrain.WATER_LEVEL - 1.8:
+				continue
 			var biome := terrain.biome_at(centre.x, centre.z)
 			if not _clear(centre.x, centre.z, 4.0):
 				continue

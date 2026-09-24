@@ -162,6 +162,11 @@
               "kind": "tier",
               "target": "workbench",
               "tier": 1
+            },
+            {
+              "kind": "tier",
+              "target": "gem_cutter",
+              "tier": 1
             }
           ]
         },
@@ -367,6 +372,16 @@
             {
               "kind": "tier",
               "target": "workbench",
+              "tier": 3
+            },
+            {
+              "kind": "tier",
+              "target": "gem_cutter",
+              "tier": 2
+            },
+            {
+              "kind": "tier",
+              "target": "gem_cutter",
               "tier": 3
             }
           ]

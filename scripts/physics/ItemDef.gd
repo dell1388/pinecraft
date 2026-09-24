@@ -23,6 +23,9 @@ extends Resource
 ## has to go over the counter first.
 @export var must_buy: bool = false
 @export var color: Color = Color(0.47, 0.32, 0.19)
+## This material's own price multiplier per finish (sanded, polished, refined),
+## set from the materials table at load. Anything missing uses Solid's default.
+@export var finish_value: Dictionary = {}
 
 ## Defaults used when a spawn does not specify dimensions.
 @export var default_size: Vector3 = Vector3(0.3, 0.3, 0.3)
@@ -48,7 +51,7 @@ func mass_of(dims: Dictionary) -> float:
 func base_value_of(dims: Dictionary) -> float:
 	if fixed_value > 0:
 		return float(fixed_value)
-	return value_per_m3 * Solid.volume(dims) * Solid.quality(dims)
+	return value_per_m3 * Solid.volume(dims) * Solid.quality(dims, finish_value)
 
 static func from_dict(d: Dictionary) -> ItemDef:
 	var def := ItemDef.new()

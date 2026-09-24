@@ -154,6 +154,10 @@ func driving() -> bool:
 func water_depth() -> float:
 	if terrain == null:
 		return 0.0
+	# Standing clear of the water line - on a bridge over the sea - you are
+	# not in it, however deep it is underneath.
+	if global_position.y > Terrain.WATER_LEVEL + 0.2:
+		return 0.0
 	return terrain.water_depth(global_position.x, global_position.z)
 
 func _water_surface() -> float:

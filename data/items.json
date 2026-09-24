@@ -774,6 +774,630 @@
       "volatility": 0.4
     },
     {
+      "id": "wood_mahogany",
+      "display_name": "Mahogany Wood",
+      "category": "wood",
+      "shape": "cylinder",
+      "variable": true,
+      "radius": 0.24,
+      "length": 1.8,
+      "taper": 0.9,
+      "density": 240,
+      "value_per_m3": 260,
+      "color": [
+        0.45,
+        0.18,
+        0.12
+      ],
+      "volatility": 0.3
+    },
+    {
+      "id": "lumber_mahogany",
+      "display_name": "Mahogany Lumber",
+      "category": "lumber",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.3,
+        0.3
+      ],
+      "length": 1.6,
+      "density": 225,
+      "value_per_m3": 1000,
+      "color": [
+        0.62,
+        0.26,
+        0.16
+      ],
+      "volatility": 0.3
+    },
+    {
+      "id": "ore_tin",
+      "display_name": "Tin Ore",
+      "category": "ore",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.28,
+        0.23,
+        0.26
+      ],
+      "density": 850,
+      "value_per_m3": 1000,
+      "color": [
+        0.62,
+        0.64,
+        0.62
+      ],
+      "volatility": 0.3
+    },
+    {
+      "id": "ingot_tin",
+      "display_name": "Tin Bar",
+      "category": "metal",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.26,
+        0.14
+      ],
+      "length": 0.5,
+      "density": 1300,
+      "value_per_m3": 2000,
+      "color": [
+        0.78,
+        0.8,
+        0.8
+      ],
+      "volatility": 0.3
+    },
+    {
+      "id": "ore_zinc",
+      "display_name": "Zinc Ore",
+      "category": "ore",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.28,
+        0.23,
+        0.26
+      ],
+      "density": 880,
+      "value_per_m3": 1000,
+      "color": [
+        0.55,
+        0.62,
+        0.66
+      ],
+      "volatility": 0.3
+    },
+    {
+      "id": "ingot_zinc",
+      "display_name": "Zinc Bar",
+      "category": "metal",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.26,
+        0.14
+      ],
+      "length": 0.5,
+      "density": 1350,
+      "value_per_m3": 2000,
+      "color": [
+        0.7,
+        0.76,
+        0.8
+      ],
+      "volatility": 0.3
+    },
+    {
+      "id": "ore_magnetite",
+      "display_name": "Magnetite",
+      "category": "ore",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.28,
+        0.23,
+        0.26
+      ],
+      "density": 1050,
+      "value_per_m3": 1000,
+      "color": [
+        0.16,
+        0.16,
+        0.19
+      ],
+      "volatility": 0.3
+    },
+    {
+      "id": "ingot_lodesteel",
+      "display_name": "Lodesteel Bar",
+      "category": "metal",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.26,
+        0.14
+      ],
+      "length": 0.5,
+      "density": 1600,
+      "value_per_m3": 2000,
+      "color": [
+        0.3,
+        0.32,
+        0.4
+      ],
+      "volatility": 0.3
+    },
+    {
+      "id": "ore_nickel",
+      "display_name": "Nickel Ore",
+      "category": "ore",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.28,
+        0.23,
+        0.26
+      ],
+      "density": 950,
+      "value_per_m3": 1000,
+      "color": [
+        0.62,
+        0.66,
+        0.52
+      ],
+      "volatility": 0.3
+    },
+    {
+      "id": "ingot_nickel",
+      "display_name": "Nickel Bar",
+      "category": "metal",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.26,
+        0.14
+      ],
+      "length": 0.5,
+      "density": 1700,
+      "value_per_m3": 2000,
+      "color": [
+        0.8,
+        0.8,
+        0.72
+      ],
+      "volatility": 0.3
+    },
+    {
+      "id": "ore_bismuth",
+      "display_name": "Bismuth Crystal",
+      "category": "ore",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.28,
+        0.23,
+        0.26
+      ],
+      "density": 980,
+      "value_per_m3": 1000,
+      "color": [
+        0.85,
+        0.45,
+        0.95
+      ],
+      "volatility": 0.3
+    },
+    {
+      "id": "ingot_bismuth",
+      "display_name": "Bismuth Bar",
+      "category": "metal",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.26,
+        0.14
+      ],
+      "length": 0.5,
+      "density": 1500,
+      "value_per_m3": 2000,
+      "color": [
+        0.78,
+        0.72,
+        0.8
+      ],
+      "volatility": 0.3
+    },
+    {
+      "id": "ore_tungsten",
+      "display_name": "Wolframite",
+      "category": "ore",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.28,
+        0.23,
+        0.26
+      ],
+      "density": 1400,
+      "value_per_m3": 1000,
+      "color": [
+        0.3,
+        0.28,
+        0.26
+      ],
+      "volatility": 0.3
+    },
+    {
+      "id": "ingot_tungsten",
+      "display_name": "Tungsten Bar",
+      "category": "metal",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.26,
+        0.14
+      ],
+      "length": 0.5,
+      "density": 2400,
+      "value_per_m3": 2000,
+      "color": [
+        0.52,
+        0.54,
+        0.58
+      ],
+      "volatility": 0.3
+    },
+    {
+      "id": "ore_platinum",
+      "display_name": "Platinum Ore",
+      "category": "ore",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.28,
+        0.23,
+        0.26
+      ],
+      "density": 1300,
+      "value_per_m3": 1000,
+      "color": [
+        0.8,
+        0.82,
+        0.84
+      ],
+      "volatility": 0.3
+    },
+    {
+      "id": "ingot_platinum",
+      "display_name": "Platinum Bar",
+      "category": "metal",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.26,
+        0.14
+      ],
+      "length": 0.5,
+      "density": 2300,
+      "value_per_m3": 2000,
+      "color": [
+        0.9,
+        0.92,
+        0.95
+      ],
+      "volatility": 0.3
+    },
+    {
+      "id": "ore_starmetal",
+      "display_name": "Starmetal",
+      "category": "ore",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.28,
+        0.23,
+        0.26
+      ],
+      "density": 1250,
+      "value_per_m3": 1000,
+      "color": [
+        0.35,
+        0.55,
+        0.95
+      ],
+      "volatility": 0.3
+    },
+    {
+      "id": "ingot_starsteel",
+      "display_name": "Starsteel Bar",
+      "category": "metal",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.26,
+        0.14
+      ],
+      "length": 0.5,
+      "density": 2100,
+      "value_per_m3": 2000,
+      "color": [
+        0.55,
+        0.75,
+        1.0
+      ],
+      "volatility": 0.3
+    },
+    {
+      "id": "gem_quartz",
+      "display_name": "Rough Quartz",
+      "category": "gem",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.24,
+        0.2,
+        0.22
+      ],
+      "density": 700,
+      "value_per_m3": 1000,
+      "color": [
+        0.93,
+        0.92,
+        0.96
+      ],
+      "volatility": 0.35
+    },
+    {
+      "id": "jewel_quartz",
+      "display_name": "Cut Quartz",
+      "category": "jewel",
+      "shape": "cylinder",
+      "variable": true,
+      "radius": 0.12,
+      "length": 0.1,
+      "taper": 0.5,
+      "density": 700,
+      "value_per_m3": 2000,
+      "color": [
+        0.93,
+        0.92,
+        0.96
+      ],
+      "volatility": 0.35
+    },
+    {
+      "id": "gem_jade",
+      "display_name": "Rough Jade",
+      "category": "gem",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.24,
+        0.2,
+        0.22
+      ],
+      "density": 850,
+      "value_per_m3": 1000,
+      "color": [
+        0.3,
+        0.72,
+        0.48
+      ],
+      "volatility": 0.35
+    },
+    {
+      "id": "jewel_jade",
+      "display_name": "Cut Jade",
+      "category": "jewel",
+      "shape": "cylinder",
+      "variable": true,
+      "radius": 0.12,
+      "length": 0.1,
+      "taper": 0.5,
+      "density": 850,
+      "value_per_m3": 2000,
+      "color": [
+        0.3,
+        0.72,
+        0.48
+      ],
+      "volatility": 0.35
+    },
+    {
+      "id": "gem_amethyst",
+      "display_name": "Rough Amethyst",
+      "category": "gem",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.24,
+        0.2,
+        0.22
+      ],
+      "density": 780,
+      "value_per_m3": 1000,
+      "color": [
+        0.62,
+        0.36,
+        0.88
+      ],
+      "volatility": 0.35
+    },
+    {
+      "id": "jewel_amethyst",
+      "display_name": "Cut Amethyst",
+      "category": "jewel",
+      "shape": "cylinder",
+      "variable": true,
+      "radius": 0.12,
+      "length": 0.1,
+      "taper": 0.5,
+      "density": 780,
+      "value_per_m3": 2000,
+      "color": [
+        0.62,
+        0.36,
+        0.88
+      ],
+      "volatility": 0.35
+    },
+    {
+      "id": "gem_obsidian",
+      "display_name": "Rough Obsidian",
+      "category": "gem",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.24,
+        0.2,
+        0.22
+      ],
+      "density": 720,
+      "value_per_m3": 1000,
+      "color": [
+        0.1,
+        0.09,
+        0.13
+      ],
+      "volatility": 0.35
+    },
+    {
+      "id": "jewel_obsidian",
+      "display_name": "Cut Obsidian",
+      "category": "jewel",
+      "shape": "cylinder",
+      "variable": true,
+      "radius": 0.12,
+      "length": 0.1,
+      "taper": 0.5,
+      "density": 720,
+      "value_per_m3": 2000,
+      "color": [
+        0.1,
+        0.09,
+        0.13
+      ],
+      "volatility": 0.35
+    },
+    {
+      "id": "gem_emerald",
+      "display_name": "Rough Emerald",
+      "category": "gem",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.24,
+        0.2,
+        0.22
+      ],
+      "density": 800,
+      "value_per_m3": 1000,
+      "color": [
+        0.1,
+        0.78,
+        0.42
+      ],
+      "volatility": 0.35
+    },
+    {
+      "id": "jewel_emerald",
+      "display_name": "Cut Emerald",
+      "category": "jewel",
+      "shape": "cylinder",
+      "variable": true,
+      "radius": 0.12,
+      "length": 0.1,
+      "taper": 0.5,
+      "density": 800,
+      "value_per_m3": 2000,
+      "color": [
+        0.1,
+        0.78,
+        0.42
+      ],
+      "volatility": 0.35
+    },
+    {
+      "id": "gem_ruby",
+      "display_name": "Rough Ruby",
+      "category": "gem",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.24,
+        0.2,
+        0.22
+      ],
+      "density": 900,
+      "value_per_m3": 1000,
+      "color": [
+        0.9,
+        0.1,
+        0.22
+      ],
+      "volatility": 0.35
+    },
+    {
+      "id": "jewel_ruby",
+      "display_name": "Cut Ruby",
+      "category": "jewel",
+      "shape": "cylinder",
+      "variable": true,
+      "radius": 0.12,
+      "length": 0.1,
+      "taper": 0.5,
+      "density": 900,
+      "value_per_m3": 2000,
+      "color": [
+        0.9,
+        0.1,
+        0.22
+      ],
+      "volatility": 0.35
+    },
+    {
+      "id": "gem_diamond",
+      "display_name": "Rough Diamond",
+      "category": "gem",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.24,
+        0.2,
+        0.22
+      ],
+      "density": 1000,
+      "value_per_m3": 1000,
+      "color": [
+        0.82,
+        0.95,
+        1.0
+      ],
+      "volatility": 0.35
+    },
+    {
+      "id": "jewel_diamond",
+      "display_name": "Cut Diamond",
+      "category": "jewel",
+      "shape": "cylinder",
+      "variable": true,
+      "radius": 0.12,
+      "length": 0.1,
+      "taper": 0.5,
+      "density": 1000,
+      "value_per_m3": 2000,
+      "color": [
+        0.82,
+        0.95,
+        1.0
+      ],
+      "volatility": 0.35
+    },
+    {
       "id": "crate",
       "display_name": "Shipping Crate",
       "category": "goods",
@@ -812,6 +1436,349 @@
         0.62
       ],
       "volatility": 0.22
+    }
+  ],
+  "_materials_note": "Every material's worth along its processing path, in $ per cubic metre of the RAW material: raw as found, pre after the first step (sanded log, smelted bar, polished stone), final after the whole path (sanded plank, refined bar, cut jewel). Item prices and finish bonuses are derived from this at load, allowing for what each machine keeps of the volume.",
+  "materials": [
+    {
+      "id": "pine",
+      "path": "wood",
+      "raw_item": "wood_pine",
+      "final_item": "lumber_pine",
+      "raw": 22,
+      "pre": 28,
+      "final": 48
+    },
+    {
+      "id": "palm",
+      "path": "wood",
+      "raw_item": "wood_palm",
+      "final_item": "lumber_palm",
+      "raw": 26,
+      "pre": 25,
+      "final": 30,
+      "note": "Stringy: hardly worth milling"
+    },
+    {
+      "id": "birch",
+      "path": "wood",
+      "raw_item": "wood_birch",
+      "final_item": "lumber_birch",
+      "raw": 30,
+      "pre": 44,
+      "final": 58
+    },
+    {
+      "id": "spruce",
+      "path": "wood",
+      "raw_item": "wood_spruce",
+      "final_item": "lumber_spruce",
+      "raw": 34,
+      "pre": 42,
+      "final": 70
+    },
+    {
+      "id": "willow",
+      "path": "wood",
+      "raw_item": "wood_willow",
+      "final_item": "lumber_willow",
+      "raw": 40,
+      "pre": 46,
+      "final": 92
+    },
+    {
+      "id": "baobab",
+      "path": "wood",
+      "raw_item": "wood_baobab",
+      "final_item": "lumber_baobab",
+      "raw": 40,
+      "pre": 64,
+      "final": 52,
+      "note": "Spongy: sell it sanded, planks lose value"
+    },
+    {
+      "id": "oak",
+      "path": "wood",
+      "raw_item": "wood_oak",
+      "final_item": "lumber_oak",
+      "raw": 48,
+      "pre": 60,
+      "final": 118
+    },
+    {
+      "id": "redwood",
+      "path": "wood",
+      "raw_item": "wood_redwood",
+      "final_item": "lumber_redwood",
+      "raw": 50,
+      "pre": 56,
+      "final": 140,
+      "note": "Sanding does little; the planks are the prize"
+    },
+    {
+      "id": "maple",
+      "path": "wood",
+      "raw_item": "wood_maple",
+      "final_item": "lumber_maple",
+      "raw": 55,
+      "pre": 78,
+      "final": 150
+    },
+    {
+      "id": "cherry",
+      "path": "wood",
+      "raw_item": "wood_cherry",
+      "final_item": "lumber_cherry",
+      "raw": 75,
+      "pre": 120,
+      "final": 190
+    },
+    {
+      "id": "ironwood",
+      "path": "wood",
+      "raw_item": "wood_ironwood",
+      "final_item": "lumber_ironwood",
+      "raw": 120,
+      "pre": 125,
+      "final": 330,
+      "note": "Too hard to sand much; mill it"
+    },
+    {
+      "id": "frost",
+      "path": "wood",
+      "raw_item": "wood_frost",
+      "final_item": "lumber_frost",
+      "raw": 150,
+      "pre": 145,
+      "final": 380,
+      "note": "Sanding melts the frost a little"
+    },
+    {
+      "id": "spirit",
+      "path": "wood",
+      "raw_item": "wood_spirit",
+      "final_item": "lumber_spirit",
+      "raw": 230,
+      "pre": 180,
+      "final": 620,
+      "note": "Sanding scuffs the glow; planks bring it back"
+    },
+    {
+      "id": "mahogany",
+      "path": "wood",
+      "raw_item": "wood_mahogany",
+      "final_item": "lumber_mahogany",
+      "raw": 260,
+      "pre": 380,
+      "final": 900,
+      "note": "Grows in one hidden valley"
+    },
+    {
+      "id": "ember",
+      "path": "wood",
+      "raw_item": "wood_ember",
+      "final_item": "lumber_ember",
+      "raw": 320,
+      "pre": 420,
+      "final": 560
+    },
+    {
+      "id": "tin",
+      "path": "metal",
+      "raw_item": "ore_tin",
+      "final_item": "ingot_tin",
+      "raw": 380,
+      "pre": 520,
+      "final": 640
+    },
+    {
+      "id": "zinc",
+      "path": "metal",
+      "raw_item": "ore_zinc",
+      "final_item": "ingot_zinc",
+      "raw": 450,
+      "pre": 520,
+      "final": 1100,
+      "note": "Dull bar, but refined zinc is in demand"
+    },
+    {
+      "id": "iron",
+      "path": "metal",
+      "raw_item": "ore_iron",
+      "final_item": "ingot_iron",
+      "raw": 600,
+      "pre": 900,
+      "final": 1300
+    },
+    {
+      "id": "magnetite",
+      "path": "metal",
+      "raw_item": "ore_magnetite",
+      "final_item": "ingot_lodesteel",
+      "raw": 700,
+      "pre": 650,
+      "final": 1500,
+      "note": "Smelting kills the magnetism; refining puts it back"
+    },
+    {
+      "id": "copper",
+      "path": "metal",
+      "raw_item": "ore_copper",
+      "final_item": "ingot_copper",
+      "raw": 820,
+      "pre": 1300,
+      "final": 1350,
+      "note": "Refining adds almost nothing"
+    },
+    {
+      "id": "nickel",
+      "path": "metal",
+      "raw_item": "ore_nickel",
+      "final_item": "ingot_nickel",
+      "raw": 950,
+      "pre": 1400,
+      "final": 2100
+    },
+    {
+      "id": "silver",
+      "path": "metal",
+      "raw_item": "ore_silver",
+      "final_item": "ingot_silver",
+      "raw": 1300,
+      "pre": 2000,
+      "final": 2900
+    },
+    {
+      "id": "tungsten",
+      "path": "metal",
+      "raw_item": "ore_tungsten",
+      "final_item": "ingot_tungsten",
+      "raw": 1400,
+      "pre": 1500,
+      "final": 5200,
+      "note": "Barely worth smelting - until it is refined"
+    },
+    {
+      "id": "cobalt",
+      "path": "metal",
+      "raw_item": "ore_cobalt",
+      "final_item": "ingot_cobalt",
+      "raw": 1800,
+      "pre": 2600,
+      "final": 3800
+    },
+    {
+      "id": "bismuth",
+      "path": "metal",
+      "raw_item": "ore_bismuth",
+      "final_item": "ingot_bismuth",
+      "raw": 2200,
+      "pre": 1300,
+      "final": 1700,
+      "note": "The crystals are worth more than the metal"
+    },
+    {
+      "id": "gold",
+      "path": "metal",
+      "raw_item": "ore_gold",
+      "final_item": "ingot_gold",
+      "raw": 2400,
+      "pre": 3400,
+      "final": 4600
+    },
+    {
+      "id": "platinum",
+      "path": "metal",
+      "raw_item": "ore_platinum",
+      "final_item": "ingot_platinum",
+      "raw": 3200,
+      "pre": 5000,
+      "final": 7400
+    },
+    {
+      "id": "sunstone",
+      "path": "metal",
+      "raw_item": "ore_sunstone",
+      "final_item": "ingot_sunsteel",
+      "raw": 4000,
+      "pre": 5700,
+      "final": 8000
+    },
+    {
+      "id": "starmetal",
+      "path": "metal",
+      "raw_item": "ore_starmetal",
+      "final_item": "ingot_starsteel",
+      "raw": 6000,
+      "pre": 11000,
+      "final": 16000,
+      "note": "Fell from the sky onto one island"
+    },
+    {
+      "id": "quartz",
+      "path": "gem",
+      "raw_item": "gem_quartz",
+      "final_item": "jewel_quartz",
+      "raw": 300,
+      "pre": 520,
+      "final": 700
+    },
+    {
+      "id": "obsidian",
+      "path": "gem",
+      "raw_item": "gem_obsidian",
+      "final_item": "jewel_obsidian",
+      "raw": 600,
+      "pre": 1100,
+      "final": 800,
+      "note": "Brittle: cutting chips it, sell it polished"
+    },
+    {
+      "id": "jade",
+      "path": "gem",
+      "raw_item": "gem_jade",
+      "final_item": "jewel_jade",
+      "raw": 900,
+      "pre": 2400,
+      "final": 2500,
+      "note": "All the value is in the polish"
+    },
+    {
+      "id": "amethyst",
+      "path": "gem",
+      "raw_item": "gem_amethyst",
+      "final_item": "jewel_amethyst",
+      "raw": 1200,
+      "pre": 1600,
+      "final": 3200
+    },
+    {
+      "id": "emerald",
+      "path": "gem",
+      "raw_item": "gem_emerald",
+      "final_item": "jewel_emerald",
+      "raw": 2600,
+      "pre": 3000,
+      "final": 8500
+    },
+    {
+      "id": "ruby",
+      "path": "gem",
+      "raw_item": "gem_ruby",
+      "final_item": "jewel_ruby",
+      "raw": 3000,
+      "pre": 4200,
+      "final": 9500
+    },
+    {
+      "id": "diamond",
+      "path": "gem",
+      "raw_item": "gem_diamond",
+      "final_item": "jewel_diamond",
+      "raw": 5000,
+      "pre": 5000,
+      "final": 22000,
+      "note": "Polish does nothing; the cut is everything"
     }
   ]
 }

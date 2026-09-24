@@ -23,6 +23,19 @@ var quest_config: Dictionary = {}
 var store_config: Dictionary = {}
 
 var load_errors: Array[String] = []
+## What each material is worth along its processing path: id -> {path, raw_item,
+## final_item, raw, pre, final, note}, all in $ per m3 of the raw material.
+var materials: Dictionary = {}
+## Raw or finished item id -> material id, both ways round.
+var material_of: Dictionary = {}
+
+## How much of a log's volume the planker keeps: a plank 1.8 r wide and 0.8 r
+## thick out of a round of radius r.
+const PLANK_SHARE := 1.44 / PI
+## The bonus a finished piece (a plank, a jewel) gets for having been through
+## the first step (sanded, polished) before it was shaped. The rest of the
+## first step's worth is in the raw material's own bonus.
+const CARRIED_FINISH := 1.2
 
 func _ready() -> void:
 	load_all()
@@ -74,6 +87,7 @@ func load_all() -> void:
 	for entry in _read("vehicles.json").get("vehicles", []):
 		vehicles[StringName(entry["id"])] = entry
 
+	_apply_materials(_read("items.json").get("materials", []))
 	price_config = _read("prices.json")
 	quest_config = _read("quests.json")
 	store_config = _read("store.json")
@@ -90,6 +104,66 @@ func _read(file_name: String) -> Dictionary:
 		load_errors.append("malformed JSON: %s" % path)
 		return {}
 	return parsed
+
+## Prices every stage of every material from its raw / pre / final values.
+## The table is written per cubic metre of raw material, so here each stage's
+## price is worked back through what the machines keep of the volume:
+##   wood   log (raw)  -> sanded log (pre)  -> sanded plank (final)
+##   metal  ore (raw)  -> smelted bar (pre) -> refined bar (final)
+##   gem    rough (raw)-> polished (pre)    -> cut jewel (final)
+func _apply_materials(table: Array) -> void:
+	materials.clear()
+	material_of.clear()
+	var smelt_yield := 0.6
+	var cut_yield := 0.5
+	for m: MachineDef in machines.values():
+		if m.mode == MachineDef.MODE_SMELT:
+			smelt_yield = m.yield_share
+		elif m.mode == MachineDef.MODE_CUT:
+			cut_yield = m.yield_share
+	for entry in table:
+		var id := StringName(entry.get("id", ""))
+		var raw_def: ItemDef = items.get(StringName(entry.get("raw_item", "")))
+		var final_def: ItemDef = items.get(StringName(entry.get("final_item", "")))
+		if raw_def == null or final_def == null:
+			load_errors.append("material '%s' names an unknown item" % id)
+			continue
+		var raw := float(entry.get("raw", 1.0))
+		var pre := float(entry.get("pre", raw))
+		var fin := float(entry.get("final", pre))
+		materials[id] = entry
+		material_of[raw_def.id] = id
+		material_of[final_def.id] = id
+		raw_def.value_per_m3 = raw
+		match String(entry.get("path", "")):
+			"wood":
+				raw_def.finish_value = {&"sanded": pre / raw}
+				final_def.finish_value = {&"sanded": CARRIED_FINISH}
+				final_def.value_per_m3 = fin / (PLANK_SHARE * CARRIED_FINISH)
+			"metal":
+				final_def.value_per_m3 = pre / smelt_yield
+				final_def.finish_value = {&"refined": fin / pre}
+			"gem":
+				raw_def.finish_value = {&"polished": pre / raw}
+				final_def.finish_value = {&"polished": CARRIED_FINISH}
+				final_def.value_per_m3 = fin / (cut_yield * CARRIED_FINISH)
+			_:
+				load_errors.append("material '%s' has no path" % id)
+
+## The material an item belongs to, or {}.
+func material_for(item_id: StringName) -> Dictionary:
+	return materials.get(material_of.get(item_id, &""), {})
+
+## The stage names along a path, for the price guide.
+static func stage_names(path: String) -> Array:
+	match path:
+		"wood":
+			return ["Log", "Sanded", "Plank"]
+		"metal":
+			return ["Ore", "Smelted", "Refined"]
+		"gem":
+			return ["Rough", "Polished", "Cut"]
+	return ["Raw", "Pre", "Final"]
 
 ## Cross-checks every reference between the tables, so a typo in a data file
 ## surfaces at load instead of as a silent no-op three systems later.

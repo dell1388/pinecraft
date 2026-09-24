@@ -46,6 +46,9 @@ func _run_all() -> void:
 	await _test(&"the planker makes one big plank from a log", test_planker)
 	await _test(&"the sander finishes wood and adds value", test_sander)
 	await _test(&"crusher, smelter and refiner work ore down the line", test_ore_line)
+	await _test(&"every material is worth its raw, pre and final values", test_material_values)
+	await _test(&"stones are polished in the sander and faceted in the gem cutter", test_gem_line)
+	await _test(&"islands, bridges and carved places", test_islands)
 	await _test(&"a tunnel mouth is a real opening", test_tunnel_mouth)
 	await _test(&"workbench assembles from volumes", test_workbench)
 	await _test(&"the yard buys what the player owns in it", test_sell_yard)
@@ -938,6 +941,159 @@ func test_sander() -> void:
 	var round_trip := Solid.from_dict(JSON.parse_string(JSON.stringify(Solid.to_dict(again.dims))))
 	check(Solid.has_finish(round_trip, &"sanded"), "the finish does not survive a save")
 	done()
+
+## Spec: each material has a raw value, a value after the first step and a
+## final value along its processing path - per m3 of what was dug or felled.
+## Checked through the same shapes the machines make, so the table is what the
+## yard actually pays. And the oddities are there: not everything gains.
+func test_material_values() -> void:
+	_setup()
+	var smelt: MachineDef = GameData.machines[&"furnace"]
+	var cut: MachineDef = GameData.machines[&"gem_cutter"]
+	var dips := 0
+	var growth := 0.0
+	check(GameData.materials.size() >= 30, "only %d materials priced" % GameData.materials.size())
+	for id in GameData.materials:
+		var m: Dictionary = GameData.materials[id]
+		var raw_def := GameData.item(StringName(m.raw_item))
+		var fin_def := GameData.item(StringName(m.final_item))
+		var raw := 0.0
+		var pre := 0.0
+		var fin := 0.0
+		match String(m.path):
+			"wood":
+				var log_dims := Solid.cylinder(0.3, 0.26, 2.0)
+				var v := Solid.volume(log_dims)
+				raw = raw_def.base_value_of(log_dims) / v
+				var sanded := Solid.with_finish(log_dims, &"sanded")
+				pre = raw_def.base_value_of(sanded) / v
+				var r := 0.28
+				var plank := Solid.keep_finish(sanded, Solid.box(Vector3(r * 1.8, 2.0, r * 0.8)))
+				fin = fin_def.base_value_of(plank) / v
+			"metal":
+				var ore := Solid.cube(0.5)
+				var v2 := Solid.volume(ore)
+				raw = raw_def.base_value_of(ore) / v2
+				var bar := Solid.box(Vector3(1, 1, v2 * smelt.yield_share))
+				pre = fin_def.base_value_of(bar) / v2
+				fin = fin_def.base_value_of(Solid.with_finish(bar, &"refined")) / v2
+			"gem":
+				var rough := Solid.cube(0.3)
+				var v3 := Solid.volume(rough)
+				raw = raw_def.base_value_of(rough) / v3
+				var polished := Solid.with_finish(rough, &"polished")
+				pre = raw_def.base_value_of(polished) / v3
+				var r0 := pow(v3 * cut.yield_share / 1.649, 1.0 / 3.0)
+				var jewel := Solid.keep_finish(polished, Solid.cylinder(r0, r0 * 0.5, r0 * 0.9))
+				fin = fin_def.base_value_of(jewel) / v3
+		# The wood check uses a plank from the log's mean radius, as the planker does.
+		var tol := 0.02
+		check_near(raw / float(m.raw), 1.0, tol, "%s raw value" % id)
+		check_near(pre / float(m.pre), 1.0, tol, "%s value after the first step" % id)
+		check_near(fin / float(m.final), 1.0, tol, "%s final value" % id)
+		if float(m.pre) <= float(m.raw) or float(m.final) <= float(m.pre):
+			dips += 1
+		growth += float(m.final) / float(m.raw)
+	check(dips >= 5, "only %d materials break the pattern" % dips)
+	check(growth / float(GameData.materials.size()) > 1.8, "processing adds too little on the whole")
+	# Each new stone and metal is in the game, with a path to its end.
+	for id in [&"ore_tungsten", &"ore_zinc", &"gem_emerald", &"gem_jade", &"ore_magnetite", &"gem_diamond"]:
+		check(GameData.item(id) != null, "%s is missing" % id)
+		check(not GameData.material_for(id).is_empty(), "%s has no value path" % id)
+	done()
+
+## Rough stone > sander (polished) > gem cutter (a faceted jewel).
+func test_gem_line() -> void:
+	_setup()
+	var sander := _inline(&"sander")
+	var cutter := _inline(&"gem_cutter", Vector3(6, 0, 0))
+	await step(3)
+	var stone := _feed(sander, &"gem_emerald", Solid.cube(0.25))
+	var volume := stone.volume()
+	var raw_price := Economy.price_of(stone.item_id, stone.dims)
+	check(await _through(sander, stone), "the stone never came through the sander")
+	check(Solid.has_finish(stone.dims, &"polished"), "the sander did not polish the stone")
+	check(not Solid.has_finish(stone.dims, &"sanded"), "the stone was sanded like wood")
+	check(stone.display_name().begins_with("Polished"), "a polished stone is called %s" % stone.display_name())
+	var polished_price := Economy.price_of(stone.item_id, stone.dims)
+	check(polished_price >= raw_price, "polishing an emerald lost value")
+	var again := _feed(cutter, stone.item_id, stone.dims)
+	check(await _through(cutter, again), "the stone never came through the gem cutter")
+	check_eq(again.item_id, &"jewel_emerald", "the cutter made %s" % again.item_id)
+	check_eq(again.dims.get("shape"), Solid.CYLINDER, "a jewel is not faceted round")
+	check_near(again.volume(), volume * cutter.machine_def.yield_share, 0.0001, "the jewel is the wrong size")
+	check(Solid.has_finish(again.dims, &"polished"), "cutting lost the polish")
+	check(Economy.price_of(again.item_id, again.dims) > polished_price * 2.0, "a cut emerald is not worth the cutting")
+	# The gem cutter leaves ore alone; the crusher leaves stones alone.
+	var ore := _feed(cutter, &"ore_iron", Solid.cube(0.2))
+	check(await _through(cutter, ore), "ore did not ride through the cutter")
+	check_eq(ore.item_id, &"ore_iron", "the cutter changed ore")
+	done()
+
+## Spec: a 2.5 km map of islands with bridges between, and places hidden in it.
+## Checked on a small map built the same way.
+func test_islands() -> void:
+	_setup(false)
+	var land := Terrain.new()
+	land.half_extent = 420.0
+	land.noise_seed = 4242
+	land.islands = [
+		{"centre": Vector2(-190, 0), "radius": 170.0},
+		{"centre": Vector2(200, 0), "radius": 150.0, "wet": -0.3},
+	]
+	land.roads = [{"bridge": true, "path": [Vector3(-260, 0, 0), Vector3(280, 0, 0)]}]
+	land.features = [{"name": "Vale", "kind": "valley", "centre": Vector2(-200, 90), "radius": 30.0,
+		"gap": PI * 0.5, "floor": 6.0}]
+	world.add_child(land)
+	await step(2)
+	# Sea between the islands, deep enough that only a bridge crosses it.
+	check(land.height_at(5.0, 60.0) < -4.0, "there is no sea between the islands (%.1f m)" % land.height_at(5.0, 60.0))
+	check(land.height_at(-190.0, -60.0) > Terrain.WATER_LEVEL, "the first island is under water")
+	check(land.height_at(260.0, 0.0) > Terrain.WATER_LEVEL, "the second island is under water")
+	check(land.height_at(410.0, 400.0) <= Terrain.WATER_LEVEL, "the corners of the map are land")
+	# The road asked for a bridge over the water, from dry road to dry road.
+	check(land.bridges.size() >= 1, "the road across the strait has no bridge")
+	var sea_bridge: Dictionary = {}
+	for b in land.bridges:
+		if float(b.span) > 40.0:
+			sea_bridge = b
+	check(not sea_bridge.is_empty(), "no bridge spans the strait")
+	if not sea_bridge.is_empty():
+		var ends := land.bridge_ends(sea_bridge)
+		check((ends[0] as Vector3).y > Terrain.WATER_LEVEL and (ends[1] as Vector3).y > Terrain.WATER_LEVEL,
+			"a bridge ends in the water: %s" % str(ends))
+		var bridge := Bridge.new()
+		bridge.setup(ends[0], ends[1], land)
+		world.add_child(bridge)
+		await step(2)
+		# Something dropped on the middle of the deck stays on it.
+		var mid: Vector3 = (ends[0] as Vector3).lerp(ends[1], 0.5)
+		var deck := bridge.deck_height(0.5)
+		check(deck > Terrain.WATER_LEVEL + 0.5, "the deck is not clear of the water")
+		var crate := manager_free_crate(Vector3(mid.x, deck + 1.0, mid.z))
+		await step(90)
+		check(crate.global_position.y > deck - 0.1, "a crate fell through the bridge deck (y %.2f, deck %.2f)" % [crate.global_position.y, deck])
+		check(bridge.over_deck(crate.global_position), "the crate slid off the deck")
+	# The valley: a flat floor walled in by a ridge, with one way in.
+	var floor_points := land.points_in_feature("Vale")
+	check(floor_points.size() > 10, "nothing can grow in the valley")
+	var wall := land.height_at(-200.0 - 55.0, 90.0)
+	check(wall > land.height_at(-200.0, 90.0) + 15.0, "the valley has no ridge round it (%.1f)" % wall)
+	check(land.height_at(-200.0, 90.0 + 55.0) < land.height_at(-200.0, 90.0) + 3.0, "the valley has no way in")
+	done()
+
+func manager_free_crate(at: Vector3) -> RigidBody3D:
+	var body := RigidBody3D.new()
+	var cs := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(0.8, 0.8, 0.8)
+	cs.shape = box
+	body.add_child(cs)
+	body.mass = 40.0
+	body.collision_mask = Layers.WORLD
+	world.add_child(body)
+	body.global_position = at
+	return body
 
 ## Rocks > crusher > smelter > refiner.
 func test_ore_line() -> void:

@@ -108,6 +108,20 @@
       "blurb": "Polishes and purifies metal bars. Refined metal sells for more."
     },
     {
+      "id": "gem_cutter",
+      "display_name": "Gem Cutter",
+      "kind": "inline",
+      "cost": 1200,
+      "size": [
+        2,
+        3,
+        5
+      ],
+      "machine": "gem_cutter",
+      "unlock_cost": 1800,
+      "blurb": "Facets rough stones into jewels. Polish them in the sander first for the best price."
+    },
+    {
       "id": "workbench",
       "display_name": "Workbench",
       "kind": "machine",
@@ -593,7 +607,8 @@
         "wood_baobab": "lumber_baobab",
         "wood_frost": "lumber_frost",
         "wood_spirit": "lumber_spirit",
-        "wood_ember": "lumber_ember"
+        "wood_ember": "lumber_ember",
+        "wood_mahogany": "lumber_mahogany"
       },
       "color": [
         0.44,
@@ -608,7 +623,9 @@
       "mode": "sand",
       "accepts": [
         "wood",
-        "lumber"
+        "lumber",
+        "gem",
+        "jewel"
       ],
       "tunnel": [
         1.0,
@@ -660,7 +677,15 @@
         "ore_gold": "ingot_gold",
         "ore_silver": "ingot_silver",
         "ore_cobalt": "ingot_cobalt",
-        "ore_sunstone": "ingot_sunsteel"
+        "ore_sunstone": "ingot_sunsteel",
+        "ore_tin": "ingot_tin",
+        "ore_zinc": "ingot_zinc",
+        "ore_magnetite": "ingot_lodesteel",
+        "ore_nickel": "ingot_nickel",
+        "ore_bismuth": "ingot_bismuth",
+        "ore_tungsten": "ingot_tungsten",
+        "ore_platinum": "ingot_platinum",
+        "ore_starmetal": "ingot_starsteel"
       },
       "yield": 0.6,
       "color": [
@@ -686,6 +711,35 @@
         0.28,
         0.34,
         0.5
+      ],
+      "effect": "sparks"
+    },
+    {
+      "id": "gem_cutter",
+      "display_name": "Gem Cutter",
+      "mode": "cut",
+      "accepts": [
+        "gem"
+      ],
+      "tunnel": [
+        0.8,
+        0.6
+      ],
+      "belt_speed": 1.0,
+      "conversion": {
+        "gem_quartz": "jewel_quartz",
+        "gem_jade": "jewel_jade",
+        "gem_amethyst": "jewel_amethyst",
+        "gem_obsidian": "jewel_obsidian",
+        "gem_emerald": "jewel_emerald",
+        "gem_ruby": "jewel_ruby",
+        "gem_diamond": "jewel_diamond"
+      },
+      "yield": 0.5,
+      "color": [
+        0.32,
+        0.26,
+        0.44
       ],
       "effect": "sparks"
     }

@@ -116,6 +116,19 @@ func _build_mesh(color: Color) -> void:
 		mat.albedo_color = color.lightened(0.25)
 		mat.metallic = 0.85
 		mat.roughness = 0.22
+	# Polished stone is glossy; a cut jewel glitters.
+	if Solid.has_finish(dims, &"polished"):
+		mat.albedo_color = color.lightened(0.12)
+		mat.roughness = 0.12
+		mat.metallic = 0.2
+	if category == &"jewel":
+		mat.roughness = 0.05
+		mat.metallic = 0.35
+		mat.emission_enabled = true
+		mat.emission = color
+		mat.emission_energy_multiplier = 0.35
+	elif category == &"gem":
+		mat.roughness = minf(mat.roughness, 0.5)
 	_mesh.material_override = mat
 
 ## The corners of an eight-sided log, matching CylinderMesh's own vertices:

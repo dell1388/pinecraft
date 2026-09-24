@@ -186,10 +186,57 @@ func _check_ui() -> void:
 		ores[rock.ore_item] = int(ores.get(rock.ore_item, 0)) + 1
 	print("forest: %d trees of %d species %s" % [world.trees().size(), species.size(), str(species)])
 	print("rocks: %d %s" % [world.rocks().size(), str(ores)])
+	_check_spread()
 	_require(species.size() >= 14, "only %d tree species grew" % species.size())
 	_require(world.trees().size() >= 150, "only %d trees" % world.trees().size())
 	print("ui ok: journal %d tabs, pause/resume, %d toasts, checklist %d/%d" % [
 		Journal.TABS.size(), hud._toasts.get_child_count(), world.tutorial.done_count(), Tutorial.STEPS.size()])
+
+## Spec: a 2.5 km map of islands, and the better the material the further out
+## it is - with the best of all hidden: mahogany in a walled valley, diamonds
+## in the farthest cave, starmetal in the crater.
+func _check_spread() -> void:
+	_require(world.terrain.half_extent * 2.0 >= 2500.0, "the map is %.0f m across" % (world.terrain.half_extent * 2.0))
+	_require(world.bridges.size() >= 3, "only %d bridges" % world.bridges.size())
+	for b in world.bridges:
+		var bridge: Bridge = b
+		_require(bridge.from_point.y > Terrain.WATER_LEVEL and bridge.to_point.y > Terrain.WATER_LEVEL,
+			"a bridge ends in the water")
+	# Cheap stuff near home, dear stuff far out: mean distance by value.
+	var cheap := [0.0, 0]
+	var dear := [0.0, 0]
+	for rock in world.rocks():
+		var def := GameData.item(rock.ore_item)
+		var d := Vector2(rock.global_position.x, rock.global_position.z).length()
+		var bucket: Array = dear if def.value_per_m3 >= 1800.0 else (cheap if def.value_per_m3 <= 900.0 else [0.0, 0])
+		bucket[0] += d
+		bucket[1] += 1
+	var near_mean: float = cheap[0] / maxf(1.0, cheap[1])
+	var far_mean: float = dear[0] / maxf(1.0, dear[1])
+	print("spread: cheap ore %.0f m out on average, dear ore %.0f m, %d bridges" % [near_mean, far_mean, world.bridges.size()])
+	_require(far_mean > near_mean * 1.8, "the dear ore is not further out than the cheap (%.0f vs %.0f)" % [far_mean, near_mean])
+	var deepest: Cave = null
+	for cave in world.caves:
+		if deepest == null or cave.global_position.length() > deepest.global_position.length():
+			deepest = cave
+	var diamonds := 0
+	for rock in world.rocks():
+		if rock.ore_item == &"gem_diamond":
+			diamonds += 1
+			_require(deepest != null and rock.global_position.distance_to(deepest.global_position) < 90.0,
+				"a diamond is outside the farthest cave")
+		if rock.ore_item == &"ore_starmetal":
+			_require(rock.global_position.distance_to(Vector3(620, rock.global_position.y, 885)) < 60.0,
+				"starmetal is outside the crater")
+	_require(diamonds > 0, "there are no diamonds")
+	_require(deepest != null and deepest.global_position.length() > 800.0, "the farthest cave is close to home")
+	var mahogany := 0
+	for tree in world.trees():
+		if tree.species == "Mahogany":
+			mahogany += 1
+			_require(Vector2(tree.global_position.x + 1030.0, tree.global_position.z - 70.0).length() < 45.0,
+				"a mahogany grew outside the hidden valley")
+	_require(mahogany > 0, "no mahogany grew")
 
 func _require(condition: bool, message: String) -> void:
 	if not condition:

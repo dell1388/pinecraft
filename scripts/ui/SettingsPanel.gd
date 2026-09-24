@@ -51,7 +51,7 @@ func show_page(i: int) -> void:
 			_choice(&"shadows", "Shadows", ["Off", "Low", "High"])
 			_toggle(&"ambient_occlusion", "Ambient occlusion")
 			_toggle(&"bloom", "Bloom")
-			_slider(&"view_distance", "View distance", 150.0, 600.0, 25.0, "%d m")
+			_slider(&"view_distance", "View distance", 150.0, 1200.0, 50.0, "%d m")
 			_toggle(&"moving_sun", "Sun moves through the day")
 		"Interface":
 			_slider(&"ui_scale", "Interface scale", 0.75, 1.5, 0.05, "%d%%", 100.0)

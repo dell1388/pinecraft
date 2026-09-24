@@ -110,7 +110,7 @@ func _signature() -> String:
 	return TABS[_tab]
 
 func _market_note() -> String:
-	return "Day %d  ·  prices redraw in %s. Wood, lumber and billets are priced by volume, so milling never creates or destroys value - only the rate changes." % [
+	return "Day %d  ·  prices redraw in %s. Everything is priced by volume. The guide below shows what a cubic metre of each raw material is worth at each step of its processing - most gain, some do not." % [
 		Economy.day, UIKit.clock(Economy.seconds_left_today())]
 
 func _rebuild() -> void:
@@ -214,6 +214,8 @@ static func _order_row(quest: Dictionary) -> Control:
 func _market() -> void:
 	_note(_market_note())
 	_clock_label = _body.get_child(_body.get_child_count() - 1) as Label
+	_price_guide()
+	_section("Today's rates")
 	var grid := GridContainer.new()
 	grid.columns = 4
 	grid.add_theme_constant_override("h_separation", 26)
@@ -237,6 +239,43 @@ func _market() -> void:
 		trend.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		grid.add_child(trend)
 	_body.add_child(grid)
+
+## Every material's worth along its processing path, per cubic metre of what
+## was dug or felled, with the change at each step - so the oddities (a wood
+## that is worth less as planks, a crystal worth less smelted) are there to see.
+func _price_guide() -> void:
+	for path in ["wood", "metal", "gem"]:
+		var stages: Array = GameData.stage_names(path)
+		_section({"wood": "Price guide: timber", "metal": "Price guide: metals",
+			"gem": "Price guide: stones"}[path])
+		var grid := GridContainer.new()
+		grid.columns = 5
+		grid.add_theme_constant_override("h_separation", 22)
+		grid.add_theme_constant_override("v_separation", 4)
+		for h in ["Material"] + stages + [""]:
+			grid.add_child(UIKit.label(String(h).to_upper(), "Subheader"))
+		var rows: Array = []
+		for id in GameData.materials:
+			var m: Dictionary = GameData.materials[id]
+			if String(m.get("path", "")) == path:
+				rows.append(m)
+		rows.sort_custom(func(a, b): return float(a.raw) < float(b.raw))
+		for m in rows:
+			grid.add_child(UIKit.label(GameData.item_name(StringName(m.raw_item)).replace(" Wood", "")
+				.replace(" Ore", "").replace("Rough ", "")))
+			var prev := 0.0
+			for key in ["raw", "pre", "final"]:
+				var v := float(m[key])
+				var text := UIKit.money(int(round(v)))
+				var tint := UITheme.INK
+				if prev > 0.0:
+					var pct := int(round((v / prev - 1.0) * 100.0))
+					text += "  %+d%%" % pct
+					tint = UITheme.GOOD if pct > 5 else (UITheme.BAD if pct < -2 else UITheme.MUTED)
+				grid.add_child(UIKit.label(text, "", 15, tint))
+				prev = v
+			grid.add_child(UIKit.label(String(m.get("note", "")), "Small"))
+		_body.add_child(grid)
 
 func _upgrades() -> void:
 	_note("Upgrades and machines are bought at the Store: carry the box to the till and press [E]. Land is sold at the desk by the door.")

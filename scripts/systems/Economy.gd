@@ -131,6 +131,8 @@ func sell(item_id: StringName, dims: Dictionary = {}) -> int:
 func market_rows() -> Array:
 	var rows: Array = []
 	for def: ItemDef in GameData.items.values():
+		if not def.sellable:
+			continue            # store boxes: nobody buys those back
 		rows.append({
 			"id": def.id,
 			"name": def.display_name,

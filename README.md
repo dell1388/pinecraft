@@ -125,8 +125,11 @@ its cell grid and a hazard-striped edge.
    the same belt. Wood: fell > buck to size > **Sander** > **Planker**, which
    makes *one* plank from a log - as long as the log, 1.8 radii wide, 0.8
    thick. Ore: **Crusher** > **Smelter** (one bar per lump) > **Refiner**.
-   Sanded and refined material sells for more, and the finish is kept through
-   cutting, planking and saving. A tunnel mouth is a real opening: a trunk too
+   Stone (quartz, jade, emerald, diamond...): **Sander** (polished) > **Gem
+   Cutter**, which facets a rough stone into one jewel. Every material has a
+   raw, a first-step and a final value, and most gain along the way - but not
+   all, and not evenly (see *Materials*). The finish is kept through cutting,
+   planking and saving. A tunnel mouth is a real opening: a trunk too
    big for it jams on the bulkhead until you buck it or buy a higher tier
    (T2 and T3 widen the mouth and speed the belt).
 6. **Sell** at the yard - there is no selling from the plot, so the wood has to
@@ -162,8 +165,17 @@ its cell grid and a hazard-striped edge.
 
 ## The map
 
-The land is an island, 600 m across, running down to beaches and a sea that
-goes to the horizon. Height and biome come from two low-frequency fields,
+The map is **2.5 km across**, and it is mostly islands: a big home island in
+the middle with the plot, the yard, the store and the quarry, and four more
+out across the water - **Frostreach** to the north (snow and mountains, the
+Summit store), **Sunscar** to the east (desert and mesa), **Mirewood** to the
+west (wet woods and swamp) and little **Crater Isle** to the south-east. The
+trunk roads run out from home and **bridge** whatever water is in the way -
+four bridges in all, the longest over 250 m, plank decks on girders with an
+arch, rails you cannot drive through and piers down to the sea bed. Crater
+Isle has no bridge: its road is a **causeway** through the shallows, wading
+depth all the way. Each island has its own climate nudge (the north colder,
+the east drier, the west wetter), so they look like different places. Height and biome come from two low-frequency fields,
 elevation and moisture, the way a real biome table works - so it is procedural
 but legible, and the same seed gives the same country every time. Woodland,
 swamp, desert, mountains, taiga and snowland all appear.
@@ -183,8 +195,13 @@ and every mountain can be walked up.
 grass and flowers in the woods, ferns and toadstools in the taiga, reeds and
 lily pads in the swamp, cacti and scrub in the desert, scree on the hills,
 drifts and ice in the snow - as MultiMeshes in 75 m tiles that fade out past
-150 m, so the whole island costs a few dozen draw calls in view. About 130
+150 m, so the whole map costs a few dozen draw calls in view. About 800
 boulders, big enough to walk round, have colliders.
+
+**It is built in chunks.** The ground is 32 x 32-cell chunks, each its own mesh
+and collision shape, so the renderer culls what is behind you and no single
+shape holds the whole country. The open sea floor is one flat sheet rather
+than 100,000 drowned triangles. The whole world builds in about six seconds.
 
 Everything else is carved into that afterwards, in order:
 
@@ -195,7 +212,11 @@ Everything else is carved into that afterwards, in order:
   through; everywhere else wants a bridge. Water deeper than a metre is swum
   rather than waded, slowly, and a hauler whose driver seat goes under can no
   longer be driven.
-* **Roads are graded across** it - the whole carriageway to one height, which
+* **Roads are graded across** it, and never steeper than 1 in 10: where the
+  land climbs faster the road goes through it in a cutting. A bridged road
+  leaves the water alone and asks for a bridge over every wet stretch; a ford
+  road builds its bed up to wading depth instead.
+* **Roads are flat across** - the whole carriageway to one height, which
   follows the land lengthwise off a smoothed profile but does not tilt sideways.
   Blending in from the centre-line instead leaves a camber, and a cambered road
   is one you slide off. The carriageway has to be comfortably wider than a
@@ -214,20 +235,34 @@ chunk at least 90 m from you, and the refill that follows can land anywhere -
 including near you. Nothing you have started on is ever taken, nothing vanishes
 in view, and nothing new appears within 30 m of you.
 
-**Ore is all over the map**, not only in the quarry: iron in the hills and
-woods, copper in the desert and mountains, a little gold up in the snow. The
-quarry is still where there is most of everything, close to home. Most of the
-gold is underground.
+**The further out, the better it is.** Every tree species and every ore has a
+band of distance from home it grows in, on top of its biome. Tin, quartz, iron
+and pine are on the doorstep; magnetite, silver and amethyst are at the edge of
+the home island; jade, obsidian and cobalt on the near shores of the others;
+tungsten, platinum, ruby, bismuth and the glowing woods only on the far
+islands. The smoke run checks it: the dear ore averages ~950 m out, the cheap
+~410 m. And the best of all is **hidden**, with no road to it:
+
+* **The Hidden Valley** on Mirewood: a flat green floor walled in by a 45 m
+  ridge with one narrow gorge in, and the only **mahogany** on the map - tall,
+  straight, dark-crowned and worth $900 a cubic metre as sanded planks.
+* **Star Crater** on Crater Isle: a scorched black bowl with a raised rim, and
+  the only **starmetal**, glowing blue, where it came down.
+* **Starless Deep**, whichever cave is farthest from home: the only
+  **diamonds**.
 
 ### Caves
 
-Three caves, placed where the hill is high enough over the whole footprint that
+Nine caves, spread over the islands, placed where the hill is high enough over the whole footprint that
 nothing pokes out, the mouth faces open ground, and the chamber floor stays
 above the sea. The heightfield leaves out the two cells a cave's trench runs
 through; everything below is built: a timber-shored trench down to a portal, a
 sloping tunnel with rails and lamps, and a chamber under the hill with pillars,
 a ledge, stalagmites, glowing crystals and a mine cart. Each has a field of
-ore on the floor - richer than the surface, mostly gold. Going underground
+ore on the floor, stocked by how far out it is: the nearest have copper, iron,
+tin, zinc, quartz and amethyst; the middle ones silver, magnetite, nickel,
+jade, cobalt and gold; the far ones gold, emerald, ruby, platinum, tungsten
+and sunstone; and the farthest, diamonds. Going underground
 dims the sky light to the cave's own, turns on a lamp on your hat, and hides
 the landmark labels that would otherwise show through the rock.
 
@@ -238,8 +273,10 @@ each sits on a level patch of the right ground:
 
 | Place | Where | What for |
 | --- | --- | --- |
-| Dune Trading Post | desert | pays +45% for lumber, +30% for goods |
-| Frostline Post | snow or taiga | pays +45% for metal, +35% for ore |
+| Dune Trading Post | desert, on Sunscar | pays +45% for lumber, +30% for goods, +25% for jewels |
+| Frostline Post | snow or taiga, on Frostreach | pays +45% for metal, +35% for ore |
+| Mire Gem Exchange | wet woods, on Mirewood | pays +50% for jewels, +30% for rough stone |
+| Far Camp | the far north | a camp at the end of the road |
 | Ranger Lookout | woods or hills | a tower you can climb, and the view |
 | Old Logging Camp | taiga or woods | tents, a fire, a log pile |
 | Stilt Shack | swamp | a cabin on stilts with a jetty |
@@ -265,6 +302,7 @@ you what you will be cutting, and the hard woods are out in the hard country:
 
 | Tree | Grows in | Cuts into |
 | --- | --- | --- |
+| Mahogany | the Hidden Valley only - tall, dark, buttressed | mahogany |
 | Pine | woodland, taiga | pine |
 | Spruce | snowland | spruce |
 | Oak | woodland | oak |
@@ -282,10 +320,29 @@ you what you will be cutting, and the hard woods are out in the hard country:
 | Emberbark | mountains - charcoal black with smouldering knots (rare) | emberbark |
 | Dead Snag | mountains, desert, swamp - grey and bare | pine |
 
-About 290 trees stand at once, across all sixteen. The strange ones are rare and
-worth the most (Emberbark lumber is ~1,000 a cubic metre, pine ~70). Rocks come
-in six ores - iron, copper, silver, cobalt, gold and sunstone, each in its own
-host rock, the last three glowing - about 130 at once.
+About 1,350 trees stand at once, across all seventeen; maple, cherry, redwood
+and baobab start a couple of hundred metres out, the ironwoods at 350 m, and
+frostbark, spirit trees and emberbark only on the far islands. About 380 rocks
+stand at once, in twenty-one kinds, each in its own host rock:
+
+| Metal ore | | Stone | |
+| --- | --- | --- | --- |
+| Tin | near home | Quartz | near home |
+| Zinc | home island | Amethyst | 400 m+, hills and desert |
+| Iron | everywhere | Jade | 600 m+, wet woods |
+| Copper | desert, hills | Obsidian | 600 m+, desert and hills |
+| Magnetite | 300 m+, hills | Emerald | 800 m+, wet woods, far caves |
+| Nickel | 450 m+, the cold | Ruby | 850 m+, desert, far caves |
+| Silver | 380 m+, the cold | Diamond | Starless Deep only |
+| Cobalt | 550 m+ | | |
+| Bismuth | 700 m+, desert (glows) | | |
+| Tungsten (wolframite) | 750 m+, mountains | | |
+| Gold | 750 m+, snow; caves | | |
+| Platinum | 850 m+, snow | | |
+| Sunstone | 850 m+, desert | | |
+| Starmetal | Star Crater only | | |
+
+Stones grow as bigger, glassier crystals than the metal ores do.
 
 Tree and wood are still separate ideas - the two ironwoods are different trees
 cutting the same wood - but each biome that is worth a trip pays for it. Willow
@@ -309,15 +366,43 @@ dimensions:
   worth about half as much again as the log. **The smelter** turns a lump of ore
   into one bar holding 60% of its volume. **The crusher** breaks a chunk into
   lumps and conserves ore exactly. **The sander** and **refiner** add a finish
-  (x1.35 and x1.45 on the price) that stays with the piece through cutting and
-  saving. Each is a change to the same physics body as it passes the middle of
+  that stays with the piece through cutting and saving; what it is worth
+  depends on the material (below). Each is a change to the same physics body as it passes the middle of
   the tunnel, so it keeps its place and speed on the belt.
+* **The gem cutter** facets a rough stone into one jewel, a squat eight-sided
+  crown holding half its volume. **The sander** polishes stone rather than
+  sanding it. Jewels glitter.
+* **Every material has three values**, set in one table (`materials` in
+  `data/items.json`) as dollars per cubic metre of the *raw* material: raw, as
+  found; after the first step (sanded log, smelted bar, polished stone); and
+  final, after the whole path (sanded plank, refined bar, cut jewel). The item
+  rates and each material's own finish bonuses are worked back from it at
+  load, allowing for what each machine keeps of the volume, so the table is
+  exactly what the yard pays. Most things gain; some do not:
+
+  | Material | Raw | First step | Final | |
+  | --- | --- | --- | --- | --- |
+  | Pine | 22 | 28 | 48 | steady |
+  | Baobab | 40 | 64 | 52 | spongy - sell it sanded |
+  | Redwood | 50 | 56 | 140 | sanding does little, planks are the prize |
+  | Spiritwood | 230 | 180 | 620 | sanding scuffs the glow |
+  | Mahogany | 260 | 380 | 900 | |
+  | Copper | 820 | 1,300 | 1,350 | refining adds almost nothing |
+  | Magnetite | 700 | 650 | 1,500 | smelting kills the magnetism |
+  | Tungsten | 1,400 | 1,500 | 5,200 | barely worth smelting - until refined |
+  | Bismuth | 2,200 | 1,300 | 1,700 | the crystals are worth more than the metal |
+  | Starmetal | 6,000 | 11,000 | 16,000 | |
+  | Obsidian | 600 | 1,100 | 800 | brittle - sell it polished |
+  | Jade | 900 | 2,400 | 2,500 | all the value is in the polish |
+  | Diamond | 5,000 | 5,000 | 22,000 | polish does nothing, the cut is everything |
+
+  The whole table - 36 materials - is in the journal's **Market** tab as a
+  price guide, with the change at each step in green or red.
 * **The workbench** works the other way round - it consumes *volume by
   category* (0.12 m3 of any lumber plus a little metal makes a crate), so any
   offcut length is usable.
-* Because value is per cubic metre, a machine's worth is exactly what it adds.
-  What changes is the **rate**: lumber is worth more per cubic metre than the
-  wood it came from, and the day's market decides by how much.
+* Because value is per cubic metre, a machine's worth is exactly what it adds,
+  and the day's market moves every rate.
 * Bucking, splitting, storing, loading and unloading all conserve volume too,
   and the test suite asserts it to four decimal places at every step.
 
@@ -418,7 +503,7 @@ scripts/data/      RecipeDef, MachineDef, BuildingDef
 scripts/physics/   LooseItem, LooseItemManager, ItemDef
 scripts/world/     Terrain, Decor, Cave, Outpost, SupplyCache, ResourceField,
                    ChoppableTree, OreRock, Machine,
-                   StorageBin, SellZone, SellYard, Store, VehiclePad,
+                   StorageBin, SellYard, Store, VehiclePad, Bridge,
                    Conveyor, Splitter, Filter, World, StressWorld, StressTest
 scripts/build/     Plot (grid, placement, persistence), BuildSystem (freecam
                    ghost), Schematic (shapes filled with material)
@@ -535,7 +620,7 @@ Budget is 16.67 ms.
 
 ### Integration tests (`scenes/tests.tscn`)
 
-About 1,570 checks across 71 tests, all passing. Every test has to say it reached its
+About 1,810 checks across 74 tests, all passing. Every test has to say it reached its
 own end, so one that dies part way through - a parse error in what it exercises,
 say - is reported as a failure instead of quietly contributing fewer checks.
 
@@ -551,7 +636,11 @@ cracking (a heavier head takes fewer blows, and the ore adds up); the crusher;
 milling, smelting and assembly with volume in equal to volume out; intake holes
 gating what fits and machine levels widening them; the sell yard buying only
 what the player owns inside it; orders paying out and surviving a save; storage;
-belt-to-machine hand-off; belt ramps, borderless decks and stopping a belt;
+every material's raw, first-step and final value checked through the shapes the
+machines make (and that at least five break the pattern); the gem line (sander
+polishes, gem cutter facets); islands with a sea between, a bridged road that
+gets a bridge, a crate that stays on the deck, and a walled valley with one way
+in; belt-to-machine hand-off; belt ramps, borderless decks and stopping a belt;
 splitter round-robin; belt-logic filtering; building placement, cost and refund;
 plans filling with one material and turning solid, with offcuts returned and
 material reclaimed; save-load round-trip; plot expansion; upgrades; the store
@@ -609,13 +698,18 @@ third of the table, at a fifth to a quarter of budget.
 
 ### Whole game, headless (`scenes/smoke_world.tscn`)
 
-The assembled world - a 600 m biome map with rivers and roads, ~290 trees of
-sixteen species and ~130 ore chunks kept stocked by their fields, the plot,
-tunnel machines, belts, the sell yard, both stores, the hauler, the HUD and
-~130 loose pieces - plus three caves, nine outposts, ~9,000 pieces of dressing
-and ~130 boulders - runs at **about 2 ms/frame average** headless, with trees
-felling, chunks breaking and machines working. Building the world and the interface costs one
-frame of about 75 ms at startup; opening a journal page costs 15-25 ms of UI
+The assembled world - a 2.5 km island map with rivers, roads and four bridges,
+~1,350 trees of seventeen species and ~380 rocks of twenty-one kinds kept
+stocked by their fields, the plot, tunnel machines, belts, the sell yard, both
+stores, the hauler, the HUD and ~200 loose pieces - plus nine caves, sixteen
+outposts, ~47,000 pieces of dressing and ~800 boulders - runs at **about 2.5
+ms/frame average** headless, with trees felling, chunks breaking and machines
+working. Building it takes about six seconds (terrain 2 s, dressing 2 s, forest
+1.3 s; `PROFILE_LOAD=1` prints the breakdown). It also checks the spread: the
+map is 2.5 km, the bridges end on dry road, dear ore is on average well over
+twice as far out as cheap ore, the diamonds are all in the farthest cave, the
+starmetal in the crater and the mahogany in the valley. A pickup and a log
+truck have been driven over every bridge and down the causeway. Opening a journal page costs 15-25 ms of UI
 the first time, and pages are only rebuilt when what they show changes.
 
 The smoke run asserts the world's *contents* as well as its frame cost, which is
@@ -666,8 +760,9 @@ cover the sorting the doc lists beside them.
 
 Done: physics foundation, the full loop from standing tree to sold material,
 volume-conserving materials and machines, limb-by-limb felling and bucking,
-embedded ore and hammer-cracking, quota-stocked resource fields, a biome map
-with rivers and roads, plot building with JSON save/load, schematic shapes,
+embedded ore and hammer-cracking, quota-stocked resource fields, a 2.5 km
+island map with rivers, roads, bridges and hidden places, 36 materials each
+with raw / first-step / final values, plot building with JSON save/load, schematic shapes,
 automation (belts, ramps, splitters, filters, storage, tunnel machines), two
 physical stores in sections, seven vehicles, a tool hotbar and inventory, a
 build-mode editor with move, scale and rotate handles, the sell yard and standing orders, vehicle pads, the winch and
@@ -675,6 +770,7 @@ crane, ownership and persistence, and daily-changing prices.
 
 Natural next steps, in the order they would pay off: carry working like drag
 (lift off the ground; drag stays on it); multi-select in build mode; belt
-curves and tees; trailers; and
+curves and tees; trailers; streaming the dressing and far forests in by
+distance to cut load time; and
 performance work on the manager's per-frame loop (the ~0.4 ms floor at rest is
 that loop, not the solver).

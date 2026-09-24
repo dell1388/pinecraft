@@ -238,6 +238,33 @@
           "label": "Assembly Line"
         }
       ]
+    },
+    {
+      "id": "gem_cutter",
+      "display_name": "Gem Cutter",
+      "levels": [
+        {
+          "level": 1,
+          "cost": 0,
+          "hole_scale": 1.0,
+          "rate_scale": 1.0,
+          "label": "Lapidary Wheel"
+        },
+        {
+          "level": 2,
+          "cost": 2400,
+          "hole_scale": 1.35,
+          "rate_scale": 1.4,
+          "label": "Faceting Rig"
+        },
+        {
+          "level": 3,
+          "cost": 9000,
+          "hole_scale": 1.7,
+          "rate_scale": 1.85,
+          "label": "Laser Cutter"
+        }
+      ]
     }
   ],
   "plot_expansions": [

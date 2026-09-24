@@ -16,7 +16,9 @@ const MODE_PLANK := &"plank"
 const MODE_SAND := &"sand"
 const MODE_CRUSH := &"crush"
 const MODE_REFINE := &"refine"
-const INLINE_MODES := [&"plank", &"sand", &"crush", &"smelt", &"refine"]
+## Rough stone to a faceted jewel, keeping `yield_share` of the volume.
+const MODE_CUT := &"cut"
+const INLINE_MODES := [&"plank", &"sand", &"crush", &"smelt", &"refine", &"cut"]
 
 @export var id: StringName = &""
 @export var display_name: String = ""

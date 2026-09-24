@@ -183,6 +183,13 @@ func _dress_canopy(outer: float, run: float, h: float) -> Greeble:
 			for k in 3:
 				g.prism(10, 0.18, 0.18, 0.5, Transform3D(Basis(), Vector3(-0.45 + float(k) * 0.45, top, 0)), Color(0.5, 0.75, 0.95), k == 1)
 			g.pipe(Vector3(-0.45, top + 0.5, 0), Vector3(0.45, top + 0.5, 0), 0.05, steel, 6)
+		&"cut":
+			# A cutting head on a gantry, and a loupe lamp.
+			g.box(Vector3(outer * 0.8, 0.12, 0.3), Transform3D(Basis(), Vector3(0, top + 0.5, 0)), steel)
+			for x in [-outer * 0.38, outer * 0.38]:
+				g.block(Vector3(0.1, 0.5, 0.1), Vector3(x, top + 0.25, 0), dark)
+			g.prism(10, 0.22, 0.08, 0.35, Transform3D(Basis(), Vector3(0, top + 0.2, 0)), Color(0.75, 0.6, 1.0), true)
+			g.lamp(Transform3D(Basis(), Vector3(0, floor_y + 0.2, run * 0.5 + 0.05)), Color(0.7, 0.5, 1.0), 0.16)
 		&"crush":
 			g.wedge(Vector3(outer * 0.7, 0.5, run * 0.5), Transform3D(Basis(), Vector3(0, top + 0.25, 0)), body.darkened(0.25))
 			g.prism(12, 0.4, 0.4, 0.14, Transform3D(Basis(Vector3.FORWARD, PI * 0.5), Vector3(half + 0.1, floor_y + h * 0.55, 0)), steel)
@@ -308,7 +315,11 @@ func work_on(item: LooseItem) -> bool:
 		MachineDef.MODE_PLANK:
 			changed = _plank(item)
 		MachineDef.MODE_SAND:
-			changed = _finish(item, &"sanded")
+			# Stone is polished rather than sanded: same belt, finer grit.
+			var stone := item.category == &"gem" or item.category == &"jewel"
+			changed = _finish(item, &"polished" if stone else &"sanded")
+		MachineDef.MODE_CUT:
+			changed = _cut(item)
 		MachineDef.MODE_REFINE:
 			changed = _finish(item, &"refined")
 		MachineDef.MODE_SMELT:
@@ -373,6 +384,19 @@ func _smelt(item: LooseItem) -> bool:
 	var v := item.volume() * machine_def.yield_share
 	var t := pow(v / 6.4, 1.0 / 3.0)
 	_become(item, out, Solid.box(Vector3(t * 1.6, t * 4.0, t)))
+	return true
+
+## A rough stone becomes one faceted jewel - a squat, eight-sided crown -
+## keeping `yield_share` of its volume. The polish, if it had one, stays.
+func _cut(item: LooseItem) -> bool:
+	var out := machine_def.output_for(item.item_id)
+	if out == &"":
+		return false
+	var v := item.volume() * machine_def.yield_share
+	# Volume of a frustum r0 -> r0/2 over 0.9 r0 is 1.649 r0^3.
+	var r0 := pow(v / 1.649, 1.0 / 3.0)
+	var jewel := Solid.keep_finish(item.dims, Solid.cylinder(r0, r0 * 0.5, r0 * 0.9))
+	_become(item, out, jewel)
 	return true
 
 ## A chunk bigger than `max_piece` comes out as several lumps that are not.
