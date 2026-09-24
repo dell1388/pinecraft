@@ -168,7 +168,7 @@ func _check_ui() -> void:
 	# walking up to a place puts it on the map.
 	_require(world.caves.size() >= 2, "only %d caves" % world.caves.size())
 	_require(world.outposts.size() >= 6, "only %d outposts" % world.outposts.size())
-	_require(world.decor.instance_count > 2000, "the land is bare: %d decor pieces" % world.decor.instance_count)
+	_require(world.decor.instance_count > 400, "the land is bare: %d decor pieces" % world.decor.instance_count)
 	var place: Outpost = world.outposts[0]
 	var was: Vector3 = world.player.global_position
 	world.player.global_position = place.global_position + Vector3(0, 3, 12)
@@ -254,6 +254,19 @@ func _check_spread() -> void:
 	_require(float(net.tunnel_km) >= 8.0, "only %.1f km of tunnel" % float(net.tunnel_km))
 	_require(int(net.below_sea) > int(net.caverns) / 2, "most caverns are above sea level")
 	_require((net.kinds as Dictionary).size() >= 6, "only %d cave biomes" % (net.kinds as Dictionary).size())
+	# Every piece of cave can be reached from the surface.
+	var ids: Array = []
+	for i in world.network.rooms.size():
+		ids.append(i)
+	var comp: Dictionary = world.network._components(ids)
+	var mouths: Dictionary = {}
+	for i in ids:
+		if world.network.rooms[i].entrance != null:
+			mouths[comp[i]] = true
+	for i in ids:
+		if not mouths.has(comp[i]):
+			_require(false, "cavern %d cannot be reached from any cave mouth" % i)
+			break
 
 func _require(condition: bool, message: String) -> void:
 	if not condition:

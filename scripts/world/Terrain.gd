@@ -71,7 +71,7 @@ var road_paths: Array[Dictionary] = []
 ## meshing.
 var cache_path: String = ""
 ## Bumped whenever generation changes, so an old cache is not trusted.
-const GENERATOR_VERSION := 8
+const GENERATOR_VERSION := 9
 
 var _cells: int = 0
 var _heights: PackedFloat32Array = PackedFloat32Array()
@@ -293,10 +293,25 @@ func points_in_biomes(wanted: Array, step: int = 2, max_water: float = 0.0) -> P
 				continue
 			var x := -half_extent + float(ix) * CELL
 			var z := -half_extent + float(iz) * CELL
-			if _in_build_site(x, z) or _in_crater(x, z):
+			if _in_build_site(x, z) or _in_crater(x, z) or is_blocked(x, z):
 				continue
 			out.append(Vector3(x, height, z))
 	return out
+
+## Ground under a landmark block, on a coarse grid: nothing grows there.
+var _blocked: Dictionary = {}
+const BLOCK_GRID := 8.0
+
+func mark_blocked(centre: Vector3, radius: float) -> void:
+	var r := int(ceil(radius / BLOCK_GRID))
+	var c := Vector2i(int(floor(centre.x / BLOCK_GRID)), int(floor(centre.z / BLOCK_GRID)))
+	for dz in range(-r, r + 1):
+		for dx in range(-r, r + 1):
+			if Vector2(dx, dz).length() * BLOCK_GRID <= radius + BLOCK_GRID * 0.5:
+				_blocked[Vector2i(c.x + dx, c.y + dz)] = true
+
+func is_blocked(x: float, z: float) -> bool:
+	return _blocked.has(Vector2i(int(floor(x / BLOCK_GRID)), int(floor(z / BLOCK_GRID))))
 
 ## Build sites are kept clear, so an expanded plot never swallows a forest and
 ## nothing grows through the middle of the yard.
@@ -449,7 +464,7 @@ func _sample(x: float, z: float) -> Array:
 ## How far apart two regions' land blends, metres.
 const REGION_BLEND := 160.0
 ## Mountains above this are snow-capped.
-const SNOWLINE := 150.0
+const SNOWLINE := 95.0
 
 ## The region map: whichever region centre is nearest (through the warp) owns
 ## the point, and the land blends into its neighbour's near the border.
@@ -493,9 +508,9 @@ func _sample_regions(x: float, z: float) -> Array:
 	if feature.size() > 0:
 		biome = feature[1]
 		h = lerpf(h, float(feature[2]), float(feature[0]))
-	if h < WATER_LEVEL - 0.5 and biome == Biome.SWAMP:
-		return [biome, h]
-	return [biome, terrace(h, float(TERRACE_STEP[biome]))]
+	# Big smooth surfaces: the land is not terraced on the region map. The
+	# steps and walls are blocks stood on it (see `Landmarks`).
+	return [biome, h]
 
 ## A basin draws the land down toward the water line: the sheltered valley
 ## home sits in, low enough for the rivers, the yard and the store.
@@ -518,25 +533,25 @@ func _biome_height(biome: Biome, x: float, z: float) -> float:
 	match biome:
 		Biome.WOODLAND:
 			# Long swells with knolls and hollows on them.
-			var knoll := _mesa.get_noise_2d(x * 1.4, z * 1.4)
-			return 8.0 + 32.0 * e + 11.0 * knoll + 4.0 * d
+			var knoll := _mesa.get_noise_2d(x * 0.9, z * 0.9)
+			return 7.0 + 24.0 * e + 7.0 * knoll + 1.0 * d
 		Biome.TAIGA:
 			var r := _ridge.get_noise_2d(x, z) * 0.5 + 0.5
-			var knoll2 := _mesa.get_noise_2d(x * 1.2 + 900.0, z * 1.2)
-			return 12.0 + 44.0 * e + 26.0 * r * r + 9.0 * knoll2 + 4.0 * d
+			var knoll2 := _mesa.get_noise_2d(x * 0.9 + 900.0, z * 0.9)
+			return 10.0 + 34.0 * e + 16.0 * r * r + 6.0 * knoll2 + 1.0 * d
 		Biome.SWAMP:
 			var wet := smoothstep(0.55, 0.78, _moisture.get_noise_2d(x, z) * 0.5 + 0.5)
-			return 1.6 + 4.0 * e - 2.8 * wet + 0.6 * d
+			return 1.6 + 4.0 * e - 2.8 * wet + 0.3 * d
 		Biome.DESERT:
-			var dune := absf(sin((x * 0.8 + z * 0.35) * 0.03 + d * 2.2))
-			var mesa := smoothstep(0.60, 0.66, _mesa.get_noise_2d(x, z) * 0.5 + 0.5)
-			return 6.0 + 16.0 * e + 6.0 * dune + 32.0 * mesa
+			# A broad, open floor with low swells; the mesas are blocks.
+			var dune := sin((x * 0.8 + z * 0.35) * 0.02 + d * 1.5) * 0.5 + 0.5
+			return 5.0 + 12.0 * e + 3.0 * dune
 		Biome.MOUNTAIN:
 			var r2 := _ridge.get_noise_2d(x, z) * 0.5 + 0.5
-			return 24.0 + 50.0 * e + 230.0 * pow(r2, 2.2) + 4.0 * d
+			return 20.0 + 45.0 * e + 70.0 * pow(r2, 2.0) + 1.5 * d
 		Biome.SNOW:
 			var r3 := _ridge.get_noise_2d(x * 1.2, z * 1.2) * 0.5 + 0.5
-			return 22.0 + 40.0 * e + 170.0 * pow(r3, 2.0) + 4.0 * d
+			return 18.0 + 32.0 * e + 55.0 * pow(r3, 2.0) + 1.5 * d
 	return 6.0 + 20.0 * e
 
 ## How much a point is land (x, 0..1), and the climate nudges of the island it
@@ -1064,9 +1079,13 @@ func _distance_to_path(point: Vector3, path: Array) -> Vector2:
 const CHUNK := 32
 
 func _build_mesh() -> void:
-	var mat := StandardMaterial3D.new()
-	mat.vertex_color_use_as_albedo = true
-	mat.roughness = 1.0
+	var mat: StandardMaterial3D
+	if regions.is_empty():
+		mat = StandardMaterial3D.new()
+		mat.vertex_color_use_as_albedo = true
+		mat.roughness = 1.0
+	else:
+		mat = Textures.material("grass", 6.0)
 	var chunks := int(ceil(float(_cells) / float(CHUNK)))
 	var bufs: Array = []
 	for i in chunks * chunks:
@@ -1144,9 +1163,9 @@ func _build_sheets(sea: PackedVector3Array, water: PackedVector3Array) -> void:
 		add_child(_flat_mesh(sea, bed, "SeaBed"))
 	var mat := StandardMaterial3D.new()
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.albedo_color = Color(0.18, 0.34, 0.46, 0.72)
+	mat.albedo_color = Color(0.18, 0.34, 0.46, 0.72) if regions.is_empty() else Color(0.25, 0.62, 0.92, 0.82)
 	mat.roughness = 0.15
-	mat.metallic = 0.2
+	mat.metallic = 0.2 if regions.is_empty() else 0.05
 	var outer := PackedVector3Array()
 	var h := half_extent
 	var far := half_extent * 4.0
@@ -1186,6 +1205,55 @@ func _flat_mesh(verts: PackedVector3Array, mat: Material, label: String) -> Mesh
 	mi.material_override = mat
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return mi
+
+## The ground's normal at a grid point, from its neighbours.
+func _grid_normal(ix: int, iz: int) -> Vector3:
+	var dx := _heights[_index(ix + 1, iz)] - _heights[_index(ix - 1, iz)]
+	var dz := _heights[_index(ix, iz + 1)] - _heights[_index(ix, iz - 1)]
+	return Vector3(-dx, CELL * 2.0, -dz).normalized()
+
+## Clean, bright ground colours - grass, sand, snow - with rock where it is
+## steep and sand along the water.
+const SMOOTH_COLORS := {
+	Biome.WOODLAND: Color(0.36, 0.64, 0.29),
+	Biome.SWAMP: Color(0.30, 0.50, 0.24),
+	Biome.DESERT: Color(0.92, 0.84, 0.58),
+	Biome.MOUNTAIN: Color(0.46, 0.58, 0.34),
+	Biome.TAIGA: Color(0.24, 0.50, 0.28),
+	Biome.SNOW: Color(0.93, 0.95, 0.98),
+}
+const SMOOTH_ROCK := {
+	Biome.WOODLAND: Color(0.44, 0.40, 0.36),
+	Biome.SWAMP: Color(0.36, 0.33, 0.28),
+	Biome.DESERT: Color(0.78, 0.50, 0.38),
+	Biome.MOUNTAIN: Color(0.50, 0.50, 0.52),
+	Biome.TAIGA: Color(0.42, 0.41, 0.40),
+	Biome.SNOW: Color(0.70, 0.74, 0.80),
+}
+const BEACH := Color(0.94, 0.87, 0.66)
+
+func _vertex_color(ix: int, iz: int, n: Vector3) -> Color:
+	var index := _index(ix, iz)
+	var biome := _biomes[index] as Biome
+	var h := _heights[index]
+	var color: Color = SMOOTH_COLORS[biome]
+	if biome == Biome.MOUNTAIN:
+		# Grass low down, bare rock higher up.
+		color = color.lerp(SMOOTH_ROCK[biome], smoothstep(40.0, 75.0, h))
+	if h < WATER_LEVEL - 0.3:
+		color = BEACH.darkened(0.25)
+	elif h < WATER_LEVEL + 1.6 and biome != Biome.SWAMP and biome != Biome.SNOW:
+		color = BEACH
+	var steep := smoothstep(0.86, 0.7, n.y)
+	color = color.lerp(SMOOTH_ROCK[biome], steep)
+	for f in features:
+		if String(f.kind) != "crater":
+			continue
+		var d := Vector2(-half_extent + float(ix) * CELL, -half_extent + float(iz) * CELL).distance_to(f.centre)
+		var r: float = float(f.radius)
+		if d < r * 1.35 and h >= WATER_LEVEL - 0.2:
+			color = Color(0.22, 0.19, 0.2).lerp(Color(0.46, 0.33, 0.28), clampf(d / (r * 1.35), 0.0, 1.0))
+	return color
 
 func _wet(ix: int, iz: int) -> bool:
 	return minf(minf(_heights[_index(ix, iz)], _heights[_index(ix + 1, iz)]),
@@ -1234,6 +1302,7 @@ func _chunk_arrays(buf: ChunkBuf, x0: int, z0: int, x1: int, z1: int) -> void:
 	normals.resize(verts.size())
 	colors.resize(verts.size())
 	var v := 0
+	var smooth := not regions.is_empty()
 	for iz in range(z0, z1):
 		for ix in range(x0, x1):
 			if not _drawn(ix, iz):
@@ -1252,18 +1321,28 @@ func _chunk_arrays(buf: ChunkBuf, x0: int, z0: int, x1: int, z1: int) -> void:
 				var t0 := p00
 				var t1 := p11 if k == 0 else p10
 				var t2 := p01 if k == 0 else p11
-				var normal: Vector3 = (t2 - t0).cross(t1 - t0).normalized()
-				# Coloured per face: a flat top is ground, a steep face is rock.
-				var color := _face_color(ix, iz, (t0.y + t1.y + t2.y) / 3.0, normal)
 				verts[v] = t0
 				verts[v + 1] = t1
 				verts[v + 2] = t2
-				normals[v] = normal
-				normals[v + 1] = normal
-				normals[v + 2] = normal
-				colors[v] = color
-				colors[v + 1] = color
-				colors[v + 2] = color
+				if smooth:
+					# Shaded smooth, and coloured by corner: big clean surfaces.
+					var corners := [Vector2i(ix, iz), Vector2i(ix + 1, iz + 1) if k == 0 else Vector2i(ix + 1, iz),
+						Vector2i(ix, iz + 1) if k == 0 else Vector2i(ix + 1, iz + 1)]
+					for c in 3:
+						var g: Vector2i = corners[c]
+						var n := _grid_normal(g.x, g.y)
+						normals[v + c] = n
+						colors[v + c] = _vertex_color(g.x, g.y, n)
+				else:
+					var normal: Vector3 = (t2 - t0).cross(t1 - t0).normalized()
+					# Coloured per face: a flat top is ground, a steep face is rock.
+					var color := _face_color(ix, iz, (t0.y + t1.y + t2.y) / 3.0, normal)
+					normals[v] = normal
+					normals[v + 1] = normal
+					normals[v + 2] = normal
+					colors[v] = color
+					colors[v + 1] = color
+					colors[v + 2] = color
 				v += 3
 	buf.verts = verts
 	buf.normals = normals

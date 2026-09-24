@@ -66,6 +66,7 @@ var caves: Array[Cave] = []
 var outposts: Array[Outpost] = []
 var bridges: Array[Bridge] = []
 var network: CaveNetwork
+var landmarks: Landmarks
 var showcase: Showcase
 
 ## The islands: a big home island in the middle; the cold north, the desert
@@ -91,6 +92,7 @@ const REGIONS := [
 	{"name": "Northpine Taiga", "centre": Vector2(-320, -820), "biome": Terrain.Biome.TAIGA},
 	{"name": "Frostreach", "centre": Vector2(0, -1850), "biome": Terrain.Biome.SNOW},
 	{"name": "Sunscar Mesas", "centre": Vector2(1850, 120), "biome": Terrain.Biome.DESERT},
+	{"name": "Sunscar Crags", "centre": Vector2(1960, -60), "biome": Terrain.Biome.MOUNTAIN, "scale": 1.6},
 	{"name": "Mirewood", "centre": Vector2(-1900, 320), "biome": Terrain.Biome.SWAMP},
 	{"name": "Mirewood Hills", "centre": Vector2(-1760, 60), "biome": Terrain.Biome.WOODLAND, "scale": 1.3},
 	{"name": "Crater Isle", "centre": Vector2(1150, 1150), "biome": Terrain.Biome.WOODLAND},
@@ -417,6 +419,10 @@ func _build_terrain() -> void:
 		bounds.add_child(cs)
 	add_child(bounds)
 	_build_bridges()
+	landmarks = Landmarks.new()
+	landmarks.name = "Landmarks"
+	landmarks.setup(terrain, 911)
+	add_child(landmarks)
 	var roads := RoadSurface.new()
 	roads.name = "RoadSurface"
 	roads.setup(terrain)
@@ -657,7 +663,8 @@ func _from_pool(points: PackedVector3Array) -> Callable:
 			spot.z + rng.randf_range(-reach, reach))
 		if terrain.water_depth(nudged.x, nudged.z) > terrain.water_depth(spot.x, spot.z) \
 				or terrain.is_road(nudged.x, nudged.z) or terrain.in_cave_zone(nudged.x, nudged.z) \
-				or terrain.biome_at(nudged.x, nudged.z) != terrain.biome_at(spot.x, spot.z):
+				or terrain.biome_at(nudged.x, nudged.z) != terrain.biome_at(spot.x, spot.z) \
+				or terrain.is_blocked(nudged.x, nudged.z):
 			return spot
 		return terrain.place(nudged)
 

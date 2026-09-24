@@ -19,6 +19,11 @@ const POST_EVERY := 40.0
 
 var terrain: Terrain
 static var _materials: Dictionary = {}
+## Plain roads: just a band of a different colour on the land, no paint, no
+## verges, no posts - the look of a block-built world.
+var plain: bool = true
+const PLAIN_ROAD := Color(0.86, 0.64, 0.52)
+const PLAIN_DIRT := Color(0.82, 0.62, 0.42)
 
 func setup(p_terrain: Terrain) -> void:
 	terrain = p_terrain
@@ -35,6 +40,7 @@ func _build_road(path: Array, style: String) -> void:
 	var span := terrain._path_length(path)
 	var dirt := style == "dirt"
 	var half := HALF * (0.75 if dirt else 1.0)
+	var verge := 0.0 if plain else VERGE
 	var verts := PackedVector3Array()
 	var uvs := PackedVector2Array()
 	var colors := PackedColorArray()
@@ -55,7 +61,7 @@ func _build_road(path: Array, style: String) -> void:
 		var wet := ground < Terrain.WATER_LEVEL - 0.05 and not dirt
 		var section: Array = []
 		if not wet:
-			for k in [-(half + VERGE), -half, half, half + VERGE]:
+			for k in [-(half + verge + 0.01), -half, half, half + verge + 0.01]:
 				var q: Vector3 = p + side * float(k)
 				section.append(Vector3(q.x, terrain.height_at(q.x, q.z) + LIFT, q.z))
 			# The carriageway is graded flat across, so it rides at the
@@ -67,7 +73,7 @@ func _build_road(path: Array, style: String) -> void:
 		if not prev.is_empty() and not section.is_empty():
 			_quad_strip(verts, uvs, colors, prev, section, along, dirt)
 		prev = section
-		if not wet and along >= next_post and not dirt:
+		if not wet and along >= next_post and not dirt and not plain:
 			next_post += POST_EVERY
 			for s in [-1.0, 1.0]:
 				var at: Vector3 = p + side * s * (half + VERGE + 0.4)
@@ -91,6 +97,11 @@ func _quad_strip(verts: PackedVector3Array, uvs: PackedVector2Array, colors: Pac
 	var v0 := (along - STEP) / 8.0
 	var v1 := along / 8.0
 	var gravel := Color(0.52, 0.47, 0.40) if not dirt else Color(0.46, 0.38, 0.28)
+	if plain:
+		# One band, one colour.
+		_quad(verts, uvs, colors, a[1], a[2], b[2], b[1], Vector2(0, v0), Vector2(1, v0), Vector2(1, v1),
+			Vector2(0, v1), PLAIN_DIRT if dirt else PLAIN_ROAD)
+		return
 	for k in 3:
 		var u0 := 0.0
 		var u1 := 1.0
@@ -137,7 +148,7 @@ func _flush(verts: PackedVector3Array, uvs: PackedVector2Array, colors: PackedCo
 	var mi := MeshInstance3D.new()
 	mi.name = "Road"
 	mi.mesh = mesh
-	mi.material_override = material(dirt)
+	mi.material_override = Textures.material("road", 6.0) if plain else material(dirt)
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)
 

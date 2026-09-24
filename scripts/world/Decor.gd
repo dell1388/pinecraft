@@ -15,19 +15,18 @@ const REACH := 150.0
 
 ## Per biome: [kind, instances per terrain cell]. Fractions are chances.
 const PLANTING := {
-	Terrain.Biome.WOODLAND: [["grass", 1.4], ["flower_red", 0.12], ["flower_yellow", 0.12],
-		["flower_white", 0.10], ["bush", 0.20], ["pebbles", 0.08]],
-	Terrain.Biome.TAIGA: [["grass", 0.6], ["fern", 0.7], ["toadstool", 0.12], ["bush", 0.14],
-		["pebbles", 0.12]],
-	Terrain.Biome.SWAMP: [["reeds", 1.1], ["grass", 0.5], ["lily", 0.6], ["toadstool", 0.06]],
-	Terrain.Biome.DESERT: [["cactus", 0.07], ["scrub", 0.28], ["pebbles", 0.30]],
-	Terrain.Biome.MOUNTAIN: [["pebbles", 0.7], ["grass", 0.18], ["shard", 0.10]],
-	Terrain.Biome.SNOW: [["drift", 0.30], ["shard", 0.12], ["pebbles", 0.15]],
+	Terrain.Biome.WOODLAND: [["grass", 0.45], ["flower_red", 0.05], ["flower_yellow", 0.05],
+		["flower_white", 0.04], ["bush", 0.10]],
+	Terrain.Biome.TAIGA: [["grass", 0.25], ["fern", 0.35], ["toadstool", 0.05], ["bush", 0.08]],
+	Terrain.Biome.SWAMP: [["reeds", 0.7], ["grass", 0.25], ["lily", 0.4], ["toadstool", 0.03]],
+	Terrain.Biome.DESERT: [["cactus", 0.04], ["scrub", 0.10]],
+	Terrain.Biome.MOUNTAIN: [["grass", 0.10], ["shard", 0.04]],
+	Terrain.Biome.SNOW: [["drift", 0.12]],
 }
 ## Boulders per terrain cell, by biome.
 const BOULDERS := {
-	Terrain.Biome.WOODLAND: 0.012, Terrain.Biome.TAIGA: 0.02, Terrain.Biome.SWAMP: 0.004,
-	Terrain.Biome.DESERT: 0.02, Terrain.Biome.MOUNTAIN: 0.035, Terrain.Biome.SNOW: 0.02,
+	Terrain.Biome.WOODLAND: 0.006, Terrain.Biome.TAIGA: 0.01, Terrain.Biome.SWAMP: 0.002,
+	Terrain.Biome.DESERT: 0.008, Terrain.Biome.MOUNTAIN: 0.012, Terrain.Biome.SNOW: 0.008,
 }
 
 var terrain: Terrain
@@ -288,7 +287,7 @@ func _count(rate: float) -> int:
 
 ## Clear of roads, the levelled sites, cave mouths and deep water.
 func _clear(x: float, z: float, margin: float) -> bool:
-	if terrain.in_cave_zone(x, z):
+	if terrain.in_cave_zone(x, z) or terrain.is_blocked(x, z):
 		return false
 	for site in terrain.build_sites:
 		var c: Vector3 = site.centre
