@@ -97,6 +97,9 @@ func setup(p_player: Player, p_plot: Plot, p_manager: LooseItemManager, p_world:
 	PlayerState.upgraded.connect(func(track: StringName, _level: int):
 		toast("Upgraded: %s" % PlayerState.label(track), UITheme.ACCENT))
 	PlayerState.unlocked.connect(func(id: StringName):
+		# Store-bought copies say what they are when the box is opened.
+		if GameData.sold_copy(id, 1):
+			return
 		var def := GameData.building(id)
 		toast("Unlocked %s - find it on the build bar [B]" % (def.display_name if def else String(id)), UITheme.ACCENT))
 	if quests != null:
@@ -805,12 +808,13 @@ func _update_build_bar() -> void:
 		return
 	_build_slots.visible = true
 	var def := build_system.current()
-	_build_name.text = def.display_name if def != null else "Nothing unlocked"
+	_build_name.text = def.display_name if def != null else "Nothing to build"
 	_build_blurb.text = def.blurb if def != null else "Buy machines at the Store."
 	var err := build_system.last_error
 	_build_error.text = "" if err == "" or err == "no target" else err[0].to_upper() + err.substr(1)
 	_build_error.visible = _build_error.text != ""
-	var sig := "%d:%d:%d" % [build_system.index, build_system.palette.size(), Economy.money / 10]
+	var sig := "%d:%d:%d:%s" % [build_system.index, build_system.palette.size(), Economy.money / 10,
+		str(PlayerState.spare)]
 	if sig == _build_sig:
 		return
 	_build_sig = sig
@@ -848,8 +852,9 @@ func _slot(def: BuildingDef, number: int, selected: bool) -> Control:
 	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	name_label.custom_minimum_size.x = 108
 	col.add_child(name_label)
-	col.add_child(UIKit.label(UIKit.money(def.cost), "", 14,
-		UITheme.GOOD if Economy.can_afford(def.cost) else UITheme.BAD))
+	var note := PlayerState.build_note(def)
+	col.add_child(UIKit.label(UIKit.money(def.cost) if note.begins_with("$") else note, "", 14,
+		UITheme.GOOD if PlayerState.can_build(def) else UITheme.BAD))
 	return card
 
 func _update_drive() -> void:

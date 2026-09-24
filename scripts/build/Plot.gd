@@ -235,7 +235,9 @@ func placement_error(def: BuildingDef, cell: Vector2i, rot: Variant, check_cost:
 		ignore_index: int = -1) -> String:
 	if def == null:
 		return "unknown building"
-	if check_cost and not Economy.can_afford(def.cost):
+	if check_cost and not PlayerState.can_build(def):
+		if GameData.sold_copy(def.id, def.tier):
+			return "none left - buy another at the store"
 		return "need $%d" % def.cost
 	for c in cells_for(cell, def.size, rot):
 		if not in_bounds(c):
@@ -253,7 +255,7 @@ func place(def: BuildingDef, cell: Vector2i, rot: Variant, charge: bool = true, 
 	var orientation := _as_rot(rot)
 	if not can_place(def, cell, orientation, charge):
 		return null
-	if charge and not Economy.try_spend(def.cost):
+	if charge and not _charge(def):
 		return null
 	var node := _spawn_node(def, cell, orientation, lift)
 	if node == null:
@@ -265,6 +267,25 @@ func place(def: BuildingDef, cell: Vector2i, rot: Variant, charge: bool = true, 
 		occupied[c] = index
 	buildings_changed.emit(self)
 	return node
+
+## Pays for building one: a plain shape is free (it is only a plan - the
+## material is yours to bring), a store-bought building uses up one of the
+## copies bought, anything else costs its price.
+func _charge(def: BuildingDef) -> bool:
+	if def.kind == &"schematic":
+		return true
+	if GameData.sold_copy(def.id, def.tier):
+		return PlayerState.take_copy(def.id, def.tier)
+	return Economy.try_spend(def.cost)
+
+## Hands back what building it took: the copy, or half the price.
+func _refund(def: BuildingDef) -> void:
+	if def.kind == &"schematic":
+		return
+	if GameData.sold_copy(def.id, def.tier):
+		PlayerState.add_copy(def.id, def.tier)
+		return
+	Economy.add_money(def.cost / 2)
 
 func _spawn_node(def: BuildingDef, cell: Vector2i, orientation: Vector3i, lift: float) -> Node3D:
 	var node := _instantiate(def)
@@ -302,9 +323,11 @@ static func size_limits(def: BuildingDef) -> Array:
 static func resized(def: BuildingDef, size: Vector3i) -> BuildingDef:
 	var base := GameData.building(def.id)
 	if base == null or size == base.size:
-		return base if base != null else def
+		return def if base == null or def.tier != 1 else base
 	var out: BuildingDef = base.duplicate()
 	out.size = size
+	out.tier = def.tier
+	out.display_name = def.display_name
 	var ratio := float(size.x * size.y * size.z) / float(maxi(1, base.size.x * base.size.y * base.size.z))
 	out.cost = int(round(float(base.cost) * ratio))
 	return out
@@ -322,7 +345,10 @@ func edit(index: int, cell: Vector2i, rot: Vector3i, size: Vector3i, lift: float
 	if err != "":
 		return err
 	# A bigger belt costs the difference; a smaller one refunds half of it.
+	# Shapes are free, and a store-bought copy is one copy at any size.
 	var extra := new_def.cost - def.cost
+	if def.kind == &"schematic" or GameData.sold_copy(def.id, def.tier):
+		extra = 0
 	if extra > 0 and not Economy.try_spend(extra):
 		return "need $%d more" % extra
 	if extra < 0:
@@ -399,7 +425,8 @@ func _instantiate(def: BuildingDef) -> Node3D:
 	push_error("Plot: unknown building kind '%s'" % def.kind)
 	return null
 
-## Refunds half the cost, rounded down.
+## Takes a building down: a store-bought one goes back to your copies, a
+## plain shape costs nothing, anything else refunds half its price.
 func remove(node: Node3D) -> bool:
 	for i in placed.size():
 		if placed[i].node != node:
@@ -411,7 +438,7 @@ func remove(node: Node3D) -> bool:
 		var pad := node as VehiclePad
 		if pad != null:
 			pad.recall()
-		Economy.add_money(def.cost / 2)
+		_refund(def)
 		placed.remove_at(i)
 		node.queue_free()
 		_reindex()
@@ -515,6 +542,8 @@ func to_dict() -> Dictionary:
 		if base != null and (rec.def as BuildingDef).size != base.size:
 			var sz: Vector3i = (rec.def as BuildingDef).size
 			entry["size"] = [sz.x, sz.y, sz.z]
+		if (rec.def as BuildingDef).tier != 1:
+			entry["tier"] = (rec.def as BuildingDef).tier
 		if float(rec.get("lift", 0.0)) != 0.0:
 			entry["lift"] = float(rec.lift)
 		var node: Node3D = rec.node
@@ -527,7 +556,7 @@ func from_dict(d: Dictionary) -> void:
 	clear_buildings()
 	_apply_expansion(int(d.get("tier", 0)), false)
 	for entry in d.get("buildings", []):
-		var def := GameData.building(StringName(entry.get("id", "")))
+		var def := PlayerState.def_at_tier(StringName(entry.get("id", "")), int(entry.get("tier", 1)))
 		if def == null:
 			push_warning("Plot: save references unknown building '%s'" % entry.get("id", ""))
 			continue

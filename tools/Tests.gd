@@ -90,6 +90,7 @@ func _run_all() -> void:
 	await _test(&"every vehicle settles, drives and carries", test_vehicle_fleet)
 	await _test(&"the dump truck tips its load out", test_dump_truck)
 	await _test(&"debug unlimited money", test_unlimited_money)
+	await _test(&"store-bought buildings are counted copies", test_building_copies)
 	await _test(&"winch and crane respect their power ratings", test_vehicle_rig)
 	await _test(&"kill plane rescues fallen items", test_kill_plane)
 	await _test(&"per-plot cap is enforced", test_cap)
@@ -871,9 +872,9 @@ func test_chunk_cracking() -> void:
 		heavy_blows, blows])
 	done()
 
-func _inline(id: StringName, pos: Vector3 = Vector3.ZERO) -> InlineMachine:
+func _inline(id: StringName, pos: Vector3 = Vector3.ZERO, tier: int = 1) -> InlineMachine:
 	var m := InlineMachine.new()
-	m.setup_machine(manager, GameData.building(id), 0)
+	m.setup_machine(manager, PlayerState.def_at_tier(id, tier), 0)
 	m.position = pos
 	world.add_child(m)
 	return m
@@ -1400,10 +1401,9 @@ func test_ore_line() -> void:
 	done()
 
 ## The tunnel mouth is a real opening: a trunk too big for it jams against the
-## bulkhead, and a higher tier's wider mouth takes it.
+## bulkhead, and a higher tier machine's wider mouth takes it.
 func test_tunnel_mouth() -> void:
 	_setup()
-	PlayerState.levels[&"sawmill"] = 1
 	var m := _inline(&"sawmill")
 	# Fed from a belt behind it, so the trunk arrives at the mouth end-on.
 	var belt := Conveyor.new()
@@ -1422,9 +1422,13 @@ func test_tunnel_mouth() -> void:
 	check_eq(trunk.item_id, &"wood_pine", "an oversized trunk was planked anyway")
 	check_eq(m.total_processed, 0, "the jammed machine counted work")
 	var small_mouth := m.hole
-	PlayerState.levels[&"sawmill"] = 3
-	PlayerState.upgraded.emit(&"sawmill", 3)
+	# Swapped for a T3 sawmill in the same spot: tiers are per machine.
+	var at := m.position
+	m.queue_free()
+	await step(1)
+	m = _inline(&"sawmill", at, 3)
 	await step(3)
+	check_eq(m.level, 3, "the T3 sawmill is not tier 3")
 	check(m.hole.x > small_mouth.x and m.hole.y > small_mouth.y, "the top tier did not widen the mouth")
 	check(m.speed > GameData.machine(&"sawmill").belt_speed, "the top tier did not speed the belt")
 	check(await _through(m, trunk, 900), "the wider mouth still would not take the trunk")
@@ -1613,6 +1617,7 @@ func test_conveyor_options() -> void:
 
 	var ramp_def := GameData.building(&"conveyor_ramp")
 	check(ramp_def != null, "there is no belt ramp to build")
+	PlayerState.add_copy(&"conveyor_ramp")
 	check(ramp_def.rise > 0.5, "the belt ramp does not climb")
 	var ramp := plot.place(ramp_def, Vector2i(-4, -4), 0) as Conveyor
 	check(ramp != null, "the ramp was not placed")
@@ -2424,8 +2429,8 @@ func test_store() -> void:
 	shop.restock()
 	check(axe_slot.item == null, "a tool you own is still on the shelf")
 
-	# Machine tiers can be bought in any order: T2 first brings the machine
-	# with it, at T2, and the T1 box then leaves the shelf.
+	# Machine tiers can be bought in any order, and each box is one machine
+	# at its own tier.
 	var t1: Dictionary = {}
 	var t2: Dictionary = {}
 	for slot in shop.slots:
@@ -2440,10 +2445,11 @@ func test_store() -> void:
 	shop.buy([t2_box] as Array[LooseItem])
 	check(t2_box.owned, "crusher T2 was refused before the crusher")
 	shop.open_box(t2_box)
-	check(PlayerState.is_unlocked(&"crusher"), "crusher T2 did not bring the crusher")
-	check_eq(PlayerState.level(&"crusher"), 2, "crusher T2 did not raise the tier")
+	# One T2 crusher to build, and no T1: every copy is bought on its own.
+	check_eq(PlayerState.spare_count(&"crusher", 2), 1, "crusher T2 did not give one T2 crusher")
+	check_eq(PlayerState.spare_count(&"crusher", 1), 0, "crusher T2 gave a T1 crusher too")
 	await step(2)
-	check(not shop.available(t1), "crusher T1 is still for sale over T2")
+	check(shop.available(t1) and shop.available(t2), "machine boxes left the shelf once bought")
 
 	# An unpaid box will not open, and carried out it goes back on the shelf.
 	var pad_slot: Dictionary = {}
@@ -3039,7 +3045,7 @@ func test_vehicle_catalogue() -> void:
 			continue
 		check(sold.has(String(pad_def.id)), "the store does not sell the %s" % pad_def.display_name)
 		check(pad_def.unlock_cost > 0, "the %s is free" % id)
-		PlayerState.unlocked_buildings.append(pad_def.id)
+		PlayerState.add_copy(pad_def.id)
 		var pad := plot.place(pad_def, Vector2i(x, -12), 0) as VehiclePad
 		x += 5
 		check(pad != null, "could not place the %s" % pad_def.display_name)
@@ -3117,6 +3123,59 @@ func test_dump_truck() -> void:
 
 ## Debug setting: with unlimited money on, anything can be bought and nothing
 ## is taken off you.
+## Play-test: a building bought at the store is one copy - built for free,
+## and only as many as were bought; each copy keeps its tier, and a higher
+## tier is not a lower one too. Plain shapes are free and unlimited.
+func test_building_copies() -> void:
+	_setup()
+	Economy.from_dict({"money": 1000, "day": 1})
+	PlayerState.reset()
+	var sander := GameData.building(&"sander")
+	check(plot.placement_error(sander, Vector2i(-8, -8), 0) != "", "a sander was buildable without buying one")
+	PlayerState.add_copy(&"sander")
+	var first := plot.place(sander, Vector2i(-8, -8), 0)
+	check(first != null, "a bought sander could not be built")
+	check_eq(Economy.money, 1000, "building a bought sander cost money")
+	check(plot.place(sander, Vector2i(0, -8), 0) == null, "one sander bought, two built")
+	check(plot.remove(first), "the sander would not come down")
+	check_eq(PlayerState.spare_count(&"sander"), 1, "taking the sander down did not give the copy back")
+	check_eq(Economy.money, 1000, "taking a bought sander down paid out money")
+	# Tiers are per copy.
+	PlayerState.add_copy(&"crusher", 2)
+	var palette := PlayerState.available_buildings()
+	var t2: BuildingDef = null
+	for d in palette:
+		if d.id == &"crusher":
+			check_eq(d.tier, 2, "a T2 crusher box offered a crusher at T%d" % d.tier)
+			t2 = d
+	check(t2 != null, "the T2 crusher is not offered to build")
+	check(plot.placement_error(GameData.building(&"crusher"), Vector2i(4, -8), 0) != "",
+		"a T2 crusher made a T1 crusher buildable")
+	var crusher := plot.place(t2, Vector2i(4, -8), 0) as InlineMachine
+	check(crusher != null, "the T2 crusher could not be built")
+	await step(2)
+	if crusher != null:
+		check_eq(crusher.level, 2, "the T2 crusher built at T%d" % crusher.level)
+	# Shapes: free, as many as you like.
+	var block := GameData.building(&"schematic_block")
+	for i in 5:
+		check(plot.place(block, Vector2i(-12 + i * 2, 6), 0) != null, "shape %d could not be built" % i)
+	check_eq(Economy.money, 1000, "shapes cost money")
+	# Saved and loaded, the tier and the spare copies survive.
+	var saved_plot := plot.to_dict()
+	var saved_state := PlayerState.to_dict()
+	PlayerState.reset()
+	PlayerState.from_dict(saved_state)
+	plot.from_dict(saved_plot)
+	await step(2)
+	check_eq(PlayerState.spare_count(&"sander"), 1, "the spare sander was lost in the save")
+	var found := 0
+	for m in plot.inline_machines():
+		if m.def.id == &"crusher":
+			found = m.level
+	check_eq(found, 2, "the T2 crusher came back as T%d" % found)
+	done()
+
 func test_unlimited_money() -> void:
 	_setup()
 	Economy.from_dict({"money": 100, "day": 1})

@@ -47,6 +47,9 @@ func setup(p_plot: Plot, p_camera: Camera3D, p_player: Node3D) -> void:
 	camera = p_camera
 	player = p_player
 	refresh_palette()
+	# Building the last copy of something, or taking one down, changes what
+	# there is to build.
+	PlayerState.inventory_changed.connect(refresh_palette)
 
 func _ready() -> void:
 	_ghost_material = StandardMaterial3D.new()
@@ -66,8 +69,15 @@ func _ready() -> void:
 	set_process(true)
 
 func refresh_palette() -> void:
+	var was := current()
 	palette = PlayerState.available_buildings()
 	index = clampi(index, 0, maxi(0, palette.size() - 1))
+	# Stay on the same thing if it is still there.
+	if was != null:
+		for i in palette.size():
+			if palette[i].id == was.id and palette[i].tier == was.tier:
+				index = i
+				break
 	selection_changed.emit(current())
 
 func current() -> BuildingDef:
@@ -444,7 +454,7 @@ func status_line() -> String:
 	var def := current()
 	if def == null:
 		return "no buildings unlocked"
-	var base := "%s  $%d  [%d/%d]" % [def.display_name, def.cost, index + 1, palette.size()]
+	var base := "%s  %s  [%d/%d]" % [def.display_name, PlayerState.build_note(def), index + 1, palette.size()]
 	if last_error != "":
 		return base + "  -- " + last_error
 	return base

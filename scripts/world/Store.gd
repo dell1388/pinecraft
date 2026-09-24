@@ -103,8 +103,9 @@ func price_of(slot: Dictionary) -> int:
 	var b := GameData.building(target)
 	return b.unlock_cost if b != null else -1
 
-## Whether the shop still has a reason to stock this: a tool you have, a
-## building you own, a tier you are already at, or a maxed track is gone.
+## Whether the shop still has a reason to stock this: a tool you have or a
+## maxed track is gone. Buildings are always on the shelf - each box is one
+## copy to build, so you buy as many as you want to put up.
 func available(slot: Dictionary) -> bool:
 	var target: StringName = slot.target
 	match slot.kind:
@@ -112,12 +113,7 @@ func available(slot: Dictionary) -> bool:
 			return not PlayerState.owns_tool(target)
 		&"upgrade":
 			return not PlayerState.at_max(target)
-		&"tier":
-			var tier: int = int(slot.tier)
-			if tier <= 1:
-				return not PlayerState.is_unlocked(target)
-			return not PlayerState.is_unlocked(target) or PlayerState.level(target) < tier
-	return not PlayerState.is_unlocked(target)
+	return true
 
 ## Why a box cannot be bought yet, or "" if it can. Nothing is: buy in any
 ## order you like - a higher tier bought first brings the machine with it.
@@ -274,18 +270,16 @@ func open_box(item: LooseItem) -> String:
 			what = "%s added to your inventory - it is on the hotbar [I]" % GameData.tool_name(target)
 		&"upgrade":
 			what = _level_up(target)
-		&"tier":
-			var tier: int = int(slot.tier)
-			if not PlayerState.is_unlocked(target):
-				_unlock(target)
-			if tier > PlayerState.level(target):
-				PlayerState.levels[target] = tier
-				PlayerState.upgraded.emit(target, tier)
-			what = "%s is now T%d (%s)" % [GameData.building(target).display_name, tier, PlayerState.label(target)]
 		_:
+			# One copy of the building, at the box's tier, to put up in build
+			# mode for free. A higher tier is its own machine: it does not
+			# bring the lower one with it.
+			var tier: int = int(slot.get("tier", 1))
 			_unlock(target)
-			var def := GameData.building(target)
-			what = "%s unlocked - place it in build mode" % (def.display_name if def != null else String(target))
+			PlayerState.add_copy(target, tier)
+			var def := PlayerState.def_at_tier(target, tier)
+			what = "%s added - build it in build mode (%d to build)" % [
+				def.display_name if def != null else String(target), PlayerState.spare_count(target, tier)]
 	manager.despawn(item)
 	restock()
 	opened.emit(item.item_id, what)

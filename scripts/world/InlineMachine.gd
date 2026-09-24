@@ -58,33 +58,20 @@ func _ready() -> void:
 		machine_def = GameData.machine(def.machine)
 	super()
 	_build_canopy()
-	PlayerState.upgraded.connect(_on_upgraded)
 
 ## Tiers widen the mouth and speed the belt.
 func _apply_level() -> void:
-	level = PlayerState.level(machine_def.id)
-	var hole_scale := PlayerState.stat(machine_def.id, "hole_scale", 1.0)
+	# Each machine is the tier it was bought at.
+	level = def.tier if def != null else 1
+	var stats := GameData.upgrade_level(machine_def.id, level)
+	var hole_scale := float(stats.get("hole_scale", 1.0))
 	var outer := float(def.size.x) * Plot.CELL
 	hole = Vector2(minf(machine_def.tunnel.x * hole_scale, outer - WALL * 2.0 - 0.1),
 		minf(machine_def.tunnel.y * hole_scale, float(def.size.y) * Plot.CELL - 0.9))
-	speed = machine_def.belt_speed * PlayerState.stat(machine_def.id, "rate_scale", 1.0)
-
-func _on_upgraded(track: StringName, _level: int) -> void:
-	if machine_def == null or track != machine_def.id:
-		return
-	_apply_level()
-	for n in _canopy_nodes:
-		if is_instance_valid(n):
-			n.queue_free()
-	_canopy_nodes.clear()
-	_ambient.clear()
-	_burst = null
-	_glow = null
-	_lamp_material = null
-	_build_canopy()
+	speed = machine_def.belt_speed * float(stats.get("rate_scale", 1.0))
 
 func tier_label() -> String:
-	return PlayerState.label(machine_def.id)
+	return String(GameData.upgrade_level(machine_def.id, level).get("label", "T%d" % level))
 
 func canopy_length() -> float:
 	return length - LIP_LENGTH * 2.0

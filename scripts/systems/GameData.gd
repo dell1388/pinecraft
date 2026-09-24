@@ -275,6 +275,24 @@ func machine_accepts(machine_id: StringName, item_id: StringName) -> bool:
 func stores() -> Array:
 	return store_config.get("stores", [])
 
+var _sold: Dictionary = {}
+
+## Whether the store sells copies of this building at this tier: an unlock
+## box is a tier 1 copy, a tier box that tier. Those are built from what you
+## have bought; everything else is built for its price.
+func sold_copy(id: StringName, tier: int = 1) -> bool:
+	if _sold.is_empty():
+		for store in store_config.get("stores", []):
+			for section in store.get("sections", []):
+				for p in section.get("products", []):
+					match String(p.get("kind", "")):
+						"unlock":
+							_sold["%s:1" % p.target] = true
+						"tier":
+							_sold["%s:%d" % [p.target, int(p.get("tier", 1))]] = true
+		_sold["-"] = false
+	return _sold.has("%s:%d" % [id, tier])
+
 func store_def(id: StringName) -> Dictionary:
 	for st in stores():
 		if StringName(st.get("id", "")) == id:

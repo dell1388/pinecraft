@@ -12,6 +12,9 @@ const VEHICLE_PAD := &"vehicle_pad"
 
 var levels: Dictionary = {}              ## StringName -> int
 var unlocked_buildings: Array[StringName] = []
+## Store-bought buildings not yet built: "id:tier" -> how many. Building one
+## uses a copy up; taking it down puts it back.
+var spare: Dictionary = {}
 ## Getting-started steps already done, so a loaded game does not teach you to
 ## chop a tree again.
 var tutorial_done: Array[StringName] = []
@@ -33,6 +36,7 @@ func reset() -> void:
 	for track_id in GameData.upgrade_tracks:
 		levels[track_id] = 1
 	unlocked_buildings.clear()
+	spare.clear()
 	tutorial_done.clear()
 	discovered.clear()
 	caches.clear()
@@ -86,23 +90,90 @@ func try_upgrade(track: StringName) -> bool:
 func is_unlocked(building_id: StringName) -> bool:
 	return unlocked_buildings.has(building_id)
 
+## Buys a building outright: a store-sold one is a copy to build (any number
+## of times over), anything else is unlocked once.
 func try_unlock(building_id: StringName) -> bool:
 	var def := GameData.building(building_id)
-	if def == null or is_unlocked(building_id):
+	if def == null:
+		return false
+	var copy := GameData.sold_copy(building_id, 1)
+	if is_unlocked(building_id) and not copy:
 		return false
 	if not Economy.try_spend(def.unlock_cost):
 		return false
-	unlocked_buildings.append(building_id)
-	unlocked.emit(building_id)
+	if copy:
+		add_copy(building_id, 1)
+	if not is_unlocked(building_id):
+		unlocked_buildings.append(building_id)
+		unlocked.emit(building_id)
 	return true
 
+## What build mode offers: the plain shapes, which are free; what is built
+## for its price (belts, bins, the sawmill); and every store-bought copy you
+## have not built yet, at its own tier.
 func available_buildings() -> Array[BuildingDef]:
 	var out: Array[BuildingDef] = []
 	for def: BuildingDef in GameData.buildings.values():
-		if is_unlocked(def.id):
+		if def.kind == &"schematic" or (is_unlocked(def.id) and not GameData.sold_copy(def.id, 1)):
 			out.append(def)
 	out.sort_custom(func(a, b): return a.cost < b.cost)
+	var keys := spare.keys()
+	keys.sort()
+	for key: String in keys:
+		if int(spare[key]) <= 0:
+			continue
+		var parts := key.split(":")
+		var def := def_at_tier(StringName(parts[0]), int(parts[1]))
+		if def != null:
+			out.append(def)
 	return out
+
+## A building at a tier, named with it past the first.
+func def_at_tier(id: StringName, tier: int) -> BuildingDef:
+	var base := GameData.building(id)
+	if base == null:
+		return null
+	if tier <= 1:
+		return base
+	var def: BuildingDef = base.duplicate()
+	def.tier = tier
+	def.display_name = "%s T%d" % [base.display_name, tier]
+	return def
+
+static func copy_key(id: StringName, tier: int) -> String:
+	return "%s:%d" % [id, maxi(1, tier)]
+
+func spare_count(id: StringName, tier: int = 1) -> int:
+	return int(spare.get(copy_key(id, tier), 0))
+
+func add_copy(id: StringName, tier: int = 1, count: int = 1) -> void:
+	var key := copy_key(id, tier)
+	spare[key] = int(spare.get(key, 0)) + count
+	inventory_changed.emit()
+
+func take_copy(id: StringName, tier: int = 1) -> bool:
+	var key := copy_key(id, tier)
+	if int(spare.get(key, 0)) <= 0:
+		return false
+	spare[key] = int(spare[key]) - 1
+	inventory_changed.emit()
+	return true
+
+## What building one of these costs, for the build bar: free (a plain shape),
+## how many copies are left, or its price.
+func build_note(def: BuildingDef) -> String:
+	if def.kind == &"schematic":
+		return "free"
+	if GameData.sold_copy(def.id, def.tier):
+		return "%d left" % spare_count(def.id, def.tier)
+	return "$%d" % def.cost
+
+func can_build(def: BuildingDef) -> bool:
+	if def.kind == &"schematic":
+		return true
+	if GameData.sold_copy(def.id, def.tier):
+		return spare_count(def.id, def.tier) > 0
+	return Economy.can_afford(def.cost)
 
 ## A hauler is bought by unlocking its pad; the pad is then placed like any
 ## other building and the truck appears on it.
@@ -178,6 +249,7 @@ func to_dict() -> Dictionary:
 	return {"levels": lv, "unlocked": ub, "tutorial": tut,
 		"discovered": discovered.duplicate(), "caches": caches.duplicate(),
 		"tools": tools.map(func(t): return String(t)),
+		"spare": spare.duplicate(),
 		"hotbar": hotbar.map(func(t): return String(t))}
 
 func from_dict(d: Dictionary) -> void:
@@ -189,6 +261,16 @@ func from_dict(d: Dictionary) -> void:
 		unlocked_buildings.clear()
 		for b in ub:
 			unlocked_buildings.append(StringName(b))
+	if d.has("spare"):
+		for key in d["spare"]:
+			spare[String(key)] = int(d["spare"][key])
+	else:
+		# Saves from before copies were counted: each store-bought building
+		# already unlocked comes back as one copy, at the tier it had.
+		for b in unlocked_buildings:
+			if GameData.sold_copy(b, 1) and GameData.building(b).unlock_cost > 0:
+				var t := level(b)
+				add_copy(b, t if GameData.sold_copy(b, t) else 1)
 	for step in d.get("tutorial", []):
 		tutorial_done.append(StringName(step))
 	for place in d.get("discovered", []):

@@ -69,16 +69,7 @@ func _ready() -> void:
 	_size = def.footprint_world(1.0)
 	_apply_level()
 	_build()
-	# A machine already standing on the plot has to grow when its line is
-	# upgraded; buying a wider mouth and not getting one would be absurd.
-	PlayerState.upgraded.connect(_on_upgraded)
 	set_physics_process(true)
-
-func _on_upgraded(track: StringName, _new_level: int) -> void:
-	if machine_def == null or track != machine_def.id:
-		return
-	_apply_level()
-	_rebuild_shell()
 
 ## Rebuilds the shell around the new hole sizes. Buffered work is bookkeeping
 ## rather than geometry, so it rides through untouched.
@@ -97,9 +88,11 @@ func _rebuild_shell() -> void:
 ## more material. A bigger mouth is the upgrade that matters, because the hole
 ## is what decides whether a whole trunk goes in or has to be bucked first.
 func _apply_level() -> void:
-	level = PlayerState.level(machine_def.id)
-	var hole_scale := PlayerState.stat(machine_def.id, "hole_scale", 1.0)
-	var rate_scale := PlayerState.stat(machine_def.id, "rate_scale", 1.0)
+	# Each machine is the tier it was bought at.
+	level = def.tier if def != null else 1
+	var stats := GameData.upgrade_level(machine_def.id, level)
+	var hole_scale := float(stats.get("hole_scale", 1.0))
+	var rate_scale := float(stats.get("rate_scale", 1.0))
 	intake_hole = machine_def.intake_hole * hole_scale
 	outlet_hole = machine_def.outlet_hole * hole_scale
 	rate_m3_per_second = machine_def.m3_per_second * rate_scale

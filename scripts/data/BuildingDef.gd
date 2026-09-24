@@ -20,6 +20,9 @@ extends Resource
 @export var railed: bool = true
 ## Pads: which vehicle (an id in vehicles.json) this pad spawns.
 @export var vehicle: StringName = &""
+## Which tier this copy is. Every copy of a machine is bought on its own, at
+## its own tier, and keeps it.
+@export var tier: int = 1
 
 static func from_dict(d: Dictionary) -> BuildingDef:
 	var b := BuildingDef.new()

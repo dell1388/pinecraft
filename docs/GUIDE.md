@@ -157,10 +157,16 @@ its cell grid and a hazard-striped edge.
    blue. Drag what you want to the counter and the till charges for it; an
    unpaid box carried out of the door goes back on its shelf. A paid box is
    yours to open wherever you like: a tool goes into your inventory and onto
-   the hotbar. Land is sold at the desk. **Summit Outfitters**, a long drive
+   the hotbar, and a machine, vehicle pad, belt or doodad box is **one copy**
+   of it to build, free, at the tier on the box. Want two sanders? Buy two
+   boxes. A T2 box is a T2 machine only - it does not bring a T1 with it -
+   and taking a building down puts the copy back. Tiers can be bought in any
+   order. Land is sold at the desk. **Summit Outfitters**, a long drive
    up into the high country, sells the pro tools, the heavy trucks, the top
    machine tiers, the refiner and the fancier doodads.
-8. **Build.** Machines and belts go on the plot grid. Structures are built out of
+8. **Build.** Machines and belts go on the plot grid. Plain belts, splitters,
+   bins and the first sawmill are paid for as you place them; store-bought
+   things use up the copies you bought. Structures are free plans built out of
    *material*: place a translucent plan, touch material to it, and it fills by
    exactly that piece's volume. The first piece decides what the shape is made
    of and nothing else will go in after that; full, it turns solid and takes the
@@ -550,9 +556,9 @@ base value and volatility; recipes; building costs, footprints and unlocks;
 upgrade tracks; plot expansion tiers; standing orders; what the store stocks.
 `GameData` cross-validates every reference at load, so a typo in a data file
 fails loudly instead of silently doing nothing. Prices are never written twice:
-a boxed axe on a shelf costs whatever the next level of the axe track costs, and
-a crated machine costs that building's unlock price until you own one and its
-next level afterwards.
+a boxed axe on a shelf costs whatever the next level of the axe track costs, a
+T1 machine crate costs that building's unlock price, and a higher tier crate
+that level of its track - every time, since each crate is one machine.
 
 ## Physics design
 

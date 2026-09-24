@@ -106,7 +106,7 @@ func _signature() -> String:
 			var sig := "m%d;" % Economy.money
 			for track in GameData.upgrade_tracks:
 				sig += "%d" % PlayerState.level(track)
-			return sig + "u%d" % PlayerState.unlocked_buildings.size()
+			return sig + "u%d%s" % [PlayerState.unlocked_buildings.size(), str(PlayerState.spare)]
 	return TABS[_tab]
 
 func _market_note() -> String:
@@ -278,9 +278,12 @@ func _price_guide() -> void:
 		_body.add_child(grid)
 
 func _upgrades() -> void:
-	_note("Upgrades and machines are bought at the Store: carry the box to the till and press [E]. Land is sold at the desk by the door.")
-	_section("Tools and machines")
+	_note("Upgrades and machines are bought at the Store: carry the box to the till and press [E]. Each machine box is one machine, at its tier, to put up in build mode for free. Land is sold at the desk by the door.")
+	_section("Gear")
 	for track_id in GameData.upgrade_tracks:
+		# Machine tiers are per machine now, bought one copy at a time.
+		if GameData.building(StringName(track_id)) != null:
+			continue
 		var track: Dictionary = GameData.upgrade_tracks[track_id]
 		var shell := UIKit.panel("Row")
 		var row := UIKit.hbox(12)
@@ -314,18 +317,24 @@ func _upgrades() -> void:
 		_note("Tier %d, %.0f m across. Next parcel: %s." % [plot.tier, plot.half_extent * 2.0,
 			"none left" if expand_cost < 0 else UIKit.money(expand_cost)])
 
-	_section("Still on the shelf")
+	_section("Bought, not yet built")
+	var keys := PlayerState.spare.keys()
+	keys.sort()
 	var any := false
-	for def: BuildingDef in GameData.buildings.values():
-		if PlayerState.is_unlocked(def.id):
+	for key: String in keys:
+		var count := int(PlayerState.spare[key])
+		if count <= 0:
+			continue
+		var parts := key.split(":")
+		var def := PlayerState.def_at_tier(StringName(parts[0]), int(parts[1]))
+		if def == null:
 			continue
 		any = true
 		var row := UIKit.hbox(12)
 		var n := UIKit.label(def.display_name)
 		n.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(n)
-		row.add_child(UIKit.label("unlock %s  ·  build %s" % [UIKit.money(def.unlock_cost),
-			UIKit.money(def.cost)], "Muted"))
+		row.add_child(UIKit.label("x%d" % count, "", 16, UITheme.GOOD))
 		_body.add_child(row)
 	if not any:
-		_note("Nothing - you own one of everything.")
+		_note("Nothing waiting - buy machines at the Store, one box per machine.")
