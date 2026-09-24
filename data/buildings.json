@@ -592,7 +592,7 @@
         1.0,
         0.8
       ],
-      "belt_speed": 1.6,
+      "belt_speed": 3.2,
       "conversion": {
         "wood_pine": "lumber_pine",
         "wood_oak": "lumber_oak",
@@ -631,7 +631,7 @@
         1.0,
         0.8
       ],
-      "belt_speed": 1.8,
+      "belt_speed": 3.6,
       "color": [
         0.3,
         0.45,
@@ -650,7 +650,7 @@
         1.0,
         1.0
       ],
-      "belt_speed": 1.4,
+      "belt_speed": 3.0,
       "max_piece": 0.4,
       "color": [
         0.3,
@@ -667,10 +667,10 @@
         "ore"
       ],
       "tunnel": [
-        0.8,
-        0.7
+        1.0,
+        0.8
       ],
-      "belt_speed": 1.1,
+      "belt_speed": 3.0,
       "conversion": {
         "ore_iron": "ingot_iron",
         "ore_copper": "ingot_copper",
@@ -703,10 +703,10 @@
         "metal"
       ],
       "tunnel": [
-        0.7,
-        0.6
+        1.0,
+        0.75
       ],
-      "belt_speed": 1.2,
+      "belt_speed": 3.0,
       "color": [
         0.28,
         0.34,
@@ -725,7 +725,7 @@
         0.8,
         0.6
       ],
-      "belt_speed": 1.0,
+      "belt_speed": 3.0,
       "conversion": {
         "gem_quartz": "jewel_quartz",
         "gem_jade": "jewel_jade",

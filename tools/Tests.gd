@@ -49,6 +49,7 @@ func _run_all() -> void:
 	await _test(&"every material is worth its raw, pre and final values", test_material_values)
 	await _test(&"stones are polished in the sander and faceted in the gem cutter", test_gem_line)
 	await _test(&"islands, bridges and carved places", test_islands)
+	await _test(&"belted lines of machines keep flowing without jamming", test_machine_lines)
 	await _test(&"a tunnel mouth is a real opening", test_tunnel_mouth)
 	await _test(&"workbench assembles from volumes", test_workbench)
 	await _test(&"the yard buys what the player owns in it", test_sell_yard)
@@ -1008,7 +1009,8 @@ func test_gem_line() -> void:
 	var sander := _inline(&"sander")
 	var cutter := _inline(&"gem_cutter", Vector3(6, 0, 0))
 	await step(3)
-	var stone := _feed(sander, &"gem_emerald", Solid.cube(0.25))
+	# Small enough for the cutter's 0.8 x 0.6 mouth.
+	var stone := _feed(sander, &"gem_emerald", Solid.cube(0.12))
 	var volume := stone.volume()
 	var raw_price := Economy.price_of(stone.item_id, stone.dims)
 	check(await _through(sander, stone), "the stone never came through the sander")
@@ -1094,6 +1096,37 @@ func manager_free_crate(at: Vector3) -> RigidBody3D:
 	world.add_child(body)
 	body.global_position = at
 	return body
+
+## Spec: automate the lines with belts. Machines fed one piece at a time never
+## showed it, but chained on belts the crusher's burst of lumps jammed the
+## smelter, standing bars jammed the refiner, and pieces riding off-centre
+## heaped against the bulkhead beside a mouth. The demo lines run both chains
+## for a minute; every machine has to keep up with the one before it.
+func test_machine_lines() -> void:
+	_setup()
+	await step(2)
+	var show := Showcase.new()
+	show.setup(manager)
+	world.add_child(show)
+	show.position = Vector3(0, 0.2, 0)
+	await step(60 * 75)
+	var ore: Dictionary = show.lines[0]
+	var stone: Dictionary = show.lines[1]
+	var crusher: InlineMachine = ore.machines[0]
+	var smelter: InlineMachine = ore.machines[1]
+	var refiner: InlineMachine = ore.machines[2]
+	check(crusher.total_processed >= 12, "the crusher took only %d chunks" % crusher.total_processed)
+	check(smelter.total_processed > crusher.total_processed * 3, "the lumps did not reach the smelter")
+	check(refiner.total_processed >= smelter.total_processed * 0.8,
+		"the refiner fell behind the smelter (%d of %d)" % [refiner.total_processed, smelter.total_processed])
+	var sander: InlineMachine = stone.machines[0]
+	var cutter: InlineMachine = stone.machines[1]
+	check(sander.total_processed >= 12, "the sander polished only %d stones" % sander.total_processed)
+	check(cutter.total_processed >= sander.total_processed - 2, "the gem cutter fell behind the sander")
+	check(int(ore.made) > 20 and int(stone.made) > 8, "the lines finished too little (%d, %d)" % [ore.made, stone.made])
+	show.clear_all()
+	check_eq(manager.active_count(), 0, "switching the demo off left pieces behind")
+	done()
 
 ## Rocks > crusher > smelter > refiner.
 func test_ore_line() -> void:

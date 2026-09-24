@@ -131,7 +131,19 @@ its cell grid and a hazard-striped edge.
    all, and not evenly (see *Materials*). The finish is kept through cutting,
    planking and saving. A tunnel mouth is a real opening: a trunk too
    big for it jams on the bulkhead until you buck it or buy a higher tier
-   (T2 and T3 widen the mouth and speed the belt).
+   (T2 and T3 widen the mouth and speed the belt). Chained on belts, the
+   machines keep up with each other: tunnel belts run at belt speed (3 m/s),
+   yellow guide wings on each in-feed steer an off-centre piece into the
+   mouth, the walls are slick steel, the crusher lays its lumps out one deep
+   in two staggered lanes, and the smelter lays its bars flat down the belt.
+
+   **Demo lines** (Settings > Game > Debug) put an automated ore line
+   (hopper > Crusher > Smelter > Refiner) and stone line (hopper > Sander >
+   Gem Cutter) on a slab about 190 m south of home, on the compass as "Demo
+   Lines". Hoppers drop a mix from tin to starmetal and quartz to diamond; a
+   sign over each machine shows the last piece it made and its price, and a
+   board at the end of each line keeps running totals of value in and out.
+   Finished pieces stay on show for 25 s, then clear. Nothing is saved.
 6. **Sell** at the yard - there is no selling from the plot, so the wood has to
    make the trip. Drop material inside the fence, walk up to the shopkeep
    and ask; everything of yours in the yard is bought at once at the day's rate,

@@ -99,6 +99,11 @@ func _build_canopy() -> void:
 	_canopy.name = "Canopy"
 	_canopy.collision_layer = Layers.MACHINE
 	_canopy.collision_mask = Layers.MASK_MACHINE
+	# Slick steel: a piece pushed against a wall or a guide wing slides along
+	# it instead of sticking and holding up the line behind it.
+	var slick := PhysicsMaterial.new()
+	slick.friction = 0.08
+	_canopy.physics_material_override = slick
 	add_child(_canopy)
 	_canopy_nodes.append(_canopy)
 	var outer := float(def.size.x) * Plot.CELL
@@ -119,7 +124,26 @@ func _build_canopy() -> void:
 		var over := h - hole.y
 		if over > 0.01:
 			_solid(Vector3(hole.x, over, WALL), Vector3(0, floor_y + hole.y + over * 0.5, z))
-	var mesh := _dress_canopy(outer, run, h).instance("Tunnel")
+	var dress := _dress_canopy(outer, run, h)
+	# Guide wings on the in-feed lip, angled from the belt's edges to the
+	# mouth, so a piece riding off-centre is steered in rather than stopped
+	# against the bulkhead beside the opening - with the rest heaping up
+	# behind it.
+	if hole.x < width - 0.1:
+		for side in [-1.0, 1.0]:
+			var a := Vector3(side * (width * 0.5 - 0.04), floor_y, length * 0.5)
+			var b := Vector3(side * (hole.x * 0.5 - 0.02), floor_y, run * 0.5)
+			var along := (b - a)
+			var basis := Basis(Vector3.UP.cross(along.normalized()), Vector3.UP, along.normalized())
+			var centre := (a + b) * 0.5 + Vector3(0, 0.25, 0)
+			var cs := CollisionShape3D.new()
+			var box := BoxShape3D.new()
+			box.size = Vector3(0.06, 0.5, along.length() + 0.04)
+			cs.shape = box
+			cs.transform = Transform3D(basis, centre)
+			_canopy.add_child(cs)
+			dress.box(box.size, Transform3D(basis, centre), Color(0.95, 0.74, 0.16))
+	var mesh := dress.instance("Tunnel")
 	_canopy.add_child(mesh)
 	_add_lamp(Vector3(half - 0.05, floor_y + h * 0.75, run * 0.5 - 0.3))
 	_add_effects(run, h)
@@ -383,8 +407,21 @@ func _smelt(item: LooseItem) -> bool:
 		return false
 	var v := item.volume() * machine_def.yield_share
 	var t := pow(v / 6.4, 1.0 / 3.0)
+	var pos := item.global_position
 	_become(item, out, Solid.box(Vector3(t * 1.6, t * 4.0, t)))
+	# Laid flat along the belt, broad face down. Left in whatever way the lump
+	# happened to be lying, a bar could come out standing on end and jam in
+	# the next machine's mouth.
+	item.teleport(Transform3D(_along_belt(), pos + global_transform.basis.y.normalized() * (t * 0.5)))
+	item.linear_velocity = belt_velocity()
+	item.angular_velocity = Vector3.ZERO
 	return true
+
+## A basis with the piece's long axis (+Y) down the belt and its broad face up.
+func _along_belt() -> Basis:
+	var up := global_transform.basis.y.normalized()
+	var along := -global_transform.basis.z.normalized()
+	return Basis(along.cross(up).normalized(), along, up).orthonormalized()
 
 ## A rough stone becomes one faceted jewel - a squat, eight-sided crown -
 ## keeping `yield_share` of its volume. The polish, if it had one, stays.
@@ -408,15 +445,33 @@ func _crush(item: LooseItem) -> bool:
 	var count := int(ceil(v / pow(machine_def.max_piece * 0.9, 3.0)))
 	count = clampi(count, 2, 64)
 	var lump := Solid.cube(v / float(count))
-	var at := item.global_position
 	var id := item.item_id
 	var velocity := belt_velocity()
 	_become(item, id, lump)
-	var side := global_transform.basis.x.normalized()
-	var back := global_transform.basis.z.normalized()
-	for i in count - 1:
-		var offset := side * (float(i % 3) - 1.0) * 0.3 + back * (0.3 + float(i / 3) * 0.3) + Vector3(0, 0.1, 0)
-		var piece := manager.spawn(id, Transform3D(Basis(), at + offset), plot_id, Vector3.ZERO, lump, true)
+	# The lumps come out one layer deep in two staggered lanes, spread down
+	# the whole tunnel, so they leave in a zip rather than a heap. Laid out
+	# three abreast behind the chunk - which is what this used to do - they
+	# wedged against the walls and each other; stacked, they are taller than
+	# the next machine's mouth.
+	var side_len := Solid.bounds(lump).x
+	var run := maxf(0.0, canopy_length() * 0.5 - side_len * 0.6)
+	var lanes := 2 if count > 3 and side_len * 2.1 < hole.x else 1
+	var lane_x := minf(hole.x * 0.5 - side_len * 0.5 - 0.02, side_len * 0.55)
+	var spacing := side_len * (0.6 if lanes == 2 else 1.1)
+	var span := spacing * float(count - 1)
+	var start := minf(run, span * 0.5)
+	var spots: Array[Vector3] = []
+	for i in count:
+		var along := start - spacing * float(i)
+		if span > run * 2.0:
+			along = run - run * 2.0 * float(i) / float(maxi(1, count - 1))
+		var x := 0.0 if lanes == 1 else lane_x * (1.0 if i % 2 == 0 else -1.0)
+		spots.append(Vector3(x, 0.03 + side_len * 0.5, along))
+	item.teleport(Transform3D(global_transform.basis, global_transform * spots[0]))
+	item.linear_velocity = velocity
+	for i in range(1, count):
+		var piece := manager.spawn(id, Transform3D(global_transform.basis, global_transform * spots[i]),
+			plot_id, Vector3.ZERO, lump, true)
 		if piece != null:
 			piece.linear_velocity = velocity
 	return true

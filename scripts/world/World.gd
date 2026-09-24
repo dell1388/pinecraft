@@ -9,6 +9,8 @@ const MAP_HALF := 1250.0
 const DEPOT_POSITION := Vector3(0, 0, 70)
 const STORE_POSITION := Vector3(-52, 0, 62)
 const QUARRY_CENTRE := Vector3(-150, 0, -40)
+## Where the demo lines stand when they are switched on (Settings > Debug).
+const SHOWCASE_POSITION := Vector3(28, 0, 188)
 ## The plot pad stands clear of two things: the water line, so the yard is never
 ## flooded, and the ground itself, so the pad and the land are not two surfaces
 ## fighting over one plane. The slab's top is PLOT_GROUND + 0.05.
@@ -43,6 +45,7 @@ var rock_fields: Array[ResourceField] = []
 var caves: Array[Cave] = []
 var outposts: Array[Outpost] = []
 var bridges: Array[Bridge] = []
+var showcase: Showcase
 
 ## The islands: home in the middle, the cold north, the desert east, the wet
 ## west and a little scorched isle in the south-east where something fell out
@@ -1036,6 +1039,8 @@ func compass_markers() -> Array[Dictionary]:
 		{"name": "Summit Outfitters", "color": Color(0.7, 0.62, 1.0), "where": func():
 			return summit_store.global_position if summit_store != null else null},
 		{"name": "Quarry", "color": Color(0.80, 0.70, 0.62), "where": func(): return QUARRY_CENTRE},
+		{"name": "Demo Lines", "color": Color(0.95, 0.55, 0.9), "where": func():
+			return showcase.global_position if showcase != null else null},
 	]
 	# Each kind of vehicle you own, wherever it was left.
 	for id in GameData.vehicles:
@@ -1178,7 +1183,28 @@ func _notification(what: int) -> void:
 func _on_setting_changed(_key: StringName) -> void:
 	_apply_all_settings()
 
+## The demo lines come and go with their setting.
+func _apply_showcase() -> void:
+	var wanted := Settings.flag(&"demo_lines")
+	if wanted and showcase == null:
+		showcase = Showcase.new()
+		showcase.name = "Showcase"
+		showcase.setup(manager)
+		# Stood on the highest ground under the slab, so none of it is buried.
+		var top := -INF
+		for dx in range(-11, 12, 2):
+			for dz in range(-27, 20, 2):
+				top = maxf(top, terrain.height_at(SHOWCASE_POSITION.x + dx, SHOWCASE_POSITION.z + dz))
+		showcase.position = Vector3(SHOWCASE_POSITION.x, top + 0.05, SHOWCASE_POSITION.z)
+		add_child(showcase)
+		Nameplate.landmark(showcase, "DEMO LINES", 7.0)
+	elif not wanted and showcase != null:
+		showcase.clear_all()
+		showcase.queue_free()
+		showcase = null
+
 func _apply_all_settings() -> void:
+	_apply_showcase()
 	var cam := player.camera
 	cam.fov = float(Settings.value(&"fov"))
 	var reach := float(Settings.value(&"view_distance"))

@@ -38,6 +38,7 @@ const DEFAULTS := {
 	&"autosave": true,
 	# Debug
 	&"unlimited_money": false,
+	&"demo_lines": false,
 }
 
 ## Where the settings live. Tests point this somewhere disposable.
