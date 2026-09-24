@@ -117,24 +117,18 @@ func _physics_process(_delta: float) -> void:
 			built += 1
 		if world.plot.place(GameData.building(&"conveyor"), Vector2i(-9, 4), 0) != null:
 			built += 1
-		if world.plot.place(GameData.building(&"sell_chute"), Vector2i(8, 4), 0) != null:
-			built += 1
 		PlayerState.try_buy_vehicle()
 		world.spawn_vehicle()
 		print("built %d buildings, hauler spawned: %s" % [built, world.hauler != null])
-		_require(built == 4, "only %d of 4 buildings could be placed" % built)
+		_require(built == 3, "only %d of 3 buildings could be placed" % built)
 	if frames >= 120 and frames < 600 and frames % 12 == 0:
 		# Feed the real machines through their real hoppers, and the sell chute
 		# the way a belt would.
-		for m in world.plot.machines():
+		for m in world.plot.inline_machines():
 			var item_id: StringName = &"wood_pine" if m.def.machine == &"sawmill" else &"ore_iron"
-			var dims := Solid.cylinder(0.2, 0.17, randf_range(1.4, 3.0)) if item_id == &"wood_pine" else {}
-			world.manager.spawn(item_id, Transform3D(Basis(), m.input_point()), 0, Vector3.ZERO, dims)
-		for rec in world.plot.placed:
-			var zone := rec.node as SellZone
-			if zone != null:
-				world.manager.spawn(&"lumber_pine", Transform3D(Basis(),
-					zone.global_position + Vector3(0, 1.5, 0)), 0)
+			var dims := Solid.cylinder(0.2, 0.17, randf_range(1.4, 3.0)) if item_id == &"wood_pine" else Solid.cube(0.25)
+			world.manager.spawn(item_id, Transform3D(m.global_transform.basis * LooseItem.lying_basis(0.0),
+				m.global_transform * Vector3(0, 0.6, m.length * 0.5 - 0.35)), 0, Vector3.ZERO, dims, true)
 	if frames == 420:
 		_check_ui()
 	if frames == 400:
@@ -184,6 +178,16 @@ func _check_ui() -> void:
 	world.player.global_position = was
 	print("world: %d caves, %d outposts, %d decor, %d boulders" % [world.caves.size(),
 		world.outposts.size(), world.decor.instance_count, world.decor.boulder_count])
+	var species := {}
+	for tree in world.trees():
+		species[tree.species] = int(species.get(tree.species, 0)) + 1
+	var ores := {}
+	for rock in world.rocks():
+		ores[rock.ore_item] = int(ores.get(rock.ore_item, 0)) + 1
+	print("forest: %d trees of %d species %s" % [world.trees().size(), species.size(), str(species)])
+	print("rocks: %d %s" % [world.rocks().size(), str(ores)])
+	_require(species.size() >= 14, "only %d tree species grew" % species.size())
+	_require(world.trees().size() >= 150, "only %d trees" % world.trees().size())
 	print("ui ok: journal %d tabs, pause/resume, %d toasts, checklist %d/%d" % [
 		Journal.TABS.size(), hud._toasts.get_child_count(), world.tutorial.done_count(), Tutorial.STEPS.size()])
 
@@ -203,20 +207,20 @@ func _count_of(type_name: String) -> int:
 
 func _volume_in() -> float:
 	var v := 0.0
-	for m in world.plot.machines():
+	for m in world.plot.inline_machines():
 		v += m.volume_in
 	return v
 
 func _volume_out() -> float:
 	var v := 0.0
-	for m in world.plot.machines():
+	for m in world.plot.inline_machines():
 		v += m.volume_out
 	return v
 
 func _produced() -> int:
 	var n := 0
-	for m in world.plot.machines():
-		n += m.total_produced
+	for m in world.plot.inline_machines():
+		n += m.total_processed
 	return n
 
 func _report() -> void:

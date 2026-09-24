@@ -35,7 +35,7 @@ var carrier: Node3D = null
 
 var _shape: CollisionShape3D
 var _mesh: MeshInstance3D
-var _extras: Array[MeshInstance3D] = []
+var _extras: Array[Node3D] = []
 
 func _init() -> void:
 	collision_layer = Layers.LOOSE
@@ -107,6 +107,15 @@ func _build_mesh(color: Color) -> void:
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = color
 	mat.roughness = 0.9
+	# What a piece has been through shows: sanded wood is pale and smooth,
+	# refined metal is bright and polished.
+	if Solid.has_finish(dims, &"sanded"):
+		mat.albedo_color = color.lerp(Color(0.93, 0.82, 0.62), 0.45)
+		mat.roughness = 0.55
+	if Solid.has_finish(dims, &"refined"):
+		mat.albedo_color = color.lightened(0.25)
+		mat.metallic = 0.85
+		mat.roughness = 0.22
 	_mesh.material_override = mat
 
 ## The corners of an eight-sided log, matching CylinderMesh's own vertices:
@@ -134,11 +143,22 @@ func add_extra_mesh(mesh: Mesh, xform: Transform3D, color: Color) -> void:
 	add_child(mi)
 	_extras.append(mi)
 
+## Any other decoration to carry (a box's printed art and label).
+func add_extra_node(node: Node3D) -> void:
+	add_child(node)
+	_extras.append(node)
+
 func clear_extras() -> void:
 	for e in _extras:
 		if is_instance_valid(e):
 			e.queue_free()
 	_extras.clear()
+
+## Its name as the player sees it, finish and all: "Sanded Pine Wood".
+func display_name() -> String:
+	var prefix := Solid.finish_prefix(dims)
+	var base := GameData.item_name(item_id)
+	return base if prefix == "" else "%s %s" % [prefix, base]
 
 func volume() -> float:
 	return Solid.volume(dims)
@@ -161,7 +181,8 @@ func set_state(next: State) -> void:
 		State.CARRIED:
 			freeze = false
 			sleeping = false
-			angular_damp = 6.0
+			# Held by one point it swings, but settles rather than spinning.
+			angular_damp = 2.5
 		State.HELD, State.CAPTURED:
 			# Owned by the player's rack or a machine: kinematic, so it still
 			# pushes loose items aside but costs the solver nothing.

@@ -341,6 +341,17 @@ func _animate_wheels(delta: float) -> void:
 func _is_front(index: int) -> bool:
 	return absf((wheel_offsets[index] as Vector3).z - _front_z) < 0.1
 
+## Whether a point on the vehicle is where you would climb in: the cab, or
+## close to the seat on an open vehicle.
+func is_seat_point(world_point: Vector3) -> bool:
+	var local := global_transform.affine_inverse() * world_point
+	var seat := _vec(spec.get("seat", [0, 1.2, -1.9]))
+	var cab: Dictionary = spec.get("cab", {})
+	if not cab.is_empty():
+		var size := _vec(cab.size)
+		return absf(local.z - float(cab.z)) <= size.z * 0.5 + 0.2 and local.y > body_size.y * 0.5 - 0.3
+	return Vector2(local.x - seat.x, local.z - seat.z).length() < 1.1
+
 func seat_transform() -> Transform3D:
 	return _seat.global_transform
 

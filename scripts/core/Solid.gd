@@ -23,6 +23,48 @@ static func cube(volume_m3: float) -> Dictionary:
 	var side: float = pow(maxf(0.000001, volume_m3), 1.0 / 3.0)
 	return box(Vector3(side, side, side))
 
+# --- Finishes -----------------------------------------------------------------
+
+## What a piece has been through that makes it worth more: sanded wood, refined
+## metal. Carried in the dims, so it survives cutting, saving and machines.
+const FINISH_VALUE := {&"sanded": 1.35, &"refined": 1.45}
+const FINISH_NAME := {&"sanded": "Sanded", &"refined": "Refined"}
+
+static func finishes(d: Dictionary) -> Array:
+	return d.get("finish", [])
+
+static func has_finish(d: Dictionary, f: StringName) -> bool:
+	return finishes(d).has(f)
+
+## A copy of `d` with finish `f` added.
+static func with_finish(d: Dictionary, f: StringName) -> Dictionary:
+	var out := d.duplicate(true)
+	var list: Array = out.get("finish", []).duplicate()
+	if not list.has(f):
+		list.append(f)
+	out["finish"] = list
+	return out
+
+## Carries `from`'s finishes onto `to` (a cut half, a milled plank).
+static func keep_finish(from: Dictionary, to: Dictionary) -> Dictionary:
+	if finishes(from).is_empty():
+		return to
+	to["finish"] = finishes(from).duplicate()
+	return to
+
+## The price multiplier the finishes add up to.
+static func quality(d: Dictionary) -> float:
+	var q := 1.0
+	for f in finishes(d):
+		q *= float(FINISH_VALUE.get(StringName(f), 1.0))
+	return q
+
+static func finish_prefix(d: Dictionary) -> String:
+	var words: Array[String] = []
+	for f in finishes(d):
+		words.append(String(FINISH_NAME.get(StringName(f), "")))
+	return " ".join(words)
+
 static func volume(d: Dictionary) -> float:
 	if d.get("shape", BOX) == CYLINDER:
 		var r0: float = d.r0
@@ -67,13 +109,13 @@ static func split(d: Dictionary, t: float = 0.5) -> Array[Dictionary]:
 		var length: float = d.length
 		var r_cut: float = lerpf(float(d.r0), float(d.r1), t)
 		return [
-			cylinder(float(d.r0), r_cut, length * t),
-			cylinder(r_cut, float(d.r1), length * (1.0 - t)),
+			keep_finish(d, cylinder(float(d.r0), r_cut, length * t)),
+			keep_finish(d, cylinder(r_cut, float(d.r1), length * (1.0 - t))),
 		]
 	var s: Vector3 = d.size
 	return [
-		box(Vector3(s.x, s.y * t, s.z)),
-		box(Vector3(s.x, s.y * (1.0 - t), s.z)),
+		keep_finish(d, box(Vector3(s.x, s.y * t, s.z))),
+		keep_finish(d, box(Vector3(s.x, s.y * (1.0 - t), s.z))),
 	]
 
 ## Cuts `total_volume` into equal pieces of the given cross-section, none longer
@@ -92,13 +134,23 @@ static func cut_to_pieces(total_volume: float, cross_section: Vector2,
 	return out
 
 static func to_dict(d: Dictionary) -> Dictionary:
+	var out := {}
 	if d.get("shape", BOX) == CYLINDER:
-		return {"shape": "cylinder", "r0": float(d.r0), "r1": float(d.r1), "length": float(d.length)}
-	var s: Vector3 = d.size
-	return {"shape": "box", "size": [s.x, s.y, s.z]}
+		out = {"shape": "cylinder", "r0": float(d.r0), "r1": float(d.r1), "length": float(d.length)}
+	else:
+		var s: Vector3 = d.size
+		out = {"shape": "box", "size": [s.x, s.y, s.z]}
+	if not finishes(d).is_empty():
+		out["finish"] = finishes(d).map(func(f): return String(f))
+	return out
 
 static func from_dict(d: Dictionary) -> Dictionary:
+	var out := {}
 	if String(d.get("shape", "box")) == "cylinder":
-		return cylinder(float(d.get("r0", 0.2)), float(d.get("r1", 0.2)), float(d.get("length", 1.0)))
-	var s: Array = d.get("size", [0.3, 0.3, 0.3])
-	return box(Vector3(s[0], s[1], s[2]))
+		out = cylinder(float(d.get("r0", 0.2)), float(d.get("r1", 0.2)), float(d.get("length", 1.0)))
+	else:
+		var s: Array = d.get("size", [0.3, 0.3, 0.3])
+		out = box(Vector3(s[0], s[1], s[2]))
+	if d.has("finish"):
+		out["finish"] = (d["finish"] as Array).map(func(f): return StringName(f))
+	return out

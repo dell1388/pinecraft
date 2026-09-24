@@ -192,13 +192,22 @@ func _consume() -> void:
 
 ## The chunk is drawn from the ore left in it, so hammering a piece off visibly
 ## shrinks the rock in the ground.
+## Ores that catch the light, and the rock each tends to sit in, so a sunstone
+## in sandstone and cobalt in dark slate read differently from across a valley.
+const GLOWING_ORES := [&"ore_gold", &"ore_cobalt", &"ore_sunstone"]
+const HOST_STONE := {
+	&"ore_copper": Color(0.55, 0.46, 0.38), &"ore_silver": Color(0.56, 0.58, 0.62),
+	&"ore_cobalt": Color(0.28, 0.30, 0.34), &"ore_sunstone": Color(0.78, 0.64, 0.44),
+	&"ore_gold": Color(0.50, 0.47, 0.43),
+}
+
 func _rebuild() -> void:
 	for p in _parts:
 		p.queue_free()
 	_parts.clear()
 	var r := radius()
 	var ore_def := GameData.item(ore_item)
-	var stone := Color(0.47, 0.45, 0.42)
+	var stone: Color = HOST_STONE.get(ore_item, Color(0.47, 0.45, 0.42))
 	var seam: Color = ore_def.color if ore_def != null else Color(0.5, 0.5, 0.5)
 	# Buried up to `embed`, so the chunk reads as part of the ground rather
 	# than something dropped on it.
@@ -228,7 +237,7 @@ func _rebuild() -> void:
 			Transform3D(Basis(Vector3.UP, form.randf() * PI) * Basis(Vector3.RIGHT, form.randf_range(-0.4, 0.4)),
 				Vector3(cos(angle) * r * 0.7, lift + r * form.randf_range(0.3, 0.95), sin(angle) * r * 0.7)),
 			stone.lightened(form.randf_range(0.0, 0.12)))
-	var glint := ore_item == &"ore_gold"
+	var glint := GLOWING_ORES.has(ore_item)
 	for i in 5:
 		var angle2: float = TAU * form.randf()
 		var out := Vector3(cos(angle2), form.randf_range(0.2, 0.9), sin(angle2)).normalized()

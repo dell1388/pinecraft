@@ -19,8 +19,8 @@ const AUTOSAVE_SECONDS := 60.0
 const OUTDOOR_AMBIENT := 0.6
 const STARTING_MONEY := 250
 
-@export var tree_count: int = 90
-@export var rock_count: int = 34
+@export var tree_count: int = 200
+@export var rock_count: int = 60
 @export var autosave: bool = true
 
 var manager: LooseItemManager
@@ -33,6 +33,9 @@ var quests: QuestLog
 var store: Store
 var terrain: Terrain
 var hauler: Hauler
+## The high-country shop: the best tools, heavy trucks, top machine tiers.
+var summit_store: Store
+const SUMMIT_STORE := "Summit Outfitters"
 ## One field per species, each keeping its own ring or patch stocked.
 var tree_fields: Array[ResourceField] = []
 var rock_fields: Array[ResourceField] = []
@@ -136,6 +139,10 @@ func _ready() -> void:
 	player.manager = manager
 	player.plot = plot
 	player.store = store
+	player.stores = [store]
+	if summit_store != null:
+		player.stores.append(summit_store)
+	player.wants_to_drive.connect(func(v: Node3D): drive(v as Hauler))
 
 	build_system = BuildSystem.new()
 	build_system.setup(plot, player.camera, player)
@@ -255,12 +262,15 @@ func _build_terrain() -> void:
 	# line so a levelled site is never under the sheet.
 	terrain.reserve_site(Vector3(0, PLOT_GROUND, 0), 56.0)
 	terrain.reserve_site(Vector3(DEPOT_POSITION.x, 0.6, DEPOT_POSITION.z), 16.0)
-	terrain.reserve_site(Vector3(STORE_POSITION.x, 0.6, STORE_POSITION.z), 14.0)
+	terrain.reserve_site(Vector3(STORE_POSITION.x, 0.6, STORE_POSITION.z), 20.0)
 	terrain.reserve_site(Vector3(QUARRY_CENTRE.x, 0.5, QUARRY_CENTRE.z), 34.0)
 	terrain.cave_count = 3
 	for spec in OUTPOSTS:
 		terrain.site_requests.append({"name": spec.name, "biomes": spec.biomes,
 			"radius": spec.radius, "near": spec.near, "far": spec.far})
+	# The better shop is a trip: up in the high country, a long way out.
+	terrain.site_requests.append({"name": SUMMIT_STORE, "biomes": [Terrain.Biome.MOUNTAIN,
+		Terrain.Biome.SNOW, Terrain.Biome.TAIGA], "radius": 18.0, "near": 170.0, "far": 300.0})
 	add_child(terrain)
 
 	# A wall at the map edge, so nothing drives off the world.
@@ -345,6 +355,89 @@ func _build_forest() -> void:
 			# Low, wide and sparse, the way things grow with no water.
 			"start": 0.40, "pitch": [0.95, 1.35], "length": [0.26, 0.40],
 			"foliage": 5.0, "crown": [0.0, 0.0]},
+
+		# --- The rest of the forest: every one a tree you would know on sight.
+
+		{"name": "Birch", "item": &"wood_birch",
+			"biomes": [Terrain.Biome.WOODLAND, Terrain.Biome.TAIGA],
+			"leaf": Color(0.55, 0.68, 0.25), "bark": Color(0.90, 0.89, 0.84), "work": 520.0,
+			"radius": [0.18, 0.26], "height": [7.0, 10.0], "taper": 0.6, "branches": [5, 7],
+			# Slim white trunk, a light rounded head of small leaves.
+			"start": 0.55, "pitch": [0.35, 0.75], "length": [0.14, 0.22],
+			"foliage": 7.0, "crown": [7.0, 0.28], "style": &"ball"},
+
+		{"name": "Maple", "item": &"wood_maple",
+			"biomes": [Terrain.Biome.WOODLAND],
+			"leaf": Color(0.86, 0.32, 0.14), "accent": Color(0.96, 0.62, 0.16), "work": 900.0,
+			"radius": [0.34, 0.46], "height": [5.5, 7.5], "taper": 0.7, "branches": [6, 8],
+			# Autumn all year round: a big round crown in reds and oranges.
+			"start": 0.5, "pitch": [0.6, 1.05], "length": [0.22, 0.34],
+			"foliage": 8.5, "crown": [9.0, 0.34], "style": &"ball", "weight": 0.7},
+
+		{"name": "Cherry Blossom", "item": &"wood_cherry",
+			"biomes": [Terrain.Biome.WOODLAND, Terrain.Biome.SWAMP],
+			"leaf": Color(0.98, 0.70, 0.82), "accent": Color(1.0, 0.86, 0.92), "work": 820.0,
+			"bark": Color(0.36, 0.20, 0.18),
+			"radius": [0.26, 0.36], "height": [4.0, 5.5], "taper": 0.68, "branches": [6, 8],
+			# Low and wide, and a cloud of pink.
+			"start": 0.45, "pitch": [0.9, 1.3], "length": [0.3, 0.44],
+			"foliage": 9.0, "crown": [7.5, 0.3], "style": &"puff", "weight": 0.45},
+
+		{"name": "Redwood", "item": &"wood_redwood",
+			"biomes": [Terrain.Biome.TAIGA],
+			"leaf": Color(0.13, 0.30, 0.18), "work": 760.0,
+			"radius": [0.70, 0.95], "height": [14.0, 19.0], "taper": 0.45, "branches": [6, 8],
+			# A giant: a great bare red column, then a narrow spire way up top.
+			# You will want the log truck.
+			"start": 0.62, "pitch": [0.35, 0.6], "length": [0.07, 0.11],
+			"foliage": 5.0, "crown": [3.2, 0.3], "weight": 0.35},
+
+		{"name": "Palm", "item": &"wood_palm",
+			"biomes": [Terrain.Biome.DESERT],
+			"leaf": Color(0.34, 0.60, 0.22), "work": 420.0,
+			"radius": [0.18, 0.24], "height": [6.0, 8.5], "taper": 0.8, "branches": [0, 0],
+			"start": 0.9, "pitch": [0.0, 0.1], "length": [0.1, 0.1],
+			"foliage": 1.0, "crown": [14.0, 0.2], "style": &"palm", "wet": 0.2},
+
+		{"name": "Baobab", "item": &"wood_baobab",
+			"biomes": [Terrain.Biome.DESERT],
+			"leaf": Color(0.40, 0.52, 0.22), "work": 700.0,
+			"radius": [0.9, 1.2], "height": [4.5, 6.0], "taper": 0.62, "branches": [5, 7],
+			# A barrel of a trunk with a little tuft of branches on top.
+			"start": 0.86, "pitch": [0.9, 1.3], "length": [0.16, 0.24],
+			"foliage": 3.5, "crown": [2.2, 0.16], "style": &"ball", "weight": 0.4},
+
+		{"name": "Frostbark", "item": &"wood_frost",
+			"biomes": [Terrain.Biome.SNOW],
+			"leaf": Color(0.62, 0.86, 1.0), "work": 1300.0, "glow": 0.35,
+			"radius": [0.28, 0.38], "height": [6.0, 8.0], "taper": 0.55, "branches": [6, 8],
+			# Ice-blue needles that catch the light, on a pale blue trunk.
+			"start": 0.3, "pitch": [0.35, 0.6], "length": [0.1, 0.16],
+			"foliage": 5.0, "crown": [3.6, 0.5], "weight": 0.35},
+
+		{"name": "Spirit Tree", "item": &"wood_spirit",
+			"biomes": [Terrain.Biome.SWAMP],
+			"leaf": Color(0.45, 0.95, 0.85), "work": 1500.0, "glow": 1.2,
+			"radius": [0.34, 0.44], "height": [5.0, 7.0], "taper": 0.66, "branches": [6, 8],
+			# Ghost-white wood and glowing teal leaves hanging over the water.
+			"start": 0.48, "pitch": [1.0, 1.4], "length": [0.3, 0.44],
+			"foliage": 7.0, "crown": [5.5, 0.26], "style": &"puff", "weight": 0.2, "wet": 0.6},
+
+		{"name": "Emberbark", "item": &"wood_ember",
+			"biomes": [Terrain.Biome.MOUNTAIN],
+			"leaf": Color(1.0, 0.42, 0.10), "work": 2200.0, "glow": 1.6,
+			"radius": [0.40, 0.52], "height": [4.5, 6.0], "taper": 0.7, "branches": [4, 6],
+			# Charcoal-black and smouldering: ember-lit knots instead of leaves.
+			"start": 0.45, "pitch": [0.6, 1.0], "length": [0.18, 0.28],
+			"foliage": 2.5, "crown": [0.0, 0.0], "style": &"ball", "weight": 0.2},
+
+		{"name": "Dead Snag", "item": &"wood_pine",
+			"biomes": [Terrain.Biome.MOUNTAIN, Terrain.Biome.DESERT, Terrain.Biome.SWAMP],
+			"leaf": Color(0.4, 0.4, 0.4), "bark": Color(0.52, 0.49, 0.45), "work": 400.0,
+			"radius": [0.22, 0.32], "height": [4.0, 6.5], "taper": 0.5, "branches": [2, 4],
+			# Grey, bare and broken: cheap wood, but it breaks up the skyline.
+			"start": 0.5, "pitch": [0.5, 1.1], "length": [0.12, 0.2],
+			"foliage": 0.0, "crown": [0.0, 0.0], "style": &"bare", "weight": 0.3},
 	]
 
 	# Quotas follow how much country each species actually has, so a seed that
@@ -364,7 +457,8 @@ func _build_forest() -> void:
 		var pool := pools[i]
 		if pool.is_empty():
 			continue
-		var quota: int = int(round(float(tree_count) * float(pool.size()) / float(total)))
+		var quota: int = int(round(float(tree_count) * float(pool.size()) / float(total)
+			* float(kind.get("weight", 1.0)) * 2.0))
 		if quota <= 0:
 			continue
 		var field := ResourceField.new()
@@ -428,6 +522,10 @@ func _build_tree(kind: Dictionary, form_seed: int) -> Node3D:
 	tree.foliage_spread = float(kind.foliage)
 	tree.crown_spread = float(kind.crown[0])
 	tree.crown_height = float(kind.crown[1])
+	tree.foliage_style = kind.get("style", &"cone")
+	tree.bark_color = kind.get("bark", Color(0, 0, 0, 0))
+	tree.leaf_accent = kind.get("accent", Color(0, 0, 0, 0))
+	tree.leaf_glow = float(kind.get("glow", 0.0))
 	return tree
 
 ## Ore is not only in the quarry. Each kind has country it turns up in out on
@@ -436,11 +534,17 @@ func _build_tree(kind: Dictionary, form_seed: int) -> Node3D:
 ## home. Gold is mostly underground: see the caves.
 const WILD_ORE := [
 	{"item": &"ore_iron", "biomes": [Terrain.Biome.MOUNTAIN, Terrain.Biome.TAIGA, Terrain.Biome.WOODLAND],
-		"quota": 16, "volume": [0.35, 2.4], "embed": [0.30, 0.55]},
+		"quota": 26, "volume": [0.35, 2.4], "embed": [0.30, 0.55]},
 	{"item": &"ore_copper", "biomes": [Terrain.Biome.DESERT, Terrain.Biome.MOUNTAIN],
-		"quota": 12, "volume": [0.30, 2.0], "embed": [0.35, 0.60]},
+		"quota": 20, "volume": [0.30, 2.0], "embed": [0.35, 0.60]},
+	{"item": &"ore_silver", "biomes": [Terrain.Biome.TAIGA, Terrain.Biome.SNOW],
+		"quota": 12, "volume": [0.25, 1.5], "embed": [0.40, 0.60]},
+	{"item": &"ore_cobalt", "biomes": [Terrain.Biome.SWAMP, Terrain.Biome.MOUNTAIN],
+		"quota": 8, "volume": [0.25, 1.4], "embed": [0.40, 0.65]},
 	{"item": &"ore_gold", "biomes": [Terrain.Biome.SNOW],
-		"quota": 4, "volume": [0.20, 1.0], "embed": [0.45, 0.70]},
+		"quota": 6, "volume": [0.20, 1.0], "embed": [0.45, 0.70]},
+	{"item": &"ore_sunstone", "biomes": [Terrain.Biome.DESERT],
+		"quota": 3, "volume": [0.15, 0.7], "embed": [0.50, 0.70]},
 ]
 
 ## The quarry works the same way: a patch per ore, stocked to a quota.
@@ -492,6 +596,8 @@ func _build_caves() -> void:
 		{"item": &"ore_copper", "volume": [0.4, 2.0], "embed": [0.3, 0.55]},
 		{"item": &"ore_gold", "volume": [0.3, 1.6], "embed": [0.35, 0.6]},
 		{"item": &"ore_iron", "volume": [0.5, 2.4], "embed": [0.3, 0.55]},
+		{"item": &"ore_cobalt", "volume": [0.3, 1.4], "embed": [0.35, 0.6]},
+		{"item": &"ore_sunstone", "volume": [0.2, 0.8], "embed": [0.4, 0.65]},
 	]
 	for plan in terrain.caves:
 		var cave := Cave.new()
@@ -616,6 +722,16 @@ func _build_depot() -> void:
 ## Spec: a store you walk into, with stock in boxes on shelves and a counter to
 ## carry them to.
 func _build_store() -> void:
+	if terrain.found_sites.has(SUMMIT_STORE):
+		var at: Vector3 = terrain.found_sites[SUMMIT_STORE]
+		summit_store = Store.new()
+		summit_store.name = "SummitStore"
+		summit_store.setup(manager, plot, 0, &"summit")
+		summit_store.position = at
+		# Door toward home.
+		summit_store.rotation.y = atan2(-at.x, -at.z)
+		add_child(summit_store)
+		Nameplate.landmark(summit_store, "SUMMIT OUTFITTERS", 6.5)
 	store = Store.new()
 	store.name = "Store"
 	store.setup(manager, plot, 0)
@@ -743,6 +859,8 @@ func compass_markers() -> Array[Dictionary]:
 		{"name": "Plot", "color": Color(0.55, 0.85, 0.50), "where": func(): return plot.global_position},
 		{"name": "Sell Yard", "color": Color(0.98, 0.80, 0.30), "where": func(): return depot.global_position},
 		{"name": "Store", "color": Color(0.55, 0.78, 1.0), "where": func(): return store.global_position},
+		{"name": "Summit Outfitters", "color": Color(0.7, 0.62, 1.0), "where": func():
+			return summit_store.global_position if summit_store != null else null},
 		{"name": "Quarry", "color": Color(0.80, 0.70, 0.62), "where": func(): return QUARRY_CENTRE},
 	]
 	# Each kind of vehicle you own, wherever it was left.
@@ -1031,12 +1149,15 @@ func _toggle_vehicle() -> void:
 	if vehicles().is_empty():
 		hud.log_message("No vehicle yet - they are sold at the Store, and each spawns on its own pad")
 		return
-	var v := vehicle_at_hand(4.0)
-	if v == null:
-		hud.log_message("walk up to a vehicle to get in")
+	hud.log_message("aim at a vehicle's driver seat and press [E] to get in")
+
+## Into the driving seat of `v`.
+func drive(v: Hauler) -> void:
+	if v == null or player.driving():
 		return
 	hauler = v
 	player.enter_vehicle(v)
 	v.driver = player
+	hud.log_message("driving the %s - [V] to get out" % v.display_name.to_lower())
 	if v.cargo_count() > 0:
 		hud.log_message("%d piece(s) in the bed - they ride loose, so mind the corners" % v.cargo_count())

@@ -15,6 +15,9 @@ var plot_expansions: Array = []
 var vehicle_def: Dictionary = {}
 ## Every vehicle's spec, as read from vehicles.json: id -> Dictionary.
 var vehicles: Dictionary = {}
+## Hand tools, id -> Dictionary, and the ones a new player starts with.
+var tools: Dictionary = {}
+var start_tools: Array[StringName] = []
 var price_config: Dictionary = {}
 var quest_config: Dictionary = {}
 var store_config: Dictionary = {}
@@ -59,6 +62,14 @@ func load_all() -> void:
 	plot_expansions = u_data.get("plot_expansions", [])
 	vehicle_def = u_data.get("vehicle", {})
 
+	tools.clear()
+	start_tools.clear()
+	var t_data := _read("tools.json")
+	for entry in t_data.get("tools", []):
+		tools[StringName(entry["id"])] = entry
+	for id in t_data.get("start", []):
+		start_tools.append(StringName(id))
+
 	vehicles.clear()
 	for entry in _read("vehicles.json").get("vehicles", []):
 		vehicles[StringName(entry["id"])] = entry
@@ -66,6 +77,7 @@ func load_all() -> void:
 	price_config = _read("prices.json")
 	quest_config = _read("quests.json")
 	store_config = _read("store.json")
+	_make_boxes()
 	_validate()
 
 func _read(file_name: String) -> Dictionary:
@@ -114,19 +126,21 @@ func _validate() -> void:
 		var target := StringName(entry.get("target", ""))
 		if not items.has(box):
 			load_errors.append("store sells unknown box '%s'" % box)
-		var kind := String(entry.get("kind", ""))
-		if kind == "upgrade":
-			if not upgrade_tracks.has(target):
-				load_errors.append("store box '%s' upgrades unknown track '%s'" % [box, target])
-		else:
-			if not buildings.has(target):
-				load_errors.append("store box '%s' unlocks unknown building '%s'" % [box, target])
-			# A crated machine improves the machine as well as delivering it,
-			# so it needs a track of the same name to improve.
-			if kind == "machine" and not upgrade_tracks.has(target):
-				load_errors.append("store box '%s' has no upgrade track '%s'" % [box, target])
+		match String(entry.get("kind", "")):
+			"tool":
+				if not tools.has(target):
+					load_errors.append("store box '%s' holds unknown tool '%s'" % [box, target])
+			"upgrade":
+				if not upgrade_tracks.has(target):
+					load_errors.append("store box '%s' upgrades unknown track '%s'" % [box, target])
+			"tier":
+				if not upgrade_tracks.has(target) or not buildings.has(target):
+					load_errors.append("store box '%s' tiers unknown machine '%s'" % [box, target])
+			_:
+				if not buildings.has(target):
+					load_errors.append("store box '%s' unlocks unknown building '%s'" % [box, target])
 	for b: BuildingDef in buildings.values():
-		if b.kind == &"machine" and not machines.has(b.machine):
+		if (b.kind == &"machine" or b.kind == &"inline") and not machines.has(b.machine):
 			load_errors.append("building '%s' references unknown machine '%s'" % [b.id, b.machine])
 		if b.kind == &"pad" and not vehicles.has(b.vehicle):
 			load_errors.append("pad '%s' spawns unknown vehicle '%s'" % [b.id, b.vehicle])
@@ -141,6 +155,12 @@ func item(id: StringName) -> ItemDef:
 func item_name(id: StringName) -> String:
 	var def: ItemDef = items.get(id)
 	return def.display_name if def != null else String(id)
+
+func tool(id: StringName) -> Dictionary:
+	return tools.get(id, {})
+
+func tool_name(id: StringName) -> String:
+	return String(tool(id).get("display_name", id))
 
 func vehicle(id: StringName) -> Dictionary:
 	return vehicles.get(id, {})
@@ -171,12 +191,78 @@ func machine_accepts(machine_id: StringName, item_id: StringName) -> bool:
 		return false
 	if not m.accepts_category(def.category):
 		return false
-	if m.mode == MachineDef.MODE_ASSEMBLE:
+	if m.mode == MachineDef.MODE_ASSEMBLE or m.mode == MachineDef.MODE_SAND \
+			or m.mode == MachineDef.MODE_CRUSH or m.mode == MachineDef.MODE_REFINE:
 		return true
 	return m.output_for(item_id) != &""
 
-func store_products() -> Array:
-	return store_config.get("products", [])
+# --- Stores ------------------------------------------------------------------
+
+func stores() -> Array:
+	return store_config.get("stores", [])
+
+func store_def(id: StringName) -> Dictionary:
+	for st in stores():
+		if StringName(st.get("id", "")) == id:
+			return st
+	return {}
+
+## Every product on every shelf (or one store's), each a copy of its row with
+## where it sits filled in: store, section, colours and box id.
+func store_products(store_id: StringName = &"") -> Array:
+	var out: Array = []
+	for st in stores():
+		if store_id != &"" and StringName(st.get("id", "")) != store_id:
+			continue
+		for section in st.get("sections", []):
+			for entry in section.get("products", []):
+				var p: Dictionary = (entry as Dictionary).duplicate()
+				p["store"] = StringName(st.get("id", ""))
+				p["section"] = String(section.get("title", ""))
+				p["color"] = section.get("color", [0.5, 0.5, 0.5])
+				p["box_size"] = section.get("box", [0.9, 0.7, 0.7])
+				p["box"] = box_id(p)
+				# Machine tiers wear their tier's colour, the way the cartons do.
+				if p.has("tier"):
+					p["color"] = TIER_COLORS[clampi(int(p.tier), 1, 3) - 1]
+				out.append(p)
+	return out
+
+const TIER_COLORS := [[0.92, 0.45, 0.15], [0.52, 0.56, 0.64], [0.20, 0.36, 0.82]]
+
+static func box_id(p: Dictionary) -> StringName:
+	var id := "box_%s" % String(p.get("target", ""))
+	if p.has("tier"):
+		id += "_t%d" % int(p.tier)
+	elif String(p.get("kind", "")) == "upgrade":
+		id += "_up"
+	return StringName(id)
+
+## What a product is called on its box.
+func product_name(p: Dictionary) -> String:
+	var target := StringName(p.get("target", ""))
+	match String(p.get("kind", "")):
+		"tool":
+			return tool_name(target)
+		"upgrade":
+			var t: Dictionary = upgrade_tracks.get(target, {})
+			return "%s Upgrade" % String(t.get("display_name", target))
+		"tier":
+			var b := building(target)
+			return "%s T%d" % [b.display_name if b != null else String(target), int(p.get("tier", 1))]
+	var def := building(target)
+	return def.display_name if def != null else String(target)
+
+## The boxes are items like any other, made from the store table rather than
+## listed by hand, so adding a product is one line of data.
+func _make_boxes() -> void:
+	for p in store_products():
+		var c: Array = p.color
+		var size: Array = p.box_size
+		var def := ItemDef.from_dict({"id": String(p.box), "display_name": "Boxed %s" % product_name(p),
+			"category": "package", "shape": "box", "variable": false, "size": size,
+			"density": 60, "value_per_m3": 0, "sellable": false, "must_buy": true, "color": c})
+		items[def.id] = def
 
 func quest_pool() -> Array:
 	return quest_config.get("quests", [])

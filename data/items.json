@@ -92,6 +92,168 @@
       "volatility": 0.3
     },
     {
+      "id": "wood_birch",
+      "display_name": "Birch Wood",
+      "category": "wood",
+      "shape": "cylinder",
+      "variable": true,
+      "radius": 0.17,
+      "length": 1.6,
+      "taper": 0.86,
+      "density": 170,
+      "value_per_m3": 30,
+      "color": [
+        0.86,
+        0.84,
+        0.78
+      ],
+      "volatility": 0.25
+    },
+    {
+      "id": "wood_maple",
+      "display_name": "Maple Wood",
+      "category": "wood",
+      "shape": "cylinder",
+      "variable": true,
+      "radius": 0.2,
+      "length": 1.6,
+      "taper": 0.86,
+      "density": 190,
+      "value_per_m3": 55,
+      "color": [
+        0.52,
+        0.36,
+        0.24
+      ],
+      "volatility": 0.25
+    },
+    {
+      "id": "wood_cherry",
+      "display_name": "Cherry Wood",
+      "category": "wood",
+      "shape": "cylinder",
+      "variable": true,
+      "radius": 0.18,
+      "length": 1.6,
+      "taper": 0.86,
+      "density": 180,
+      "value_per_m3": 75,
+      "color": [
+        0.46,
+        0.24,
+        0.2
+      ],
+      "volatility": 0.25
+    },
+    {
+      "id": "wood_redwood",
+      "display_name": "Redwood",
+      "category": "wood",
+      "shape": "cylinder",
+      "variable": true,
+      "radius": 0.3,
+      "length": 1.6,
+      "taper": 0.86,
+      "density": 140,
+      "value_per_m3": 50,
+      "color": [
+        0.55,
+        0.25,
+        0.17
+      ],
+      "volatility": 0.25
+    },
+    {
+      "id": "wood_palm",
+      "display_name": "Palm Wood",
+      "category": "wood",
+      "shape": "cylinder",
+      "variable": true,
+      "radius": 0.16,
+      "length": 1.6,
+      "taper": 0.86,
+      "density": 130,
+      "value_per_m3": 26,
+      "color": [
+        0.6,
+        0.5,
+        0.34
+      ],
+      "volatility": 0.25
+    },
+    {
+      "id": "wood_baobab",
+      "display_name": "Baobab Wood",
+      "category": "wood",
+      "shape": "cylinder",
+      "variable": true,
+      "radius": 0.3,
+      "length": 1.6,
+      "taper": 0.86,
+      "density": 110,
+      "value_per_m3": 40,
+      "color": [
+        0.6,
+        0.52,
+        0.45
+      ],
+      "volatility": 0.25
+    },
+    {
+      "id": "wood_frost",
+      "display_name": "Frostbark",
+      "category": "wood",
+      "shape": "cylinder",
+      "variable": true,
+      "radius": 0.2,
+      "length": 1.6,
+      "taper": 0.86,
+      "density": 200,
+      "value_per_m3": 150,
+      "color": [
+        0.72,
+        0.82,
+        0.9
+      ],
+      "volatility": 0.25
+    },
+    {
+      "id": "wood_spirit",
+      "display_name": "Spiritwood",
+      "category": "wood",
+      "shape": "cylinder",
+      "variable": true,
+      "radius": 0.19,
+      "length": 1.6,
+      "taper": 0.86,
+      "density": 160,
+      "value_per_m3": 230,
+      "color": [
+        0.9,
+        0.92,
+        0.95
+      ],
+      "volatility": 0.25
+    },
+    {
+      "id": "wood_ember",
+      "display_name": "Emberbark",
+      "category": "wood",
+      "shape": "cylinder",
+      "variable": true,
+      "radius": 0.22,
+      "length": 1.6,
+      "taper": 0.86,
+      "density": 260,
+      "value_per_m3": 320,
+      "color": [
+        0.18,
+        0.14,
+        0.13
+      ],
+      "volatility": 0.25
+    },
+    {
       "id": "lumber_pine",
       "display_name": "Pine Lumber",
       "category": "lumber",
@@ -192,6 +354,186 @@
       "volatility": 0.28
     },
     {
+      "id": "lumber_birch",
+      "display_name": "Birch Lumber",
+      "category": "lumber",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.3,
+        0.3
+      ],
+      "length": 1.55,
+      "density": 158,
+      "value_per_m3": 99,
+      "color": [
+        0.93,
+        0.88,
+        0.74
+      ],
+      "volatility": 0.22
+    },
+    {
+      "id": "lumber_maple",
+      "display_name": "Maple Lumber",
+      "category": "lumber",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.3,
+        0.3
+      ],
+      "length": 1.55,
+      "density": 176,
+      "value_per_m3": 181,
+      "color": [
+        0.86,
+        0.66,
+        0.44
+      ],
+      "volatility": 0.22
+    },
+    {
+      "id": "lumber_cherry",
+      "display_name": "Cherry Lumber",
+      "category": "lumber",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.3,
+        0.3
+      ],
+      "length": 1.55,
+      "density": 167,
+      "value_per_m3": 247,
+      "color": [
+        0.78,
+        0.44,
+        0.36
+      ],
+      "volatility": 0.22
+    },
+    {
+      "id": "lumber_redwood",
+      "display_name": "Redwood Lumber",
+      "category": "lumber",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.3,
+        0.3
+      ],
+      "length": 1.55,
+      "density": 130,
+      "value_per_m3": 165,
+      "color": [
+        0.8,
+        0.42,
+        0.3
+      ],
+      "volatility": 0.22
+    },
+    {
+      "id": "lumber_palm",
+      "display_name": "Palm Lumber",
+      "category": "lumber",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.3,
+        0.3
+      ],
+      "length": 1.55,
+      "density": 120,
+      "value_per_m3": 85,
+      "color": [
+        0.86,
+        0.76,
+        0.56
+      ],
+      "volatility": 0.22
+    },
+    {
+      "id": "lumber_baobab",
+      "display_name": "Baobab Lumber",
+      "category": "lumber",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.3,
+        0.3
+      ],
+      "length": 1.55,
+      "density": 102,
+      "value_per_m3": 132,
+      "color": [
+        0.82,
+        0.74,
+        0.62
+      ],
+      "volatility": 0.22
+    },
+    {
+      "id": "lumber_frost",
+      "display_name": "Frostbark Lumber",
+      "category": "lumber",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.3,
+        0.3
+      ],
+      "length": 1.55,
+      "density": 186,
+      "value_per_m3": 495,
+      "color": [
+        0.84,
+        0.92,
+        0.98
+      ],
+      "volatility": 0.22
+    },
+    {
+      "id": "lumber_spirit",
+      "display_name": "Spiritwood Lumber",
+      "category": "lumber",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.3,
+        0.3
+      ],
+      "length": 1.55,
+      "density": 148,
+      "value_per_m3": 759,
+      "color": [
+        0.8,
+        0.95,
+        0.98
+      ],
+      "volatility": 0.22
+    },
+    {
+      "id": "lumber_ember",
+      "display_name": "Emberbark Lumber",
+      "category": "lumber",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.3,
+        0.3
+      ],
+      "length": 1.55,
+      "density": 241,
+      "value_per_m3": 1056,
+      "color": [
+        0.62,
+        0.26,
+        0.14
+      ],
+      "volatility": 0.22
+    },
+    {
       "id": "ore_iron",
       "display_name": "Iron Ore",
       "category": "ore",
@@ -248,6 +590,66 @@
         0.78,
         0.66,
         0.24
+      ],
+      "volatility": 0.45
+    },
+    {
+      "id": "ore_silver",
+      "display_name": "Silver Ore",
+      "category": "ore",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.27,
+        0.22,
+        0.26
+      ],
+      "density": 1000,
+      "value_per_m3": 1300,
+      "color": [
+        0.78,
+        0.8,
+        0.84
+      ],
+      "volatility": 0.45
+    },
+    {
+      "id": "ore_cobalt",
+      "display_name": "Cobalt Ore",
+      "category": "ore",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.27,
+        0.22,
+        0.26
+      ],
+      "density": 1050,
+      "value_per_m3": 1800,
+      "color": [
+        0.2,
+        0.35,
+        0.85
+      ],
+      "volatility": 0.45
+    },
+    {
+      "id": "ore_sunstone",
+      "display_name": "Sunstone",
+      "category": "ore",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.27,
+        0.22,
+        0.26
+      ],
+      "density": 1150,
+      "value_per_m3": 4000,
+      "color": [
+        1.0,
+        0.55,
+        0.15
       ],
       "volatility": 0.45
     },
@@ -312,6 +714,66 @@
       "volatility": 0.4
     },
     {
+      "id": "ingot_silver",
+      "display_name": "Silver Billet",
+      "category": "metal",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.26,
+        0.14
+      ],
+      "length": 0.55,
+      "density": 1900,
+      "value_per_m3": 3200,
+      "color": [
+        0.9,
+        0.92,
+        0.95
+      ],
+      "volatility": 0.4
+    },
+    {
+      "id": "ingot_cobalt",
+      "display_name": "Cobalt Billet",
+      "category": "metal",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.26,
+        0.14
+      ],
+      "length": 0.55,
+      "density": 1900,
+      "value_per_m3": 4200,
+      "color": [
+        0.35,
+        0.55,
+        0.95
+      ],
+      "volatility": 0.4
+    },
+    {
+      "id": "ingot_sunsteel",
+      "display_name": "Sunsteel Billet",
+      "category": "metal",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.26,
+        0.14
+      ],
+      "length": 0.55,
+      "density": 1900,
+      "value_per_m3": 9500,
+      "color": [
+        1.0,
+        0.72,
+        0.35
+      ],
+      "volatility": 0.4
+    },
+    {
       "id": "crate",
       "display_name": "Shipping Crate",
       "category": "goods",
@@ -350,380 +812,6 @@
         0.62
       ],
       "volatility": 0.22
-    },
-    {
-      "id": "box_axe",
-      "display_name": "Boxed Axe",
-      "category": "package",
-      "shape": "box",
-      "variable": false,
-      "size": [
-        0.62,
-        0.42,
-        0.34
-      ],
-      "density": 90,
-      "value_per_m3": 0,
-      "color": [
-        0.72,
-        0.36,
-        0.22
-      ],
-      "volatility": 0.0,
-      "sellable": false,
-      "must_buy": true
-    },
-    {
-      "id": "box_hammer",
-      "display_name": "Boxed Hammer",
-      "category": "package",
-      "shape": "box",
-      "variable": false,
-      "size": [
-        0.58,
-        0.4,
-        0.34
-      ],
-      "density": 90,
-      "value_per_m3": 0,
-      "color": [
-        0.6,
-        0.38,
-        0.26
-      ],
-      "volatility": 0.0,
-      "sellable": false,
-      "must_buy": true
-    },
-    {
-      "id": "box_rack",
-      "display_name": "Boxed Carry Rack",
-      "category": "package",
-      "shape": "box",
-      "variable": false,
-      "size": [
-        0.7,
-        0.5,
-        0.44
-      ],
-      "density": 90,
-      "value_per_m3": 0,
-      "color": [
-        0.4,
-        0.52,
-        0.3
-      ],
-      "volatility": 0.0,
-      "sellable": false,
-      "must_buy": true
-    },
-    {
-      "id": "box_boots",
-      "display_name": "Boxed Boots",
-      "category": "package",
-      "shape": "box",
-      "variable": false,
-      "size": [
-        0.5,
-        0.36,
-        0.38
-      ],
-      "density": 90,
-      "value_per_m3": 0,
-      "color": [
-        0.32,
-        0.44,
-        0.62
-      ],
-      "volatility": 0.0,
-      "sellable": false,
-      "must_buy": true
-    },
-    {
-      "id": "box_sawmill",
-      "display_name": "Crated Sawmill",
-      "category": "package",
-      "shape": "box",
-      "variable": false,
-      "size": [
-        0.9,
-        0.72,
-        0.7
-      ],
-      "density": 90,
-      "value_per_m3": 0,
-      "color": [
-        0.52,
-        0.4,
-        0.26
-      ],
-      "volatility": 0.0,
-      "sellable": false,
-      "must_buy": true
-    },
-    {
-      "id": "box_furnace",
-      "display_name": "Crated Furnace",
-      "category": "package",
-      "shape": "box",
-      "variable": false,
-      "size": [
-        0.86,
-        0.76,
-        0.72
-      ],
-      "density": 90,
-      "value_per_m3": 0,
-      "color": [
-        0.38,
-        0.34,
-        0.4
-      ],
-      "volatility": 0.0,
-      "sellable": false,
-      "must_buy": true
-    },
-    {
-      "id": "box_crusher",
-      "display_name": "Crated Crusher",
-      "category": "package",
-      "shape": "box",
-      "variable": false,
-      "size": [
-        0.88,
-        0.74,
-        0.72
-      ],
-      "density": 90,
-      "value_per_m3": 0,
-      "color": [
-        0.34,
-        0.36,
-        0.42
-      ],
-      "volatility": 0.0,
-      "sellable": false,
-      "must_buy": true
-    },
-    {
-      "id": "box_workbench",
-      "display_name": "Crated Workbench",
-      "category": "package",
-      "shape": "box",
-      "variable": false,
-      "size": [
-        0.92,
-        0.7,
-        0.74
-      ],
-      "density": 90,
-      "value_per_m3": 0,
-      "color": [
-        0.3,
-        0.42,
-        0.5
-      ],
-      "volatility": 0.0,
-      "sellable": false,
-      "must_buy": true
-    },
-    {
-      "id": "box_filter",
-      "display_name": "Crated Filter",
-      "category": "package",
-      "shape": "box",
-      "variable": false,
-      "size": [
-        0.66,
-        0.5,
-        0.48
-      ],
-      "density": 90,
-      "value_per_m3": 0,
-      "color": [
-        0.46,
-        0.44,
-        0.34
-      ],
-      "volatility": 0.0,
-      "sellable": false,
-      "must_buy": true
-    },
-    {
-      "id": "box_belt",
-      "display_name": "Crated Fast Belt",
-      "category": "package",
-      "shape": "box",
-      "variable": false,
-      "size": [
-        0.8,
-        0.44,
-        0.44
-      ],
-      "density": 90,
-      "value_per_m3": 0,
-      "color": [
-        0.44,
-        0.46,
-        0.3
-      ],
-      "volatility": 0.0,
-      "sellable": false,
-      "must_buy": true
-    },
-    {
-      "id": "box_hauler",
-      "display_name": "Crated Hauler Pad",
-      "category": "package",
-      "shape": "box",
-      "variable": false,
-      "size": [
-        1.1,
-        0.86,
-        0.94
-      ],
-      "density": 90,
-      "value_per_m3": 0,
-      "color": [
-        0.62,
-        0.3,
-        0.24
-      ],
-      "volatility": 0.0,
-      "sellable": false,
-      "must_buy": true
-    },
-    {
-      "id": "box_quad",
-      "display_name": "Crated Quad Bike Pad",
-      "category": "package",
-      "shape": "box",
-      "variable": false,
-      "size": [
-        1.1,
-        0.86,
-        0.94
-      ],
-      "density": 90,
-      "value_per_m3": 0,
-      "color": [
-        0.88,
-        0.52,
-        0.12
-      ],
-      "volatility": 0.0,
-      "sellable": false,
-      "must_buy": true
-    },
-    {
-      "id": "box_pickup",
-      "display_name": "Crated Pickup Pad",
-      "category": "package",
-      "shape": "box",
-      "variable": false,
-      "size": [
-        1.1,
-        0.86,
-        0.94
-      ],
-      "density": 90,
-      "value_per_m3": 0,
-      "color": [
-        0.2,
-        0.42,
-        0.72
-      ],
-      "volatility": 0.0,
-      "sellable": false,
-      "must_buy": true
-    },
-    {
-      "id": "box_buggy",
-      "display_name": "Crated Buggy Pad",
-      "category": "package",
-      "shape": "box",
-      "variable": false,
-      "size": [
-        1.1,
-        0.86,
-        0.94
-      ],
-      "density": 90,
-      "value_per_m3": 0,
-      "color": [
-        0.28,
-        0.62,
-        0.3
-      ],
-      "volatility": 0.0,
-      "sellable": false,
-      "must_buy": true
-    },
-    {
-      "id": "box_log_truck",
-      "display_name": "Crated Log Truck Pad",
-      "category": "package",
-      "shape": "box",
-      "variable": false,
-      "size": [
-        1.1,
-        0.86,
-        0.94
-      ],
-      "density": 90,
-      "value_per_m3": 0,
-      "color": [
-        0.86,
-        0.7,
-        0.18
-      ],
-      "volatility": 0.0,
-      "sellable": false,
-      "must_buy": true
-    },
-    {
-      "id": "box_dump_truck",
-      "display_name": "Crated Dump Truck Pad",
-      "category": "package",
-      "shape": "box",
-      "variable": false,
-      "size": [
-        1.1,
-        0.86,
-        0.94
-      ],
-      "density": 90,
-      "value_per_m3": 0,
-      "color": [
-        0.92,
-        0.6,
-        0.12
-      ],
-      "volatility": 0.0,
-      "sellable": false,
-      "must_buy": true
-    },
-    {
-      "id": "box_crane_truck",
-      "display_name": "Crated Crane Truck Pad",
-      "category": "package",
-      "shape": "box",
-      "variable": false,
-      "size": [
-        1.1,
-        0.86,
-        0.94
-      ],
-      "density": 90,
-      "value_per_m3": 0,
-      "color": [
-        0.86,
-        0.3,
-        0.1
-      ],
-      "volatility": 0.0,
-      "sellable": false,
-      "must_buy": true
     }
   ]
 }

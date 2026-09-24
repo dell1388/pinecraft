@@ -6,7 +6,7 @@ extends RefCounted
 ## a keycap.
 
 const KEY_NAMES := ["LMB", "RMB", "MMB", "WASD", "SHIFT", "CTRL", "SPACE", "TAB",
-	"ESC", "WHEEL", "ENTER", "ALT"]
+	"ESC", "WHEEL", "ENTER", "ALT", "DEL"]
 
 static var _key_pattern: RegEx
 

@@ -3,13 +3,17 @@ extends CharacterBody3D
 
 ## First-person player: move, chop, mine, haul, build, drive.
 ##
-## Hauling uses a kinematic carry rack (items are frozen and snapped to slots),
-## which costs the solver nothing and cannot jitter. The single-item heavy drag
-## kept from the stress test stays velocity-driven, because steering a body's
-## velocity toward a hold point is stable at any mass where a joint is not.
+## Hands and tools. With nothing selected on the hotbar, the left mouse button
+## grabs whatever is under the crosshair *by the point you clicked* and pulls
+## that point toward the hold point, so a log grabbed by one end swings from
+## that end. Tools (axes, hammers) live in the inventory and are used by
+## selecting them on the hotbar. The carry rack (right mouse) is kept for now.
 
 signal carry_changed(count: int, capacity_m3: float)
 signal interacted(message: String)
+signal swung()
+## Asks the world to put the player in a vehicle's driving seat.
+signal wants_to_drive(vehicle: Node3D)
 
 @export var jump_velocity: float = 6.5
 @export var mouse_sensitivity: float = 0.0022
@@ -31,22 +35,29 @@ const SWIM_SPEED_FACTOR := 0.38
 const MIN_BUCK_LENGTH := 0.70
 ## Axe work required per square metre of cut face.
 const BUCK_WORK_PER_M2 := 700.0
-## How briskly a dragged piece is turned back into line with the player.
-const DRAG_TURN_GAIN := 6.0
+## How hard the grabbed point is pulled toward the hold point (per second),
+## and how strong the player is: the most force the hand can put on it.
+const DRAG_GAIN := 9.0
+const DRAG_STRENGTH_KG := 1000.0
+const DRAG_MIN_DISTANCE := 1.2
 
 var manager: LooseItemManager
 var plot: Plot
 var store: Store
+## Every shop in the world; a box from either can be opened anywhere.
+var stores: Array[Store] = []
 var terrain: Terrain
 var build_system: BuildSystem
 var vehicle: Node3D = null              ## set while driving
 
 var held: Array[LooseItem] = []
 var dragged: LooseItem = null
-## The dragged piece's orientation relative to the player, captured when it was
-## grabbed. Held constant, so the piece turns with the player instead of hanging
-## in one world orientation while they pan around it.
-var _drag_basis: Basis = Basis()
+## Where on the dragged piece it was grabbed, in the piece's own frame, and how
+## far in front of the eye it is held.
+var _drag_point: Vector3 = Vector3.ZERO
+var _drag_distance: float = 2.2
+## The hotbar slot in hand, or -1 for an empty hand.
+var selected_slot: int = -1
 var last_prompt: String = ""
 
 var _swing_cd: float = 0.0
@@ -60,6 +71,40 @@ func _ready() -> void:
 	collision_layer = Layers.PLAYER
 	collision_mask = Layers.MASK_PLAYER
 	capture_mouse(true)
+	_viewmodel = MeshInstance3D.new()
+	_viewmodel.name = "Viewmodel"
+	_viewmodel.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	camera.add_child(_viewmodel)
+	swung.connect(_swing_viewmodel)
+
+# --- The tool in hand --------------------------------------------------------
+
+var _viewmodel: MeshInstance3D
+var _viewmodel_tool: StringName = &"<none>"
+var _viewmodel_tween: Tween
+const VIEWMODEL_REST := Vector3(-0.45, 0.35, -0.35)
+
+func _process(_delta: float) -> void:
+	var tool := selected_tool() if not driving() and not (build_system != null and build_system.active) else &""
+	if tool == _viewmodel_tool:
+		return
+	_viewmodel_tool = tool
+	_viewmodel.visible = tool != &""
+	if tool != &"":
+		_viewmodel.mesh = ToolModel.mesh(GameData.tool(tool))
+		_viewmodel.position = Vector3(0.42, -0.62, -0.95)
+		_viewmodel.rotation = VIEWMODEL_REST
+
+func _swing_viewmodel() -> void:
+	if not _viewmodel.visible:
+		return
+	if _viewmodel_tween != null:
+		_viewmodel_tween.kill()
+	var t := maxf(0.12, float(selected_tool_def().get("cooldown", 0.4)))
+	_viewmodel.rotation = VIEWMODEL_REST
+	_viewmodel_tween = create_tween()
+	_viewmodel_tween.tween_property(_viewmodel, "rotation", VIEWMODEL_REST + Vector3(-1.2, 0.2, 0.3), t * 0.35).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_viewmodel_tween.tween_property(_viewmodel, "rotation", VIEWMODEL_REST, t * 0.6).set_trans(Tween.TRANS_SINE)
 
 func capture_mouse(capture: bool) -> void:
 	_mouse_captured = capture
@@ -132,6 +177,11 @@ func steering_load() -> bool:
 # --- Input -----------------------------------------------------------------
 
 func _unhandled_input(event: InputEvent) -> void:
+	# Editing a building in build mode: the mouse is the gizmo's.
+	if build_system != null and build_system.editing() and not _ui_blocking \
+			and (event is InputEventMouseButton or event is InputEventMouseMotion):
+		if build_system.edit_input(event):
+			return
 	if event is InputEventMouseMotion and _mouse_captured:
 		var sens := mouse_sensitivity * Settings.mouse_scale()
 		var look_y: float = event.relative.y * (-1.0 if Settings.invert_y() else 1.0)
@@ -156,33 +206,87 @@ func _on_mouse_button(event: InputEventMouseButton) -> void:
 	if not _mouse_captured:
 		capture_mouse(true)
 		return
+	var building := build_system != null and build_system.active
 	match event.button_index:
 		MOUSE_BUTTON_LEFT:
-			if build_system != null and build_system.active:
+			if building:
 				build_system.try_place()
+			elif driving():
+				pass
+			elif selected_tool() != &"":
+				_swing()
+			else:
+				_grab_drag()
+		MOUSE_BUTTON_RIGHT:
+			if building:
+				build_system.try_remove()
 			elif dragged != null:
 				_throw_dragged()
 			else:
-				_swing()
-		MOUSE_BUTTON_RIGHT:
-			if build_system != null and build_system.active:
-				build_system.try_remove()
-			else:
 				_pick_up()
 		MOUSE_BUTTON_WHEEL_UP:
-			if build_system != null and build_system.active:
+			if building:
 				build_system.cycle(-1)
+			elif dragged != null:
+				_drag_distance = minf(_drag_distance + 0.3, reach)
+			elif not driving():
+				cycle_hotbar(-1)
 		MOUSE_BUTTON_WHEEL_DOWN:
-			if build_system != null and build_system.active:
+			if building:
 				build_system.cycle(1)
+			elif dragged != null:
+				_drag_distance = maxf(_drag_distance - 0.3, DRAG_MIN_DISTANCE)
+			elif not driving():
+				cycle_hotbar(1)
+
+# --- Hotbar ----------------------------------------------------------------
+
+## The tool in hand, or &"" for an empty hand.
+func selected_tool() -> StringName:
+	return PlayerState.hotbar_tool(selected_slot)
+
+func selected_tool_def() -> Dictionary:
+	return GameData.tool(selected_tool())
+
+## Number keys pick a slot; pressing the one in hand again empties the hand.
+func select_slot(slot: int) -> void:
+	if slot == selected_slot or PlayerState.hotbar_tool(slot) == &"":
+		selected_slot = -1
+	else:
+		selected_slot = slot
+		_release_dragged()
+
+## The wheel steps through the filled slots and an empty hand.
+func cycle_hotbar(step: int) -> void:
+	var filled: Array[int] = [-1]
+	for i in PlayerState.HOTBAR_SLOTS:
+		if PlayerState.hotbar_tool(i) != &"":
+			filled.append(i)
+	var at := maxi(0, filled.find(selected_slot))
+	selected_slot = filled[wrapi(at + step, 0, filled.size())]
+	if selected_slot >= 0:
+		_release_dragged()
 
 func _on_key(event: InputEventKey) -> void:
 	if driving() and _on_driving_key(event):
 		return
-	# The number row picks off the build bar.
-	if build_system != null and build_system.active \
-			and event.keycode >= KEY_1 and event.keycode <= KEY_9:
-		build_system.select_slot(int(event.keycode - KEY_1))
+	if build_system != null and build_system.active:
+		if event.keycode == KEY_F:
+			build_system.toggle_select()
+			return
+		if build_system.editing():
+			if event.keycode >= KEY_1 and event.keycode <= KEY_3:
+				build_system.set_edit_mode(int(event.keycode - KEY_1))
+				return
+			if event.keycode == KEY_DELETE or event.keycode == KEY_BACKSPACE:
+				build_system.remove_selected()
+				return
+	# The number row picks off the build bar, or the hotbar on foot.
+	if event.keycode >= KEY_1 and event.keycode <= KEY_9:
+		if build_system != null and build_system.active:
+			build_system.select_slot(int(event.keycode - KEY_1))
+		elif not driving():
+			select_slot(int(event.keycode - KEY_1))
 		return
 	match event.keycode:
 		KEY_E:
@@ -191,11 +295,6 @@ func _on_key(event: InputEventKey) -> void:
 			_drop(1)
 		KEY_G:
 			_drop(held.size())
-		KEY_F:
-			if dragged != null:
-				_release_dragged()
-			else:
-				_grab_drag()
 		KEY_B:
 			if build_system != null:
 				build_system.toggle()
@@ -363,7 +462,7 @@ func _owner_of(collider: Object) -> Node:
 	var node := collider as Node
 	while node != null:
 		if node is ChoppableTree or node is OreRock or node is LooseItem \
-				or node is Machine or node is StorageBin or node is SellZone \
+				or node is Machine or node is StorageBin \
 				or node is SellYard or node is Schematic or node is VehiclePad \
 				or node is Store \
 				or node is Conveyor or node is Filter or node is Splitter \
@@ -388,34 +487,35 @@ func _update_prompt() -> void:
 		var t := target as ChoppableTree
 		var limb := t.limb_at(hit.position)
 		var what := "branch" if limb >= 0 else "trunk at %.1f m" % t.to_local(hit.position).y
-		last_prompt = "[LMB] cut %s  (%d%%)" % [what, int(t.cut_progress_at(hit.position) * 100.0)]
+		if _tool_kind() == "axe":
+			last_prompt = "[LMB] cut %s  (%d%%)" % [what, int(t.cut_progress_at(hit.position) * 100.0)]
+		else:
+			last_prompt = "take an axe from the hotbar to cut it"
 	elif target is OreRock:
 		var r := target as OreRock
 		var can_pull := r.pull_required() <= move_limit_kg()
-		last_prompt = "[LMB] hammer (%d%%)   %s\n%s" % [
-			int(r.worst_crack() * 100.0),
-			"[F] haul it out" if can_pull else "[F] too deep to pull",
-			r.status_line()]
+		var verbs := "[LMB] hammer (%d%%)" % int(r.worst_crack() * 100.0) if _tool_kind() == "hammer" \
+			else ("[LMB] haul it out" if can_pull else "too deep to pull - crack it with a hammer") \
+			if selected_slot < 0 else "take a hammer from the hotbar to crack it"
+		last_prompt = "%s\n%s" % [verbs, r.status_line()]
+	elif target is LooseItem and _shop_for(target as LooseItem) != null:
+		last_prompt = _shop_for(target as LooseItem).box_line(target as LooseItem)
 	elif target is LooseItem:
 		var i := target as LooseItem
 		var label := "%s   ·   %.2f m   ·   %.3f m³   ·   %.0f kg" % [
-			GameData.item_name(i.item_id), i.length(), i.volume(), i.mass]
+			i.display_name(), i.length(), i.volume(), i.mass]
 		var verbs: Array[String] = []
-		if i.is_wood() and i.length() > MIN_BUCK_LENGTH:
+		if _tool_kind() == "axe" and i.is_wood() and i.length() > MIN_BUCK_LENGTH:
 			verbs.append("[LMB] buck")
+		elif selected_slot < 0:
+			verbs.append("[LMB] drag" if i.mass <= move_limit_kg() else "too heavy to move")
 		if i.mass <= lift_limit_kg() and i.length() <= max_piece_length():
 			verbs.append("[RMB] pick up")
-		if i.mass <= move_limit_kg():
-			verbs.append("[F] drag")
-		else:
-			verbs.append("too heavy to move")
 		last_prompt = "   ".join(verbs) + "\n" + label
 	elif target is Machine:
 		last_prompt = "[E] deposit   %s" % (target as Machine).status_line()
 	elif target is StorageBin:
 		last_prompt = "[E] deposit / [E+shift] empty   %s" % (target as StorageBin).summary()
-	elif target is SellZone:
-		last_prompt = "[E] sell carried items"
 	elif target is SellYard:
 		last_prompt = (target as SellYard).status_line()
 	elif target is Store:
@@ -433,40 +533,60 @@ func _update_prompt() -> void:
 		last_prompt = (target as Conveyor).status_line()
 	elif target is Hauler:
 		var h := target as Hauler
-		last_prompt = "[E] load   [V] drive   cargo %d (%s)" % [
-			h.cargo_count(), h.cargo_summary()]
+		if h.is_seat_point(hit.position):
+			last_prompt = "[E] drive the %s" % h.display_name.to_lower()
+		elif h.has_bed():
+			last_prompt = "[E] load   ·   aim at the cab to drive\ncargo %d (%s)" % [
+				h.cargo_count(), h.cargo_summary()]
+		else:
+			last_prompt = h.display_name
 	else:
 		last_prompt = ""
 
 # --- Tools -----------------------------------------------------------------
 
+func _tool_kind() -> String:
+	return String(selected_tool_def().get("kind", ""))
+
+func _tool_stat(key: String, fallback: float) -> float:
+	return float(selected_tool_def().get(key, fallback))
+
+## Swings whatever is in hand. An axe cuts trees and bucks felled wood; a
+## hammer cracks rock. The wrong tool just says so.
 func _swing() -> void:
 	if _swing_cd > 0.0:
 		return
+	swung.emit()
 	var hit := aim_hit()
 	if hit.is_empty():
+		_swing_cd = _tool_stat("cooldown", 0.4)
 		return
 	var target := _owner_of(hit.collider)
-	if target != null and target.has_method("interact_prompt"):
-		last_prompt = String(target.call("interact_prompt"))
-		return
+	var kind := _tool_kind()
 	if target is ChoppableTree:
-		_swing_cd = PlayerState.stat(&"axe", "cooldown", 0.4)
+		if kind != "axe":
+			interacted.emit("a hammer will not fell a tree - take an axe")
+			return
+		_swing_cd = _tool_stat("cooldown", 0.4)
 		# The cut lands where the axe lands, so the limb under the crosshair is
 		# the one that comes off.
-		var said := (target as ChoppableTree).cut(
-			PlayerState.stat(&"axe", "damage", 34.0), hit.position, global_position)
+		var said := (target as ChoppableTree).cut(_tool_stat("damage", 34.0), hit.position, global_position)
 		if said != "":
 			interacted.emit(said)
 	elif target is OreRock:
+		if kind != "hammer":
+			interacted.emit("an axe will not crack rock - take a hammer")
+			return
 		# Rock is not chipped away at, it is cracked: the hammer's head mass is
 		# what opens a crack, so a heavier hammer breaks a chunk in fewer blows.
-		_swing_cd = PlayerState.stat(&"hammer", "cooldown", 0.55)
-		var said := (target as OreRock).strike(PlayerState.stat(&"hammer", "head_kg", 3.0))
+		_swing_cd = _tool_stat("cooldown", 0.55)
+		var said := (target as OreRock).strike(_tool_stat("head_kg", 3.0))
 		if said != "":
 			interacted.emit(said)
-	elif target is LooseItem:
+	elif target is LooseItem and kind == "axe":
 		_buck(target as LooseItem)
+	else:
+		_swing_cd = _tool_stat("cooldown", 0.4)
 
 ## Bucking: cutting felled wood down to a size you can move. Work needed scales
 ## with the cross-section at the cut, so a fat trunk takes real swings and a
@@ -474,13 +594,13 @@ func _swing() -> void:
 func _buck(item: LooseItem) -> void:
 	if not item.is_wood() or item.state != LooseItem.State.FREE:
 		return
-	_swing_cd = PlayerState.stat(&"axe", "cooldown", 0.4)
+	_swing_cd = _tool_stat("cooldown", 0.4)
 	if item.length() <= MIN_BUCK_LENGTH:
 		interacted.emit("too short to cut - carry it or mill it")
 		return
 	var radius := Solid.max_radius(item.dims)
 	var work_needed: float = PI * radius * radius * BUCK_WORK_PER_M2
-	item.cut_progress += PlayerState.stat(&"axe", "damage", 34.0)
+	item.cut_progress += _tool_stat("damage", 34.0)
 	if item.cut_progress < work_needed:
 		interacted.emit("cutting: %d%%" % int(item.cut_progress / work_needed * 100.0))
 		return
@@ -579,8 +699,10 @@ func _update_rack() -> void:
 		# Carried across the chest, so long pieces read as a shouldered load.
 		item.global_transform = Transform3D(LooseItem.lying_basis(rotation.y + PI * 0.5), pos)
 
-# --- Heavy drag (single item) ---------------------------------------------
+# --- Dragging --------------------------------------------------------------
 
+## Left mouse with an empty hand: take hold of whatever is under the
+## crosshair, at the point under the crosshair.
 func _grab_drag() -> void:
 	var hit := aim_hit()
 	if hit.is_empty():
@@ -589,7 +711,7 @@ func _grab_drag() -> void:
 	if target is OreRock:
 		_pull_chunk(target as OreRock)
 		return
-	_grab_drag_item(target as LooseItem)
+	_grab_drag_item(target as LooseItem, hit.position)
 
 ## Spec: freeing a buried chunk takes a pull of its mass plus the buried share
 ## of its mass again. The player's pull is the same strength as their drag.
@@ -602,9 +724,10 @@ func _pull_chunk(rock: OreRock) -> void:
 	freed.owned = true
 	interacted.emit("hauled out a %.0f kg chunk" % freed.mass)
 
-## Takes hold of one piece for the heavy drag. Refuses anything past the move
-## limit: that is what a winch or a crane is for.
-func _grab_drag_item(item: LooseItem) -> bool:
+## Takes hold of one piece at `point` (world space; the piece's centre if
+## omitted). Refuses anything past the move limit: that is what a winch or a
+## crane is for.
+func _grab_drag_item(item: LooseItem, point: Variant = null) -> bool:
 	if item == null or item.state != LooseItem.State.FREE:
 		return false
 	if item.mass > move_limit_kg():
@@ -612,15 +735,18 @@ func _grab_drag_item(item: LooseItem) -> bool:
 			item.mass, move_limit_kg()])
 		return false
 	item.owned = item.owned or not _must_buy(item)
+	var at: Vector3 = point if point is Vector3 else item.global_position
 	dragged = item
-	_drag_basis = Basis(Vector3.UP, -rotation.y) * item.global_transform.basis.orthonormalized()
+	_drag_point = item.global_transform.affine_inverse() * at
+	_drag_distance = clampf(camera.global_position.distance_to(at), DRAG_MIN_DISTANCE, reach)
 	item.set_state(LooseItem.State.CARRIED)
 	return true
 
 func _release_dragged() -> void:
 	if dragged == null:
 		return
-	dragged.set_state(LooseItem.State.FREE)
+	if is_instance_valid(dragged) and dragged.state == LooseItem.State.CARRIED:
+		dragged.set_state(LooseItem.State.FREE)
 	dragged = null
 
 func _throw_dragged() -> void:
@@ -628,40 +754,60 @@ func _throw_dragged() -> void:
 		return
 	var item := dragged
 	_release_dragged()
-	item.apply_central_impulse(-camera.global_transform.basis.z * throw_impulse * item.mass * 0.15)
+	item.apply_central_impulse(-camera.global_transform.basis.z * throw_impulse * minf(item.mass, 60.0) * 0.5)
 
+## Where the grabbed point is right now.
+func drag_point() -> Vector3:
+	if dragged == null:
+		return Vector3.ZERO
+	return dragged.global_transform * _drag_point
+
+## Where the hand is trying to put it.
+func drag_target() -> Vector3:
+	return camera.global_position - camera.global_transform.basis.z * _drag_distance
+
+## Pulls the grabbed point toward the hold point with an impulse applied *at
+## that point*, sized with the body's real mass and inertia as seen from there
+## (so a long log grabbed by the end swings rather than snapping straight),
+## and capped at the player's strength. Heavy things come slowly; a light
+## thing comes at once.
 func _update_drag() -> void:
 	if dragged == null:
 		return
 	if not is_instance_valid(dragged) or dragged.state != LooseItem.State.CARRIED:
 		dragged = null
 		return
-	var target := camera.global_position - camera.global_transform.basis.z * carry_distance
-	var to_target := target - dragged.global_position
+	if not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and _mouse_captured and not _hold_for_tests:
+		_release_dragged()
+		return
+	var point := drag_point()
+	var to_target := drag_target() - point
 	if to_target.length() > reach * 2.0:
 		_release_dragged()
 		return
-	var desired := to_target * carry_gain
-	if desired.length() > carry_max_speed:
-		desired = desired.normalized() * carry_max_speed
-	dragged.linear_velocity = desired
+	var dt := get_physics_process_delta_time()
+	var arm := point - dragged.global_position
+	var state := PhysicsServer3D.body_get_direct_state(dragged.get_rid())
+	var inv_inertia: Basis = state.inverse_inertia_tensor if state != null else Basis()
+	var point_velocity := dragged.linear_velocity + dragged.angular_velocity.cross(arm)
+	var wanted := to_target * DRAG_GAIN
+	if wanted.length() > carry_max_speed:
+		wanted = wanted.normalized() * carry_max_speed
+	# Hold it up against gravity as well as moving it.
+	var change := wanted - point_velocity + Vector3(0, 9.8 * dt, 0)
+	# K maps an impulse at the point to the velocity change of the point.
+	var skew := Basis(Vector3(0, arm.z, -arm.y), Vector3(-arm.z, 0, arm.x), Vector3(arm.y, -arm.x, 0))
+	var m: Basis = skew * inv_inertia * skew
+	var inv_mass := 1.0 / dragged.mass
+	var k := Basis(Vector3(inv_mass, 0, 0) - m.x, Vector3(0, inv_mass, 0) - m.y, Vector3(0, 0, inv_mass) - m.z)
+	var impulse: Vector3 = k.inverse() * change * 0.8
+	var most := DRAG_STRENGTH_KG * 9.8 * 1.4 * dt
+	if impulse.length() > most:
+		impulse = impulse.normalized() * most
+	dragged.apply_impulse(impulse, arm)
 
-	# Turn the piece back to the orientation it had relative to the player, so
-	# a length of timber swings round with them rather than staying put while
-	# they walk around its end.
-	var wanted := (Basis(Vector3.UP, rotation.y) * _drag_basis).get_rotation_quaternion()
-	var current := dragged.global_transform.basis.get_rotation_quaternion()
-	var turn := wanted * current.inverse()
-	if turn.w < 0.0:
-		turn = Quaternion(-turn.x, -turn.y, -turn.z, -turn.w)   # the short way round
-	var angle := turn.get_angle()
-	if angle > 0.002:
-		var spin := turn.get_axis() * angle * DRAG_TURN_GAIN
-		if spin.length() > Tuning.MAX_ANGULAR_SPEED:
-			spin = spin.normalized() * Tuning.MAX_ANGULAR_SPEED
-		dragged.angular_velocity = spin
-	else:
-		dragged.angular_velocity = Vector3.ZERO
+## Tests hold the mouse button in code.
+var _hold_for_tests: bool = false
 
 # --- Interaction -----------------------------------------------------------
 
@@ -690,16 +836,19 @@ func _interact() -> void:
 	if target is Store:
 		_use_store(target as Store, hit.get("position", global_position))
 		return
-	if target is LooseItem and store != null:
-		var said := store.open_box(target as LooseItem)
-		if said != "that is not a box":
-			interacted.emit(said)
+	if target is LooseItem:
+		var shop := _shop_for(target as LooseItem)
+		if shop != null:
+			interacted.emit(shop.open_box(target as LooseItem))
 			return
+	if target is Hauler and (target as Hauler).is_seat_point(hit.get("position", Vector3.ZERO)):
+		wants_to_drive.emit(target)
+		return
 	if target is VehiclePad:
 		var pad := target as VehiclePad
 		var had := pad.has_vehicle()
 		pad.spawn()
-		interacted.emit("hauler respawned" if had else "hauler delivered")
+		interacted.emit("%s %s" % [pad.vehicle_name(), "respawned" if had else "delivered"])
 		return
 	if target is SellYard:
 		var yard := target as SellYard
@@ -750,6 +899,16 @@ func deposit_into(sink: Object) -> int:
 
 ## The till buys whatever is on the counter, including whatever the player is
 ## still holding; the desk sells land.
+## The shop a box belongs to, if it is a shop box.
+func _shop_for(item: LooseItem) -> Store:
+	var all := stores.duplicate()
+	if store != null and not all.has(store):
+		all.append(store)
+	for shop in all:
+		if is_instance_valid(shop) and not shop._slot_for(item.item_id).is_empty():
+			return shop
+	return null
+
 func _use_store(shop: Store, point: Vector3) -> void:
 	match shop.role_at(point):
 		&"desk":
@@ -772,6 +931,7 @@ func _use_store(shop: Store, point: Vector3) -> void:
 			interacted.emit("bring a box to the counter")
 
 func enter_vehicle(v: Node3D) -> void:
+	_release_dragged()
 	vehicle = v
 	velocity = Vector3.ZERO
 

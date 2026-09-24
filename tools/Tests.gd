@@ -43,17 +43,15 @@ func _run_all() -> void:
 	await _test(&"bucking splits wood and conserves volume", test_bucking)
 	await _test(&"a chunk is pulled out whole when the pull is enough", test_chunk_pull)
 	await _test(&"hammering cracks a chunk apart piece by piece", test_chunk_cracking)
-	await _test(&"the crusher breaks ore down faster than a hammer", test_crusher)
-	await _test(&"sawmill mills wood and conserves volume", test_sawmill)
-	await _test(&"furnace smelts ore into billets", test_furnace)
+	await _test(&"the planker makes one big plank from a log", test_planker)
+	await _test(&"the sander finishes wood and adds value", test_sander)
+	await _test(&"crusher, smelter and refiner work ore down the line", test_ore_line)
+	await _test(&"a tunnel mouth is a real opening", test_tunnel_mouth)
 	await _test(&"workbench assembles from volumes", test_workbench)
-	await _test(&"machines reject items they cannot use", test_machine_rejects)
-	await _test(&"the intake hole decides what fits", test_machine_holes)
-	await _test(&"sell zone pays today's price", test_sell_zone)
 	await _test(&"the yard buys what the player owns in it", test_sell_yard)
 	await _test(&"orders pay out on delivery", test_quests)
 	await _test(&"storage bin stores and dispenses", test_storage)
-	await _test(&"conveyor feeds a machine directly", test_conveyor_to_machine)
+	await _test(&"a belt runs straight into a machine", test_conveyor_to_machine)
 	await _test(&"belts come as ramps, borderless and stoppable", test_conveyor_options)
 	await _test(&"belts carry by friction, and things on them can jam", test_conveyor_physics)
 	await _test(&"splitter routes round-robin", test_splitter)
@@ -68,10 +66,13 @@ func _run_all() -> void:
 	await _test(&"the compass points the right way", test_compass)
 	await _test(&"the checklist follows what the player has done", test_tutorial)
 	await _test(&"plot expansion raises bounds and cap", test_expansion)
-	await _test(&"tool upgrades apply and charge", test_upgrades)
+	await _test(&"gear upgrades apply and charge", test_upgrades)
 	await _test(&"the store sells boxes over a counter", test_store)
 	await _test(&"carry rack limits and deposits", test_carry)
 	await _test(&"lift and drag limits are weight limits", test_handling_limits)
+	await _test(&"things are dragged by the point grabbed", test_drag_at_point)
+	await _test(&"tools come from an inventory onto a hotbar", test_hotbar_tools)
+	await _test(&"build mode edits placed buildings", test_build_edit)
 	await _test(&"ownership is tracked and saved", test_ownership)
 	await _test(&"hauler drives, carries and stays upright", test_hauler)
 	await _test(&"the load in the bed is loose and real", test_hauler_loose_load)
@@ -212,6 +213,12 @@ func test_data_integrity() -> void:
 		check(r.seconds > 0.0, "recipe %s is instant" % r.id)
 	for m: MachineDef in GameData.machines.values():
 		check(not m.accepts.is_empty(), "machine %s accepts nothing" % m.id)
+		if m.is_inline():
+			check(m.tunnel.x > 0.3 and m.tunnel.y > 0.3, "machine %s has no tunnel mouth" % m.id)
+			check(m.belt_speed > 0.2, "machine %s has a stopped belt" % m.id)
+			if m.mode == MachineDef.MODE_PLANK or m.mode == MachineDef.MODE_SMELT:
+				check(not m.conversion.is_empty(), "machine %s converts nothing" % m.id)
+			continue
 		check(m.intake_hole.x > 0.1 and m.intake_hole.y > 0.1, "machine %s has no intake hole" % m.id)
 		check(m.outlet_hole.x > 0.1 and m.outlet_hole.y > 0.1, "machine %s has no outlet hole" % m.id)
 		if m.mode != MachineDef.MODE_ASSEMBLE:
@@ -728,7 +735,7 @@ func test_bucking() -> void:
 	var player := _make_player()
 	world.add_child(player)
 	await step(2)
-	PlayerState.levels[&"axe"] = 1
+	player.select_slot(0)   # the rusty axe
 
 	var trunk := spawn(&"wood_pine", Vector3(0, 1.0, 0), Solid.cylinder(0.34, 0.20, 7.0))
 	var start_volume := trunk.volume()
@@ -857,113 +864,165 @@ func test_chunk_cracking() -> void:
 		heavy_blows, blows])
 	done()
 
-## Spec: a crusher breaks whole chunks and large pieces down, faster than by
-## hand. It conserves volume like every other machine.
-func test_crusher() -> void:
-	_setup()
-	var crusher := Machine.new()
-	crusher.setup(manager, GameData.building(&"crusher"), 0)
-	world.add_child(crusher)
-	await step(2)
+func _inline(id: StringName, pos: Vector3 = Vector3.ZERO) -> InlineMachine:
+	var m := InlineMachine.new()
+	m.setup_machine(manager, GameData.building(id), 0)
+	m.position = pos
+	world.add_child(m)
+	return m
 
-	# A lump far too big to carry goes in whole.
-	var lump := spawn(&"ore_iron", crusher.input_point(), Solid.cube(0.9))
-	var lump_volume := lump.volume()
-	check(lump.mass > 500.0, "test lump is only %.0f kg" % lump.mass)
-	check(crusher.accept_item(lump), "the crusher refused a whole chunk")
-	check_near(crusher.buffered_m3(), lump_volume, 0.0001, "the crusher mismeasured the lump")
+## Puts a piece on a machine's in-feed lip, lying along the belt.
+func _feed(m: InlineMachine, id: StringName, dims: Dictionary = {}) -> LooseItem:
+	var at := m.global_transform * Vector3(0, 0.6, m.length * 0.5 - 0.35)
+	return manager.spawn(id, Transform3D(m.global_transform.basis * LooseItem.lying_basis(0.0), at),
+		0, Vector3.ZERO, dims, true)
 
-	for i in 1200:
+func _through(m: InlineMachine, item: LooseItem, frames: int = 600) -> bool:
+	for i in frames:
 		await step(1)
-		if crusher.job.is_empty() and crusher.queue.is_empty() and crusher.total_produced > 0:
-			break
-	check(crusher.total_produced > 1, "the crusher made %d piece(s) from one lump" %
-		crusher.total_produced)
-	check_near(crusher.volume_out, lump_volume, 0.0001, "the crusher did not conserve ore")
-	var biggest := 0.0
-	for item in manager.free_items():
-		biggest = maxf(biggest, item.volume())
-	check(biggest < lump_volume, "the crusher handed back a piece as big as it was given")
-	var def: MachineDef = crusher.machine_def
-	for item in manager.free_items():
-		check(item.length() <= def.max_piece_length + 0.0001,
-			"a crushed piece is %.2f m, over the %.2f m limit" % [item.length(), def.max_piece_length])
+		if not is_instance_valid(item) or item.state == LooseItem.State.POOLED:
+			return false
+		if (m.global_transform.affine_inverse() * item.global_position).z < -m.canopy_length() * 0.5 - 0.1:
+			return true
+	return false
+
+## Spec from play-testing: machines are tunnels on a belt. A log rides in and
+## comes out as ONE big plank, as long as the log - not a heap of little ones.
+func test_planker() -> void:
+	_setup()
+	var m := _inline(&"sawmill")
+	await step(3)
+	check(m.canopy_length() > 2.0, "the planker has no tunnel")
+	var log_piece := _feed(m, &"wood_pine", Solid.cylinder(0.26, 0.22, 3.0))
+	var log_volume := log_piece.volume()
+	var out: bool = await _through(m, log_piece)
+	check(out, "the log never came out of the far end")
+	check_eq(m.total_processed, 1, "the planker processed %d pieces" % m.total_processed)
+	check_eq(log_piece.item_id, &"lumber_pine", "the log came out as %s" % log_piece.item_id)
+	check_eq(manager.active_count(), 1, "one log made %d pieces" % manager.active_count())
+	var size: Vector3 = log_piece.dims.get("size", Vector3.ZERO)
+	check_near(size.y, 3.0, 0.001, "the plank is not as long as the log")
+	check(size.x > 0.35 and size.z > 0.15, "the plank is thin: %s" % str(size))
+	check(size.x > size.z * 1.5, "that is a beam, not a plank: %s" % str(size))
+	check(log_piece.volume() < log_volume, "milling made wood out of nothing")
+	check(Economy.price_of(&"lumber_pine", log_piece.dims) > Economy.price_of(&"wood_pine", Solid.cylinder(0.26, 0.22, 3.0)),
+		"a plank is worth less than the log it came from")
+	check(not log_piece.freeze and log_piece.state == LooseItem.State.FREE, "the plank is not a free body")
 	done()
 
-func test_sawmill() -> void:
+## The sander finishes wood - logs or planks - and finished wood sells for more.
+## It works on each piece once, and lets what it does not work on through.
+func test_sander() -> void:
 	_setup()
-	var mill := Machine.new()
-	mill.setup(manager, GameData.building(&"sawmill"), 0)
-	world.add_child(mill)
-	await step(2)
-	var machine_def: MachineDef = mill.machine_def
+	var m := _inline(&"sander")
+	await step(3)
+	var dims := Solid.cylinder(0.2, 0.18, 2.0)
+	var raw_price := Economy.price_of(&"wood_oak", dims)
+	var log_piece := _feed(m, &"wood_oak", dims)
+	check(await _through(m, log_piece), "the log never came through the sander")
+	check(Solid.has_finish(log_piece.dims, &"sanded"), "the log came out unsanded")
+	check(Economy.price_of(log_piece.item_id, log_piece.dims) > raw_price, "sanding added no value")
+	check(log_piece.display_name().begins_with("Sanded"), "a sanded log is not called sanded")
+	var ore := _feed(m, &"ore_iron")
+	check(await _through(m, ore), "the sander stopped ore riding through")
+	check_eq(ore.item_id, &"ore_iron", "the sander changed ore")
+	check(not Solid.has_finish(ore.dims, &"sanded"), "the sander sanded ore")
+	check_eq(m.total_processed, 1, "the sander counted work it did not do")
 
-	# Feed it one fat log and one long thin one.
-	var fed := 0.0
-	for dims in [Solid.cylinder(0.30, 0.26, 2.2), Solid.cylinder(0.16, 0.14, 3.4)]:
-		var log_piece := manager.spawn(&"wood_pine", Transform3D(Basis(), mill.input_point()),
-			0, Vector3.ZERO, dims)
-		fed += log_piece.volume()
-		await step(12)
-	await step(20)
-	check_near(mill.volume_in, fed, 0.0001, "the sawmill did not measure what it was fed")
-	check_eq(loose_volume(&"wood_pine"), 0.0, "wood was left sitting in the intake")
-
-	# Milling takes real time, proportional to volume.
-	var expected_seconds: float = fed / machine_def.m3_per_second
-	check(expected_seconds > 2.0, "test volume is too small to time")
-	await step(int(expected_seconds * 60.0) + 120)
-
-	check(mill.total_produced > 0, "the sawmill produced nothing")
-	check_near(mill.volume_out, fed, 0.001,
-		"volume was not conserved: %.4f in, %.4f out" % [mill.volume_in, mill.volume_out])
-	check_near(loose_volume(&"lumber_pine"), fed, 0.001,
-		"the lumber on the ground does not add up to the wood that went in")
-
-	# Every board matches the outlet, and none is longer than the machine cuts.
-	for item in manager.free_items():
-		if item.item_id != &"lumber_pine":
-			continue
-		var size: Vector3 = item.dims.size
-		check_near(size.x, machine_def.cross_section.x, 0.0001, "board is not the width of the outlet")
-		check_near(size.z, machine_def.cross_section.y, 0.0001, "board is not the height of the outlet")
-		check(size.y <= machine_def.max_piece_length + 0.0001,
-			"board is longer than the machine cuts (%.2f m)" % size.y)
-	# A bigger log must yield more board, not more pieces of the same board.
-	check(mill.total_produced >= 2, "a 5.6 m of log should not come out as one short board")
+	# A sanded log planked is a sanded plank, and the finish is saved.
+	var planker := _inline(&"sawmill", Vector3(6, 0, 0))
+	await step(3)
+	var again := _feed(planker, log_piece.item_id, log_piece.dims)
+	check(await _through(planker, again), "the sanded log did not get through the planker")
+	check(Solid.has_finish(again.dims, &"sanded"), "planking lost the sanding")
+	var round_trip := Solid.from_dict(JSON.parse_string(JSON.stringify(Solid.to_dict(again.dims))))
+	check(Solid.has_finish(round_trip, &"sanded"), "the finish does not survive a save")
 	done()
 
-func test_furnace() -> void:
+## Rocks > crusher > smelter > refiner.
+func test_ore_line() -> void:
 	_setup()
-	var furnace := Machine.new()
-	furnace.setup(manager, GameData.building(&"furnace"), 0)
-	world.add_child(furnace)
-	await step(2)
-	var machine_def: MachineDef = furnace.machine_def
-	check_eq(machine_def.intake_face, &"top", "the furnace should be fed from the top")
-	check(machine_def.outlet_face != &"top", "the furnace should not pour out of its own lid")
+	var crusher := _inline(&"crusher")
+	await step(3)
+	var chunk := _feed(crusher, &"ore_iron", Solid.cube(0.9))
+	var chunk_volume := chunk.volume()
+	check(await _through(crusher, chunk), "the chunk never came out of the crusher")
+	var lumps := manager.free_items()
+	check(lumps.size() > 1, "the crusher made %d piece(s) from a big chunk" % lumps.size())
+	var total := 0.0
+	for lump in lumps:
+		total += lump.volume()
+		var b := Solid.bounds(lump.dims)
+		check(maxf(b.x, maxf(b.y, b.z)) <= crusher.machine_def.max_piece + 0.001, "a lump is still too big")
+	check_near(total, chunk_volume, 0.0001, "the crusher did not conserve ore")
 
-	var fed := 0.0
-	for i in 2:
-		var ore := manager.spawn(&"ore_iron", Transform3D(Basis(), furnace.input_point()), 0)
-		fed += ore.volume()
-		await step(10)
-	await step(30)
-	check_near(furnace.volume_in, fed, 0.0001, "the furnace did not take both ore pieces")
+	_setup()
+	var smelter := _inline(&"furnace")
+	var refiner := _inline(&"refiner", Vector3(6, 0, 0))
+	await step(3)
+	var ore := _feed(smelter, &"ore_iron", Solid.cube(0.3))
+	var ore_price := Economy.price_of(&"ore_iron", ore.dims)
+	var ore_volume := ore.volume()
+	check(await _through(smelter, ore), "the ore never came out of the smelter")
+	check_eq(ore.item_id, &"ingot_iron", "the smelter made %s" % ore.item_id)
+	check_near(ore.volume(), ore_volume * smelter.machine_def.yield_share, 0.0001, "the bar is the wrong size")
+	var size: Vector3 = ore.dims.size
+	check(size.y > size.x and size.x > size.z, "the bar is not bar-shaped: %s" % str(size))
+	var bar_price := Economy.price_of(ore.item_id, ore.dims)
+	check(bar_price > ore_price, "smelting lost value")
+	var bar := _feed(refiner, ore.item_id, ore.dims)
+	check(await _through(refiner, bar), "the bar never came out of the refiner")
+	check(Solid.has_finish(bar.dims, &"refined"), "the refiner did not refine the bar")
+	check(Economy.price_of(bar.item_id, bar.dims) > bar_price, "refining added no value")
+	done()
 
-	await step(int(fed / machine_def.m3_per_second * 60.0) + 180)
-	check_near(furnace.volume_out, fed, 0.001,
-		"smelting did not conserve volume: %.4f in, %.4f out" % [furnace.volume_in, furnace.volume_out])
-	var billets := 0
-	for item in manager.free_items():
-		if item.item_id != &"ingot_iron":
-			continue
-		billets += 1
-		var size: Vector3 = item.dims.size
-		check_near(size.x, machine_def.cross_section.x, 0.0001, "billet is not the width of the outlet")
-		check(size.y <= machine_def.max_piece_length + 0.0001, "billet is too long to leave the outlet")
-		check(size.y > size.x * 0.5, "billet should be a bar, not a cube")
-	check(billets > 0, "the furnace produced no billets")
+## The tunnel mouth is a real opening: a trunk too big for it jams against the
+## bulkhead, and a higher tier's wider mouth takes it.
+func test_tunnel_mouth() -> void:
+	_setup()
+	PlayerState.levels[&"sawmill"] = 1
+	var m := _inline(&"sawmill")
+	# Fed from a belt behind it, so the trunk arrives at the mouth end-on.
+	var belt := Conveyor.new()
+	belt.length = 6.0
+	belt.width = 1.8
+	belt.speed = 2.0
+	belt.position = Vector3(0, 0, m.length * 0.5 + 3.0)
+	world.add_child(belt)
+	await step(3)
+	var fat := Solid.cylinder(m.hole.y * 0.62, m.hole.y * 0.6, 3.0)
+	var trunk := manager.spawn(&"wood_pine", Transform3D(LooseItem.lying_basis(0.0),
+		belt.global_position + Vector3(0, 0.8, 1.2)), 0, Vector3.ZERO, fat, true)
+	await step(300)
+	var z := (m.global_transform.affine_inverse() * trunk.global_position).z
+	check(z > m.canopy_length() * 0.5 - 0.3, "an oversized trunk got into the tunnel (z=%.2f)" % z)
+	check_eq(trunk.item_id, &"wood_pine", "an oversized trunk was planked anyway")
+	check_eq(m.total_processed, 0, "the jammed machine counted work")
+	var small_mouth := m.hole
+	PlayerState.levels[&"sawmill"] = 3
+	PlayerState.upgraded.emit(&"sawmill", 3)
+	await step(3)
+	check(m.hole.x > small_mouth.x and m.hole.y > small_mouth.y, "the top tier did not widen the mouth")
+	check(m.speed > GameData.machine(&"sawmill").belt_speed, "the top tier did not speed the belt")
+	check(await _through(m, trunk, 900), "the wider mouth still would not take the trunk")
+	check_eq(trunk.item_id, &"lumber_pine", "the trunk was not planked once it got in")
+	done()
+
+## A plain belt runs straight into a machine and the machine takes it from there.
+func test_conveyor_to_machine() -> void:
+	_setup()
+	var m := _inline(&"sawmill", Vector3(0, 0, 0))
+	var belt := Conveyor.new()
+	belt.length = 4.0
+	belt.width = 1.8
+	belt.speed = 2.0
+	belt.position = Vector3(0, 0, m.length * 0.5 + 2.0)
+	world.add_child(belt)
+	await step(3)
+	var log_piece := manager.spawn(&"wood_pine", Transform3D(LooseItem.lying_basis(0.0),
+		belt.global_position + Vector3(0, 0.6, 1.2)), 0, Vector3.ZERO, Solid.cylinder(0.2, 0.18, 2.0))
+	check(await _through(m, log_piece, 900), "the belt did not carry the log through the planker")
+	check_eq(log_piece.item_id, &"lumber_pine", "the log was not planked")
 	done()
 
 func test_workbench() -> void:
@@ -996,94 +1055,7 @@ func test_workbench() -> void:
 	check(made > 0, "the finished good never appeared at the outlet")
 	done()
 
-func test_machine_rejects() -> void:
-	_setup()
-	var mill := Machine.new()
-	mill.setup(manager, GameData.building(&"sawmill"), 0)
-	world.add_child(mill)
-	await step(2)
-	check(not mill.can_accept(&"ore_iron"), "sawmill claims it can mill ore")
-	check(mill.can_accept(&"wood_oak"), "sawmill refuses a wood it should accept")
-	var ore := manager.spawn(&"ore_iron", Transform3D(Basis(), mill.input_point()), 0)
-	await step(40)
-	check_eq(mill.queue.size(), 0, "sawmill swallowed an item it cannot process")
-	check(is_instance_valid(ore) and ore.state == LooseItem.State.FREE,
-		"the rejected ore was destroyed")
-	check_near(mill.volume_in, 0.0, 0.0001, "sawmill counted material it refused")
-	done()
 
-## Spec: machine levels give larger intake and outlet holes. The hole is a real
-## hole - a piece that will not go through it does not go in.
-func test_machine_holes() -> void:
-	_setup()
-	PlayerState.levels[&"sawmill"] = 1
-	var mill := Machine.new()
-	mill.setup(manager, GameData.building(&"sawmill"), 0)
-	world.add_child(mill)
-	await step(2)
-
-	var mouth := mill.intake_hole
-	check(mouth.x > 0.1 and mouth.y > 0.1, "the mill has no mouth")
-
-	# A thin log goes in; a trunk twice the width of the mouth does not.
-	var thin := Solid.cylinder(mouth.x * 0.4, mouth.x * 0.4, 3.0)
-	var fat := Solid.cylinder(mouth.x * 1.2, mouth.x * 1.1, 6.0)
-	check(mill.fits(thin), "the mill refused a log well inside its mouth")
-	check(not mill.fits(fat), "the mill swallowed a trunk wider than its mouth")
-
-	var stuck := spawn(&"wood_pine", mill.input_point(), fat)
-	check(not mill.accept_item(stuck), "an oversized trunk was fed in anyway")
-	check_near(mill.volume_in, 0.0, 0.0001, "a refused trunk still counted as input")
-	check_eq(stuck.state, LooseItem.State.FREE, "a refused trunk was consumed")
-
-	# Bucked down, the same wood goes in.
-	var halves := manager.split_item(stuck, 0.5)
-	check_eq(halves.size(), 2, "the trunk did not split")
-	var narrowed := spawn(&"wood_pine", mill.input_point(), thin)
-	check(mill.accept_item(narrowed), "the mill refused a piece inside its mouth")
-	check(mill.volume_in > 0.0, "the accepted piece did not count as input")
-
-	# Upgrading the mill widens the mouth. It takes the top tier to swallow a
-	# trunk this fat, which is the point: for a long while you buck it first.
-	PlayerState.levels[&"sawmill"] = 3
-	var middling := Machine.new()
-	middling.setup(manager, GameData.building(&"sawmill"), 0)
-	middling.position = Vector3(0, 0, -40)
-	world.add_child(middling)
-	await step(2)
-	check(middling.intake_hole.x > mouth.x, "the mid-tier mill did not widen its mouth")
-	check(not middling.fits(fat), "a mid-tier mill already swallows a 1.7 m trunk")
-
-	PlayerState.levels[&"sawmill"] = 4
-	var bigger := Machine.new()
-	bigger.setup(manager, GameData.building(&"sawmill"), 0)
-	bigger.position = Vector3(0, 0, -20)
-	world.add_child(bigger)
-	await step(2)
-	check(bigger.intake_hole.x > mouth.x, "levelling the mill did not widen its mouth")
-	check(bigger.rate_m3_per_second > mill.rate_m3_per_second,
-		"levelling the mill did not speed it up")
-	check(bigger.fits(fat), "the upgraded mill still will not take the trunk")
-	check(bigger.level > mill.level, "the upgraded mill does not know its level")
-	done()
-
-func test_sell_zone() -> void:
-	_setup()
-	var zone := SellZone.new()
-	zone.setup(manager)
-	zone.extents = Vector3(4, 2, 4)
-	world.add_child(zone)
-	await step(2)
-	Economy.from_dict({"money": 0, "day": 3})
-	var price := Economy.price_of(&"lumber_oak")
-	spawn(&"lumber_oak", Vector3(0, 1.0, 0))
-	await step(30)
-	check_eq(Economy.money, price, "sell zone paid the wrong amount")
-	check_eq(manager.active_count(), 0, "sold item was not removed")
-	done()
-
-## Spec: material left in the yard is bought when the player asks the shopkeep -
-## all of it, and only what the player actually owns.
 func test_sell_yard() -> void:
 	_setup()
 	var quests := QuestLog.new()
@@ -1208,28 +1180,6 @@ func test_storage() -> void:
 	check_eq(manager.active_count(), 5, "bin did not pour the items back out")
 	check_near(loose_volume(), stored, 0.0001, "the bin gave back a different amount than it took")
 	check_eq(bin.count(), 0, "bin still reports contents after emptying")
-	done()
-
-func test_conveyor_to_machine() -> void:
-	_setup()
-	var mill := Machine.new()
-	mill.setup(manager, GameData.building(&"sawmill"), 0)
-	mill.position = Vector3(0, 0, -8)   # intake face (+Z) looks back at the belt
-	world.add_child(mill)
-	var belt := Conveyor.new()
-	belt.length = 8.0
-	belt.speed = 4.0
-	belt.position = Vector3(0, 0.6, 2.0)
-	belt.sink_finder = func(pos: Vector3) -> Object:
-		return mill if pos.distance_to(mill.input_point()) < 7.0 else null
-	world.add_child(belt)
-	await step(2)
-	for i in 3:
-		spawn(&"wood_pine", Vector3(0, 1.2, 5.6))
-		await step(20)
-	await step(150)
-	check(belt.total_delivered >= 3, "belt delivered %d of 3 items" % belt.total_delivered)
-	check(mill.volume_in > 0.0, "belt did not hand anything to the machine")
 	done()
 
 ## Spec: belts want options - ramps to climb, borderless decks, and
@@ -1907,14 +1857,17 @@ func test_save_load() -> void:
 	_setup()
 	await step(2)
 	Economy.from_dict({"money": 50000, "day": 4})
-	PlayerState.try_upgrade(&"axe")
+	PlayerState.try_upgrade(&"carry")
+	PlayerState.give_tool(&"steel_axe")
 	PlayerState.try_unlock(&"furnace")
-	plot.place(GameData.building(&"sawmill"), Vector2i(0, 0), 0)
+	PlayerState.try_unlock(&"workbench")
+	plot.place(GameData.building(&"workbench"), Vector2i(0, 0), 0)
+	plot.place(GameData.building(&"sawmill"), Vector2i(8, 8), 0)
 	plot.place(GameData.building(&"conveyor"), Vector2i(-6, 0), 1)
 	plot.place(GameData.building(&"storage"), Vector2i(4, -6), 0)
 	await step(2)
 	var mill: Machine = plot.machines()[0]
-	mill.queue.append({"output_id": &"lumber_pine", "volume": 0.42})
+	mill.stock[&"lumber"] = 0.42
 	mill.total_produced = 7
 	mill.volume_in = 1.25
 	var money_before := Economy.money
@@ -1935,7 +1888,9 @@ func test_save_load() -> void:
 	check_eq(plot.placed.size(), expected_buildings, "wrong building count after load")
 	check_eq(Economy.money, money_before, "money did not survive the round-trip")
 	check_eq(Economy.day, 4, "day did not survive the round-trip")
-	check_eq(PlayerState.level(&"axe"), 2, "upgrades did not survive the round-trip")
+	check_eq(PlayerState.level(&"carry"), 2, "upgrades did not survive the round-trip")
+	check(PlayerState.owns_tool(&"steel_axe"), "tools did not survive the round-trip")
+	check_eq(plot.inline_machines().size(), 1, "the planker did not come back")
 	check(PlayerState.is_unlocked(&"furnace"), "unlocks did not survive the round-trip")
 	var restored: Array[Machine] = plot.machines()
 	check(restored.size() == 1, "machine was not restored")
@@ -1971,17 +1926,17 @@ func test_upgrades() -> void:
 	_setup(false)
 	PlayerState.reset()
 	Economy.from_dict({"money": 0, "day": 1})
-	var base_damage := PlayerState.stat(&"axe", "damage")
-	check(not PlayerState.try_upgrade(&"axe"), "upgraded with no money")
+	var base_capacity := PlayerState.stat(&"carry", "capacity_m3")
+	check(not PlayerState.try_upgrade(&"carry"), "upgraded with no money")
 	Economy.from_dict({"money": 100000, "day": 1})
-	var cost := PlayerState.next_cost(&"axe")
-	check(PlayerState.try_upgrade(&"axe"), "could not buy an affordable upgrade")
+	var cost := PlayerState.next_cost(&"carry")
+	check(PlayerState.try_upgrade(&"carry"), "could not buy an affordable upgrade")
 	check_eq(Economy.money, 100000 - cost, "upgrade charged the wrong amount")
-	check(PlayerState.stat(&"axe", "damage") > base_damage, "upgrade did not improve the axe")
-	while not PlayerState.at_max(&"axe"):
-		PlayerState.try_upgrade(&"axe")
-	check(not PlayerState.try_upgrade(&"axe"), "bought past the last level")
-	check_eq(PlayerState.next_cost(&"axe"), -1, "maxed track still reports a cost")
+	check(PlayerState.stat(&"carry", "capacity_m3") > base_capacity, "upgrade did not improve the rack")
+	while not PlayerState.at_max(&"carry"):
+		PlayerState.try_upgrade(&"carry")
+	check(not PlayerState.try_upgrade(&"carry"), "bought past the last level")
+	check_eq(PlayerState.next_cost(&"carry"), -1, "maxed track still reports a cost")
 	done()
 
 ## Spec: stock sits in boxes on shelves, is carried to the counter and paid for
@@ -1995,98 +1950,131 @@ func test_store() -> void:
 	await step(4)
 	Economy.from_dict({"money": 100000, "day": 1})
 
-	check(shop.slots.size() > 0, "the store has no shelf slots")
+	check(shop.slots.size() > 20, "the store has only %d shelf slots" % shop.slots.size())
+	var sections := {}
+	for slot in shop.slots:
+		sections[slot.section] = true
+	for want in ["TOOLS", "VEHICLES", "CONVEYORS", "MACHINERY", "DOODADS"]:
+		check(sections.has(want), "the store has no %s section" % want)
 	var stocked := 0
 	for slot in shop.slots:
 		if slot.item != null:
 			stocked += 1
-	check(stocked > 0, "the shelves are empty")
+			var box: LooseItem = slot.item
+			check(shop.contains(box.global_position), "a %s box is not on a shelf in the shop" % slot.box)
+	check(stocked > 20, "only %d boxes on the shelves" % stocked)
 
-	# Find the axe box and check it is priced off the upgrade track, not twice.
+	# The steel axe is a tool: priced off tools.json, and opening it puts the
+	# axe in the inventory and on the hotbar.
 	var axe_slot: Dictionary = {}
 	for slot in shop.slots:
-		if slot.box == &"box_axe":
+		if slot.kind == &"tool" and slot.target == &"steel_axe":
 			axe_slot = slot
-	check(not axe_slot.is_empty(), "the store does not stock an axe")
-	check_eq(shop.price_of(axe_slot), PlayerState.next_cost(&"axe"),
-		"the boxed axe is not priced off its track")
-
+	check(not axe_slot.is_empty(), "the store does not stock a steel axe")
+	check_eq(shop.price_of(axe_slot), int(GameData.tool(&"steel_axe").cost), "the axe box is mispriced")
 	var box: LooseItem = axe_slot.item
 	check(box != null, "no axe box on the shelf")
 	check(not box.owned, "shelf stock starts out owned")
 
-	# Taking it off the shelf is not buying it.
+	# Dragged off the shelf and on to the counter, it is still not yours;
+	# paying at the till makes it so.
 	var player := _make_player()
 	world.add_child(player)
 	await step(2)
-	check(player.pick_up(box), "could not pick the box off the shelf")
-	check(not box.owned, "carrying a box off the shelf made it the player's")
-
-	# Paying for it at the counter does.
+	check(player._grab_drag_item(box), "could not take hold of the box")
+	check(not box.owned, "taking a box off the shelf made it the player's")
+	player._release_dragged()
+	box.teleport(Transform3D(Basis(), shop.till_position() + Vector3(0, 0.5, 0)))
+	await step(10)
 	var money_before := Economy.money
 	var price := shop.price_of(axe_slot)
-	var carried: Array[LooseItem] = []
-	for item in player.held:
-		carried.append(item)
-	player.held.clear()
-	for item in carried:
-		item.set_state(LooseItem.State.FREE)
-	var receipt := shop.buy(carried)
+	var receipt := shop.buy()
 	check_eq(int(receipt.bought), 1, "the till bought %d box(es)" % int(receipt.bought))
-	check_eq(int(receipt.spent), price, "the till charged the wrong amount")
 	check_eq(Economy.money, money_before - price, "money did not move by the price")
 	check(box.owned, "a paid box is still not the player's")
-
-	# Opening the paid box delivers what is inside.
-	var level_before := PlayerState.level(&"axe")
-	var said := shop.open_box(box)
-	check(said != "that one has not been paid for", "the box refused to open after payment")
-	check_eq(PlayerState.level(&"axe"), level_before + 1, "opening the box did not upgrade the axe")
+	check(not PlayerState.owns_tool(&"steel_axe"), "the axe was handed over before the box was opened")
+	shop.open_box(box)
+	check(PlayerState.owns_tool(&"steel_axe"), "opening the box did not give the axe")
+	check(PlayerState.hotbar.has(&"steel_axe"), "the new axe did not go on the hotbar")
 	await step(4)
 	check_eq(box.state, LooseItem.State.POOLED, "the opened box is still lying about")
-
-	# The shelf restocks, at the new price.
 	shop.restock()
-	check(axe_slot.item != null, "the shelf did not restock")
-	check_eq(shop.price_of(axe_slot), PlayerState.next_cost(&"axe"),
-		"the restocked box is not priced off the upgraded track")
+	check(axe_slot.item == null, "a tool you own is still on the shelf")
 
-	# An unpaid box will not open.
-	var fresh: LooseItem = axe_slot.item
-	check_eq(shop.open_box(fresh), "that one has not been paid for",
-		"an unpaid box opened anyway")
+	# Machine tiers: T2 cannot be bought before the machine itself, and
+	# opening T2 raises the machine's tier.
+	var t1: Dictionary = {}
+	var t2: Dictionary = {}
+	for slot in shop.slots:
+		if slot.kind == &"tier" and slot.target == &"crusher":
+			if slot.tier == 1:
+				t1 = slot
+			elif slot.tier == 2:
+				t2 = slot
+	check(not t1.is_empty() and not t2.is_empty(), "the crusher tiers are not stocked")
+	check(shop.blocked(t2) != "", "crusher T2 could be bought without a crusher")
+	var t2_box: LooseItem = t2.item
+	t2_box.teleport(Transform3D(Basis(), shop.till_position() + Vector3(0, 0.6, 0)))
+	var refused := shop.buy()
+	check_eq(int(refused.bought), 0, "crusher T2 sold before the crusher")
+	var t1_box: LooseItem = t1.item
+	var receipt2 := shop.buy([t1_box] as Array[LooseItem])
+	check(t1_box.owned, "crusher T1 was not bought")
+	shop.open_box(t1_box)
+	check(PlayerState.is_unlocked(&"crusher"), "crusher T1 did not unlock the crusher")
+	await step(2)
+	shop.buy([t2_box] as Array[LooseItem])
+	check(t2_box.owned, "crusher T2 was refused once the crusher was owned")
+	shop.open_box(t2_box)
+	check_eq(PlayerState.level(&"crusher"), 2, "crusher T2 did not raise the tier")
 
-	# And carried out of the shop, it goes back to the shelf. Identity is no
-	# use for checking this: the despawned box is pooled and the replacement
-	# reuses the very same node, so the test asks where the stock is instead.
+	# An unpaid box will not open, and carried out it goes back on the shelf.
+	var pad_slot: Dictionary = {}
+	for slot in shop.slots:
+		if slot.target == &"pad_quad":
+			pad_slot = slot
+	var fresh: LooseItem = pad_slot.item
+	check_eq(shop.open_box(fresh), "that one has not been paid for", "an unpaid box opened anyway")
 	var outside := shop.global_position + Vector3(0, 1, 60)
 	fresh.teleport(Transform3D(Basis(), outside))
-	check(not shop.contains(outside), "the test position is still inside the store")
 	await step(40)
 	var stranded := 0
 	for item in manager.free_items():
-		if item.item_id == &"box_axe" and not shop.contains(item.global_position):
+		if item.item_id == pad_slot.box and not shop.contains(item.global_position):
 			stranded += 1
 	check_eq(stranded, 0, "unpaid stock survived being carried out of the shop")
-	check(axe_slot.item != null, "the shelf did not put a replacement out")
-	if axe_slot.item != null:
-		check(shop.contains((axe_slot.item as LooseItem).global_position),
-			"the replacement box is not in the shop")
+	check(pad_slot.item != null, "the shelf did not put a replacement out")
 
 	# Land is sold at the desk.
 	var tier_before := plot.tier
 	var land := shop.buy_land()
 	check(plot.tier == tier_before + 1, "the desk did not sell a parcel (%s)" % land)
+
+	# The summit store sells what the town store does not.
+	var summit := Store.new()
+	summit.setup(manager, plot, 0, &"summit")
+	summit.position = Vector3(80, 0, 0)
+	world.add_child(summit)
+	await step(4)
+	var has_heavy := false
+	var has_pro := false
+	for slot in summit.slots:
+		has_heavy = has_heavy or slot.target == &"pad_log_truck"
+		has_pro = has_pro or slot.target == &"goldleaf_axe"
+	check(has_heavy and has_pro, "the summit store is missing its heavy trucks or pro tools")
+	check(not summit.has_land_desk(), "the summit store sells land")
+	for slot in shop.slots:
+		check(slot.target != &"pad_log_truck", "the town store sells the log truck")
 	done()
 
 func test_carry() -> void:
 	_setup()
 	var player := _make_player()
 	world.add_child(player)
-	var mill := Machine.new()
-	mill.setup(manager, GameData.building(&"sawmill"), 0)
-	mill.position = Vector3(0, 0, -10)
-	world.add_child(mill)
+	var bin := StorageBin.new()
+	bin.setup(manager, GameData.building(&"storage"), 0)
+	bin.position = Vector3(0, 0, -10)
+	world.add_child(bin)
 	await step(4)
 
 	PlayerState.levels[&"carry"] = 1
@@ -2111,10 +2099,10 @@ func test_carry() -> void:
 	check(not player.pick_up(trunk), "the rack accepted a 6 m trunk")
 	check(trunk.length() > player.max_piece_length(), "test trunk is not actually oversized")
 
-	var moved := player.deposit_into(mill)
-	check_eq(moved, 2, "depositing into the sawmill moved %d pieces" % moved)
+	var moved := player.deposit_into(bin)
+	check_eq(moved, 2, "depositing into the bin moved %d pieces" % moved)
 	check_eq(player.carried_count(), 0, "rack not emptied after depositing")
-	check(mill.volume_in > 0.0, "machine did not receive the deposit")
+	check(bin.count() > 0, "the bin did not receive the deposit")
 
 	var third := spawn(&"wood_pine", Vector3(3, 1, 1), small)
 	player.pick_up(third)
@@ -2130,45 +2118,169 @@ func test_handling_limits() -> void:
 	var player := _make_player()
 	world.add_child(player)
 	await step(4)
-	check_near(player.lift_limit_kg(), 100.0, 0.001, "starting lift limit is not 100 kg")
-	check_near(player.move_limit_kg(), 1000.0, 0.001, "drag limit is not 1000 kg")
-
-	# One rack level for the rest, with bulk and length kept inside their own
-	# limits so weight is the only thing that can refuse a piece.
+	# Play-test: carry and drag both reach a tonne.
+	check_near(player.lift_limit_kg(), 1000.0, 0.001, "the lift limit is not 1000 kg")
+	check_near(player.move_limit_kg(), 1000.0, 0.001, "the drag limit is not 1000 kg")
 	PlayerState.levels[&"carry"] = 4
-	var lift := player.lift_limit_kg()
-	check_near(lift, 420.0, 0.001, "level 4 lift limit is wrong")
-
-	# Pine at 150 kg/m3: 1.39 m3 is 208 kg, inside every limit.
-	var light := spawn(&"wood_pine", Vector3(1, 1, 0), Solid.cylinder(0.42, 0.42, 2.5))
-	check(light.mass < lift, "light test piece is %.0f kg, expected under %.0f" % [light.mass, lift])
-	check(light.volume() < player.capacity_m3(), "light test piece does not fit the rack by bulk")
-	check(light.length() < player.max_piece_length(), "light test piece is too long for the rack")
-	check(player.pick_up(light), "a %.0f kg piece would not go on the rack" % light.mass)
+	var heavy := spawn(&"wood_ironwood", Vector3(3, 1, 0), Solid.cylinder(0.42, 0.42, 2.5))
+	check(heavy.mass > 420.0 and heavy.mass < 1000.0, "heavy test piece is %.0f kg" % heavy.mass)
+	check(player.pick_up(heavy), "a %.0f kg piece would not go on the rack" % heavy.mass)
 	player._drop(1)
 	await step(4)
-
-	# Ironwood at 320 kg/m3: the same shape is 443 kg - over the lift limit,
-	# well under the drag limit, so it has to be dragged rather than carried.
-	var heavy := spawn(&"wood_ironwood", Vector3(3, 1, 0), Solid.cylinder(0.42, 0.42, 2.5))
-	check(heavy.mass > lift and heavy.mass < 1000.0,
-		"heavy test piece is %.0f kg, expected between %.0f and 1000" % [heavy.mass, lift])
-	check(heavy.length() <= player.max_piece_length(), "heavy test piece is refused on length")
-	check(heavy.volume() <= player.capacity_m3(), "heavy test piece is refused on bulk")
-	check(not player.pick_up(heavy), "the rack lifted %.0f kg past a %.0f kg limit" % [heavy.mass, lift])
-	player.dragged = null
 	player._grab_drag_item(heavy)
 	check_eq(heavy.state, LooseItem.State.CARRIED, "a draggable piece was refused")
 	check(heavy.owned, "dragging a piece did not make it the player's")
 	player._release_dragged()
 	await step(2)
-
 	# A full ironwood trunk is past a tonne: neither lifted nor dragged.
 	var trunk := spawn(&"wood_ironwood", Vector3(6, 1, 0), Solid.cylinder(0.58, 0.42, 10.0))
 	check(trunk.mass > 1000.0, "test trunk is %.0f kg, expected over 1000" % trunk.mass)
 	check(not player.pick_up(trunk), "the rack lifted a %.0f kg trunk" % trunk.mass)
 	player._grab_drag_item(trunk)
 	check(player.dragged == null, "a %.0f kg trunk was dragged past a 1000 kg limit" % trunk.mass)
+	done()
+
+## Play-test: things are dragged by the point you grab them at. A log taken
+## by one end comes along by that end, and hangs from it.
+func test_drag_at_point() -> void:
+	_setup(false)
+	var player := _make_player()
+	world.add_child(player)
+	await step(4)
+	player._hold_for_tests = true
+	var log_piece := manager.spawn(&"wood_pine", Transform3D(LooseItem.lying_basis(PI * 0.5),
+		Vector3(0, 0.3, -2.5)), 0, Vector3.ZERO, Solid.cylinder(0.15, 0.13, 2.4))
+	await step(30)
+	var end := log_piece.global_transform * Vector3(0, 1.1, 0)
+	check(player._grab_drag_item(log_piece, end), "could not grab the log by its end")
+	for i in 120:
+		await step(1)
+	var point := player.drag_point()
+	var target := player.drag_target()
+	check(point.distance_to(target) < 0.6, "the grabbed end is %.2f m from the hand" % point.distance_to(target))
+	check(log_piece.global_position.y < point.y - 0.3, "the log does not hang from the end it was grabbed by")
+	check(log_piece.global_position.distance_to(target) > 0.6, "the log was pulled by its middle, not the point grabbed")
+	player._release_dragged()
+	check_eq(log_piece.state, LooseItem.State.FREE, "letting go did not free the log")
+
+	# Heavy things come slowly: the hand has a tonne of strength, not more.
+	var heavy := manager.spawn(&"wood_ironwood", Transform3D(LooseItem.lying_basis(PI * 0.5),
+		Vector3(2, 0.5, -3)), 0, Vector3.ZERO, Solid.cylinder(0.4, 0.38, 2.4))
+	await step(30)
+	check(heavy.mass > 300.0, "the heavy test piece is only %.0f kg" % heavy.mass)
+	check(player._grab_drag_item(heavy, heavy.global_position), "could not grab a %.0f kg log" % heavy.mass)
+	await step(20)
+	check(heavy.linear_velocity.length() < 14.0, "a heavy log was yanked about")
+	player._release_dragged()
+	done()
+
+## Play-test: tools live in an inventory and are used from a hotbar; with an
+## empty hand the left button drags.
+func test_hotbar_tools() -> void:
+	_setup()
+	var player := _make_player()
+	world.add_child(player)
+	await step(4)
+	check(PlayerState.owns_tool(&"rusty_axe") and PlayerState.owns_tool(&"club_hammer"), "a new player has no tools")
+	check_eq(PlayerState.hotbar_tool(0), &"rusty_axe", "the axe is not in slot 1")
+	check_eq(PlayerState.hotbar_tool(1), &"club_hammer", "the hammer is not in slot 2")
+	check_eq(player.selected_tool(), &"", "the player starts with a tool in hand")
+	player.select_slot(0)
+	check_eq(player.selected_tool(), &"rusty_axe", "slot 1 did not take the axe")
+	check_near(player._tool_stat("damage", 0.0), 34.0, 0.001, "the axe in hand does not cut like a rusty axe")
+	player.select_slot(0)
+	check_eq(player.selected_tool(), &"", "pressing the slot again did not empty the hand")
+	player.cycle_hotbar(1)
+	check_eq(player.selected_tool(), &"rusty_axe", "the wheel did not step to the first tool")
+	player.cycle_hotbar(-1)
+	check_eq(player.selected_tool(), &"", "the wheel did not step back to an empty hand")
+
+	check(PlayerState.give_tool(&"goldleaf_axe"), "could not give a tool")
+	check(PlayerState.hotbar.has(&"goldleaf_axe"), "a new tool did not land on the hotbar")
+	PlayerState.set_hotbar(0, &"goldleaf_axe")
+	check_eq(PlayerState.hotbar_tool(0), &"goldleaf_axe", "set_hotbar did not put the tool in the slot")
+	check_eq(PlayerState.hotbar.count(&"goldleaf_axe"), 1, "a tool is on the hotbar twice")
+	player.select_slot(0)
+	check_near(player._tool_stat("damage", 0.0), 320.0, 0.001, "the goldleaf axe cuts like something else")
+
+	# A tree takes an axe; a hammer will not fell it.
+	var tree := _make_tree(6.0, 0.3, 0.6, 0)
+	tree.position = Vector3(0, 0, -2.0)
+	world.add_child(tree)
+	await step(2)
+	PlayerState.set_hotbar(1, &"club_hammer")
+	player.select_slot(1)
+	player.camera.look_at(tree.global_position + Vector3(0, 1.5, 0))
+	player._swing_cd = 0.0
+	player._swing()
+	check_near(tree.trunk_cut, 0.0, 0.001, "a hammer cut the tree")
+
+	var saved := PlayerState.to_dict()
+	PlayerState.reset()
+	PlayerState.from_dict(saved)
+	check(PlayerState.owns_tool(&"goldleaf_axe"), "tools did not survive a save")
+	check_eq(PlayerState.hotbar_tool(0), &"goldleaf_axe", "the hotbar did not survive a save")
+	# Saves from before tools were things turn axe levels into axes.
+	PlayerState.from_dict({"levels": {"axe": 3, "hammer": 2}})
+	check(PlayerState.owns_tool(&"timber_axe") and PlayerState.owns_tool(&"sledge"), "an old save lost its tools")
+	done()
+
+## Play-test: in build mode, F selects a building to edit, and the handles
+## move it, resize it and turn it.
+func test_build_edit() -> void:
+	_setup()
+	Economy.from_dict({"money": 100000, "day": 1})
+	var belt := plot.place(GameData.building(&"conveyor"), Vector2i(0, 0), 0) as Conveyor
+	var mill := plot.place(GameData.building(&"sawmill"), Vector2i(-8, -8), 0)
+	check(mill != null, "the mill was not placed")
+	await step(2)
+	var belt_at := belt.global_position
+	var index := plot.index_at_world(belt_at)
+	check(index >= 0, "the belt is not on the occupancy grid")
+	check_eq(plot.edit(index, Vector2i(3, 0), Vector3i.ZERO, Vector3i(1, 1, 4), 0.0), "", "moving the belt failed")
+	await step(2)
+	var moved := plot.placed[index].node as Conveyor
+	check(plot.index_at_world(moved.global_position) == index, "the moved belt is not where the grid says")
+	check_eq(plot.index_at_world(belt_at), -1, "the old cells are still taken")
+
+	# Belts stretch: longer belt, longer price.
+	var money := Economy.money
+	check_eq(plot.edit(index, Vector2i(3, 0), Vector3i.ZERO, Vector3i(1, 1, 8), 0.0), "", "stretching the belt failed")
+	await step(2)
+	var long := plot.placed[index].node as Conveyor
+	check_near(long.length, 8.0, 0.001, "the stretched belt is %.1f m" % long.length)
+	check(Economy.money < money, "stretching the belt was free")
+	check(Plot.size_limits(GameData.building(&"sawmill")).is_empty(), "a machine can be resized")
+
+	# Turned a quarter, and lifted.
+	check_eq(plot.edit(index, Vector2i(3, 0), Vector3i(0, 1, 0), Vector3i(1, 1, 8), 0.5), "", "turning the belt failed")
+	await step(2)
+	var turned: Node3D = plot.placed[index].node
+	check_near(turned.position.y - plot.to_local(plot.cell_to_world(Vector2i(3, 0), Vector3i(1, 1, 8), Vector3i(0, 1, 0))).y,
+		0.5, 0.001, "the belt was not lifted")
+	# A move onto the mill is refused and changes nothing.
+	var before: Dictionary = plot.placed[index].duplicate()
+	var err := plot.edit(index, Vector2i(-8, -8), Vector3i(0, 1, 0), Vector3i(1, 1, 8), 0.5)
+	check(err != "", "a belt was moved on top of a machine")
+	check_eq(plot.placed[index].cell, before.cell, "a refused move still moved the belt")
+
+	# Size and height survive a save.
+	var doc := plot.to_dict()
+	plot.from_dict(doc)
+	await step(2)
+	var found := false
+	for rec in plot.placed:
+		if (rec.def as BuildingDef).id == &"conveyor":
+			found = true
+			check_eq((rec.def as BuildingDef).size, Vector3i(1, 1, 8), "the belt's size was not saved")
+			check_near(float(rec.get("lift", 0.0)), 0.5, 0.001, "the belt's height was not saved")
+	check(found, "the belt did not come back from the save")
+
+	# The drag maths: a ray passing 3 m along an axis reads as 3 m.
+	var along := BuildGizmo.along_axis(Vector3.ZERO, Vector3.RIGHT, Vector3(3, 5, 5), Vector3(0, -1, -1).normalized())
+	check_near(along, 3.0, 0.001, "dragging along an axis measured %.2f m" % along)
+	var angle := BuildGizmo.angle_about(Vector3.ZERO, Vector3.UP, Vector3(1, 0, 0), Vector3(0, 5, -1), Vector3(0, -1, 0))
+	check_near(absf(angle), PI * 0.5, 0.001, "a quarter turn measured %.2f rad" % angle)
 	done()
 
 ## Spec: an object is owned once the player picks it up or buys it, and owned
@@ -2196,17 +2308,13 @@ func test_ownership() -> void:
 		check(half.owned, "a cut half was not owned")
 
 	# A machine on your plot makes your material.
-	var mill := Machine.new()
-	mill.setup(manager, GameData.building(&"sawmill"), 0)
-	mill.position = Vector3(0, 0, -12)
-	world.add_child(mill)
+	var mill := _inline(&"sawmill", Vector3(0, 0, -12))
 	await step(4)
-	mill.accept_item(spawn(&"wood_pine", Vector3(0, 1, -12), Solid.cylinder(0.2, 0.2, 1.0)))
-	for i in 240:
-		await step(1)
-		if mill.total_produced > 0:
-			break
-	check(mill.total_produced > 0, "sawmill produced nothing")
+	var wild_log := manager.spawn(&"wood_pine", Transform3D(LooseItem.lying_basis(0.0),
+		Vector3(0, 0.6, -12 + mill.length * 0.5 - 0.35)), 0, Vector3.ZERO, Solid.cylinder(0.2, 0.2, 1.0))
+	check(not wild_log.owned, "a log dropped on the belt should start unowned")
+	await _through(mill, wild_log)
+	check(mill.total_processed > 0, "the planker produced nothing")
 	var milled := 0
 	for item in manager.free_items():
 		if item.item_id == &"lumber_pine":
@@ -2724,36 +2832,36 @@ func test_full_base() -> void:
 	await step(2)
 	Economy.from_dict({"money": 200000, "day": 1})
 	PlayerState.reset()
-	# A plausible mid-game base: two sawmills, a furnace, belts, a splitter,
-	# storage and a sell chute, all running at once.
+	# A plausible mid-game base: both lines of tunnel machines, belts, a
+	# splitter, storage and a workbench, all running at once.
+	for id in [&"furnace", &"crusher", &"sander", &"refiner", &"workbench"]:
+		PlayerState.try_unlock(id)
 	plot.place(GameData.building(&"sawmill"), Vector2i(-10, -8), 0)
-	plot.place(GameData.building(&"sawmill"), Vector2i(-4, -8), 0)
-	PlayerState.try_unlock(&"furnace")
-	plot.place(GameData.building(&"furnace"), Vector2i(2, -8), 0)
-	plot.place(GameData.building(&"splitter"), Vector2i(0, 0), 0)
+	plot.place(GameData.building(&"sander"), Vector2i(-7, -8), 0)
+	plot.place(GameData.building(&"crusher"), Vector2i(-2, -8), 0)
+	plot.place(GameData.building(&"furnace"), Vector2i(1, -8), 0)
+	plot.place(GameData.building(&"refiner"), Vector2i(4, -8), 0)
+	plot.place(GameData.building(&"splitter"), Vector2i(0, 2), 0)
 	plot.place(GameData.building(&"storage"), Vector2i(8, 2), 0)
+	plot.place(GameData.building(&"workbench"), Vector2i(8, -8), 0)
 	plot.place(GameData.building(&"conveyor"), Vector2i(-10, 2), 0)
-	plot.place(GameData.building(&"conveyor"), Vector2i(-2, 2), 0)
+	plot.place(GameData.building(&"conveyor"), Vector2i(-4, 2), 0)
 	plot.place(GameData.building(&"conveyor"), Vector2i(4, 2), 0)
-	PlayerState.try_unlock(&"sell_chute")
-	var chute := plot.place(GameData.building(&"sell_chute"), Vector2i(10, -8), 0)
-	check(chute != null, "could not place the sell chute")
-	check_eq(plot.placed.size(), 9, "test base was not fully built")
+	check_eq(plot.placed.size(), 11, "test base was not fully built")
+	check_eq(plot.inline_machines().size(), 5, "the tunnel machines were not all placed")
 	await step(10)
 
-	var money_before := Economy.money
 	var samples: PackedFloat32Array = PackedFloat32Array()
 	var prev := Time.get_ticks_usec()
 	for i in 600:
-		if i % 6 == 0:
-			# Fed through the real intakes, so the base is actually running.
-			for m in plot.machines():
-				var feed: StringName = &"wood_pine" if m.def.machine == &"sawmill" else &"ore_iron"
-				var dims := Solid.cylinder(0.2, 0.17, randf_range(1.2, 2.6)) if feed == &"wood_pine" else {}
-				manager.spawn(feed, Transform3D(Basis(), m.input_point()), 0, Vector3.ZERO, dims)
-		if i % 30 == 0 and chute != null:
-			# Stand in for a belt feeding the chute, so the sell path is exercised.
-			spawn(&"lumber_pine", chute.global_position + Vector3(0, 2.0, 0))
+		if i % 40 == 0:
+			# Fed on to each machine's in-feed lip, the way a belt would.
+			for m in plot.inline_machines():
+				var wood := m.machine_def.accepts.has(&"wood")
+				var feed: StringName = &"wood_pine" if wood else (&"ingot_iron" if m.machine_def.id == &"refiner" else &"ore_iron")
+				var dims := Solid.cylinder(0.2, 0.17, randf_range(1.2, 2.6)) if wood else Solid.cube(0.25)
+				manager.spawn(feed, Transform3D(m.global_transform.basis * LooseItem.lying_basis(0.0),
+					m.global_transform * Vector3(0, 0.6, m.length * 0.5 - 0.35)), 0, Vector3.ZERO, dims, true)
 		await get_tree().physics_frame
 		var now := Time.get_ticks_usec()
 		samples.append(float(now - prev) / 1000.0)
@@ -2770,11 +2878,8 @@ func test_full_base() -> void:
 		manager.active_count(), avg, worst, budget])
 	check(avg < budget, "a full base blew the frame budget (%.2f ms)" % avg)
 	check(manager.active_count() <= manager.per_plot_cap, "item cap exceeded under load")
-	var produced := 0
-	for m in plot.machines():
-		produced += m.total_produced
-	check(produced > 0, "no machine produced anything in the running base")
-	check(Economy.money != money_before, "the base earned nothing (sell chute never fired)")
+	for m in plot.inline_machines():
+		check(m.total_processed > 0, "the %s processed nothing in the running base" % m.def.display_name)
 	done()
 
 func _make_tree(height: float, radius: float, taper: float, branches: int) -> ChoppableTree:

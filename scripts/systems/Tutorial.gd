@@ -13,9 +13,9 @@ signal advanced
 
 const STEPS := [
 	{"id": &"chop", "title": "Fell a tree",
-		"hint": "Aim at a trunk and swing [LMB] until it comes down."},
+		"hint": "Take your axe with [1], aim at a trunk and swing [LMB] until it comes down."},
 	{"id": &"pick", "title": "Pick up the wood",
-		"hint": "[RMB] puts a piece on your rack. Too long or too heavy? Buck it with [LMB] or drag it with [F]."},
+		"hint": "[RMB] puts a piece on your rack. Too long? Buck it with the axe, or put the axe away [1] and drag it with [LMB]."},
 	{"id": &"sell", "title": "Sell it at the Sell Yard",
 		"hint": "Follow the compass to the yard, drop the wood inside the fence [G] and ask the shopkeep [E]."},
 	{"id": &"store", "title": "Visit the Store",
@@ -23,7 +23,7 @@ const STEPS := [
 	{"id": &"build", "title": "Open build mode",
 		"hint": "On your plot, press [B]. Fly with [WASD] and pick a building with the wheel."},
 	{"id": &"place", "title": "Place a building",
-		"hint": "A Sawmill turns logs into lumber, which sells for more. [LMB] places it."},
+		"hint": "A Planker turns a log into one big plank, which sells for more. [LMB] places it."},
 	{"id": &"order", "title": "Fill an order",
 		"hint": "Orders pay a bonus on top of the sale. See them any time with [Tab]."},
 ]

@@ -1,81 +1,6 @@
 {
   "tracks": [
     {
-      "id": "axe",
-      "display_name": "Axe",
-      "levels": [
-        {
-          "level": 1,
-          "cost": 0,
-          "damage": 34.0,
-          "cooldown": 0.42,
-          "label": "Rusty Axe"
-        },
-        {
-          "level": 2,
-          "cost": 150,
-          "damage": 55.0,
-          "cooldown": 0.38,
-          "label": "Steel Axe"
-        },
-        {
-          "level": 3,
-          "cost": 700,
-          "damage": 90.0,
-          "cooldown": 0.32,
-          "label": "Timber Axe"
-        },
-        {
-          "level": 4,
-          "cost": 3200,
-          "damage": 160.0,
-          "cooldown": 0.26,
-          "label": "Ironwood Cleaver"
-        },
-        {
-          "level": 5,
-          "cost": 14000,
-          "damage": 320.0,
-          "cooldown": 0.2,
-          "label": "Goldleaf Felling Axe"
-        }
-      ]
-    },
-    {
-      "id": "hammer",
-      "display_name": "Hammer",
-      "levels": [
-        {
-          "level": 1,
-          "cost": 0,
-          "head_kg": 3.0,
-          "cooldown": 0.55,
-          "label": "Club Hammer"
-        },
-        {
-          "level": 2,
-          "cost": 500,
-          "head_kg": 6.0,
-          "cooldown": 0.5,
-          "label": "Sledge"
-        },
-        {
-          "level": 3,
-          "cost": 2400,
-          "head_kg": 11.0,
-          "cooldown": 0.44,
-          "label": "Splitting Maul"
-        },
-        {
-          "level": 4,
-          "cost": 11000,
-          "head_kg": 20.0,
-          "cooldown": 0.38,
-          "label": "Drop Hammer"
-        }
-      ]
-    },
-    {
       "id": "carry",
       "display_name": "Carry Rack",
       "levels": [
@@ -84,35 +9,35 @@
           "cost": 0,
           "label": "Bare Hands",
           "capacity_m3": 0.18,
-          "lift_kg": 100.0
+          "lift_kg": 1000.0
         },
         {
           "level": 2,
           "cost": 120,
           "label": "Shoulder Strap",
           "capacity_m3": 0.45,
-          "lift_kg": 160.0
+          "lift_kg": 1000.0
         },
         {
           "level": 3,
           "cost": 650,
           "label": "Hauling Frame",
           "capacity_m3": 0.95,
-          "lift_kg": 260.0
+          "lift_kg": 1000.0
         },
         {
           "level": 4,
           "cost": 2600,
           "label": "Log Harness",
           "capacity_m3": 1.8,
-          "lift_kg": 420.0
+          "lift_kg": 1000.0
         },
         {
           "level": 5,
           "cost": 11000,
           "label": "Cargo Exo-Rig",
           "capacity_m3": 3.2,
-          "lift_kg": 700.0
+          "lift_kg": 1000.0
         }
       ],
       "move_kg": 1000.0,
@@ -154,69 +79,55 @@
     },
     {
       "id": "sawmill",
-      "display_name": "Sawmill",
+      "display_name": "Planker",
       "levels": [
         {
           "level": 1,
           "cost": 0,
           "hole_scale": 1.0,
           "rate_scale": 1.0,
-          "label": "Bench Saw"
+          "label": "Bench Planker"
         },
         {
           "level": 2,
           "cost": 900,
-          "hole_scale": 1.45,
-          "rate_scale": 1.35,
-          "label": "Breakdown Saw"
+          "hole_scale": 1.35,
+          "rate_scale": 1.4,
+          "label": "Mill Planker"
         },
         {
           "level": 3,
           "cost": 4200,
-          "hole_scale": 2.05,
-          "rate_scale": 1.8,
-          "label": "Head Rig"
-        },
-        {
-          "level": 4,
-          "cost": 16000,
-          "hole_scale": 2.8,
-          "rate_scale": 2.4,
-          "label": "Gang Mill"
+          "hole_scale": 1.7,
+          "rate_scale": 1.85,
+          "label": "Headrig Planker"
         }
       ]
     },
     {
-      "id": "furnace",
-      "display_name": "Furnace",
+      "id": "sander",
+      "display_name": "Sander",
       "levels": [
         {
           "level": 1,
           "cost": 0,
           "hole_scale": 1.0,
           "rate_scale": 1.0,
-          "label": "Bloomery"
+          "label": "Drum Sander"
         },
         {
           "level": 2,
-          "cost": 1400,
-          "hole_scale": 1.4,
-          "rate_scale": 1.45,
-          "label": "Cupola"
+          "cost": 700,
+          "hole_scale": 1.35,
+          "rate_scale": 1.4,
+          "label": "Wide-Belt Sander"
         },
         {
           "level": 3,
-          "cost": 6000,
-          "hole_scale": 1.9,
-          "rate_scale": 2.1,
-          "label": "Blast Furnace"
-        },
-        {
-          "level": 4,
-          "cost": 24000,
-          "hole_scale": 2.5,
-          "rate_scale": 3.0,
-          "label": "Arc Furnace"
+          "cost": 3200,
+          "hole_scale": 1.7,
+          "rate_scale": 1.85,
+          "label": "Twin-Head Sander"
         }
       ]
     },
@@ -234,16 +145,70 @@
         {
           "level": 2,
           "cost": 1100,
-          "hole_scale": 1.4,
-          "rate_scale": 1.5,
+          "hole_scale": 1.35,
+          "rate_scale": 1.4,
           "label": "Cone Crusher"
         },
         {
           "level": 3,
           "cost": 5200,
-          "hole_scale": 1.95,
-          "rate_scale": 2.2,
-          "label": "Impact Mill"
+          "hole_scale": 1.7,
+          "rate_scale": 1.85,
+          "label": "Gyratory Crusher"
+        }
+      ]
+    },
+    {
+      "id": "furnace",
+      "display_name": "Smelter",
+      "levels": [
+        {
+          "level": 1,
+          "cost": 0,
+          "hole_scale": 1.0,
+          "rate_scale": 1.0,
+          "label": "Bloomery"
+        },
+        {
+          "level": 2,
+          "cost": 1400,
+          "hole_scale": 1.35,
+          "rate_scale": 1.4,
+          "label": "Cupola"
+        },
+        {
+          "level": 3,
+          "cost": 6000,
+          "hole_scale": 1.7,
+          "rate_scale": 1.85,
+          "label": "Induction Smelter"
+        }
+      ]
+    },
+    {
+      "id": "refiner",
+      "display_name": "Refiner",
+      "levels": [
+        {
+          "level": 1,
+          "cost": 0,
+          "hole_scale": 1.0,
+          "rate_scale": 1.0,
+          "label": "Bench Refiner"
+        },
+        {
+          "level": 2,
+          "cost": 2500,
+          "hole_scale": 1.35,
+          "rate_scale": 1.4,
+          "label": "Electrolytic Refiner"
+        },
+        {
+          "level": 3,
+          "cost": 9000,
+          "hole_scale": 1.7,
+          "rate_scale": 1.85,
+          "label": "Zone Refiner"
         }
       ]
     },

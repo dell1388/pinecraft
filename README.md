@@ -32,9 +32,12 @@ you play. The full list of keys is on the Controls page and in the journal
 | Key | Action |
 | --- | --- |
 | WASD / Shift / Space | move, sprint, jump |
-| LMB | cut the limb under the crosshair / hammer a chunk / buck felled wood |
+| 1-9 / Wheel | take a tool off the hotbar (the same number again puts it away) |
+| LMB, empty hand | hold to drag what you aim at, by the point you grabbed; heave a chunk out of the ground |
+| Wheel (dragging) / RMB (dragging) | pull it closer or push it away / throw it |
+| LMB, axe / hammer | cut the limb under the crosshair or buck felled wood / crack a chunk |
 | RMB | pick a piece onto the carry rack |
-| F | heavy-drag a piece, or heave a chunk out of the ground |
+| I | inventory: drag tools onto the hotbar |
 | Q / G | drop one / drop everything |
 | E | deposit, open a paid box, talk to the shopkeep, stop or start a belt |
 | Shift+E | empty a storage bin back onto the ground |
@@ -42,11 +45,13 @@ you play. The full list of keys is on the Controls page and in the journal
 | Wheel / 1-7 (build) | choose from the build bar |
 | Z / X / C (build) | rotate the ghost about each axis, in quarter turns |
 | LMB / RMB (build) | place / remove |
+| F (build) | select the building you aim at for editing (again to finish) |
+| 1 / 2 / 3, drag a handle (editing) | move / scale / rotate it; hold RMB to look; Del removes |
 | Esc | pause menu (leaves build mode first, closes the journal first) |
 | Tab / M / P / U / F1 | journal: orders / map / market / upgrades / controls |
 | H / F3 | hide the key hints / debug readout |
 | F5 / F9 / F8 | quick save / quick load / new game (asks first) |
-| V | get in and out of the nearest vehicle (third-person while driving) |
+| E at a vehicle's cab or seat / V | get in / get out (third-person while driving) |
 | E / G (driving) | hook and unhook the winch / reel it in |
 | F (driving) | crane: take hold of a piece, or let it go |
 | WASD / Shift / Ctrl / R / T (crane) | drive the load itself, and turn it |
@@ -108,31 +113,52 @@ its cell grid and a hazard-striped edge.
    deeper, and when a crack goes through, the piece on its near side breaks off
    while the rest settles further in. A heavier head cracks deeper. A crusher
    does the same job to whole chunks, much faster.
-4. **Move it.** You can lift 100 kg and drag 1000 kg; past that you need the
+4. **Move it.** With nothing in your hand, hold the left button on a piece and
+   it comes with you *by the point you grabbed* - a log taken by one end swings
+   from that end. You can drag and lift up to a tonne; past that you need a
    truck's winch or its crane. A full rack slows you down, which is the reason
    to build belts. The hauler's bed has tall sides, a cab guard and a
    tailgate; what you put in it is a real, loose load, so drive accordingly.
-5. **Process.** The sawmill's intake is a real hole - a trunk that will not fit
-   through it does not go in, so you buck it first or buy a mill with a bigger
-   mouth. Machines conserve volume exactly: what goes in comes back out as
-   pieces with the outlet's cross-section, at whatever length that volume needs.
-6. **Sell** at the yard. Drop material inside the fence, walk up to the shopkeep
+5. **Process.** Machines are tunnels on a belt, like a curing oven on a line:
+   a piece rides in one mouth, is changed in the middle behind strip curtains
+   and its own sawdust, steam or sparks, and rides out of the other mouth on
+   the same belt. Wood: fell > buck to size > **Sander** > **Planker**, which
+   makes *one* plank from a log - as long as the log, 1.8 radii wide, 0.8
+   thick. Ore: **Crusher** > **Smelter** (one bar per lump) > **Refiner**.
+   Sanded and refined material sells for more, and the finish is kept through
+   cutting, planking and saving. A tunnel mouth is a real opening: a trunk too
+   big for it jams on the bulkhead until you buck it or buy a higher tier
+   (T2 and T3 widen the mouth and speed the belt).
+6. **Sell** at the yard - there is no selling from the plot, so the wood has to
+   make the trip. Drop material inside the fence, walk up to the shopkeep
    and ask; everything of yours in the yard is bought at once at the day's rate,
    with whatever is still in your arms going over the counter with it. Standing
    orders pay a bonus on top for a volume of a named material.
-7. **Buy** at the store, which is a shop you walk into. Stock sits in labelled
-   boxes on shelves; carry what you want to the counter and the till charges for
-   it. Taking a box off a shelf is not owning it, and carrying an unpaid one out
-   of the door puts it back. A paid box is yours to open wherever you like. Land
-   is sold at the desk.
+7. **Buy** at the store, which is a shop you walk into, laid out in sections -
+   Tools, Vehicles, Conveyors, Machinery, Gear and Doodads - each a bay with a
+   big sign and a stepped shelf. Every box has a picture of what is inside
+   printed on it (the real model, rendered in white on the section colour),
+   its name and price, and machine tiers wear T1 / T2 / T3 in orange, grey and
+   blue. Drag what you want to the counter and the till charges for it; an
+   unpaid box carried out of the door goes back on its shelf. A paid box is
+   yours to open wherever you like: a tool goes into your inventory and onto
+   the hotbar. Land is sold at the desk. **Summit Outfitters**, a long drive
+   up into the high country, sells the pro tools, the heavy trucks, the top
+   machine tiers, the refiner and the fancier doodads.
 8. **Build.** Machines and belts go on the plot grid. Structures are built out of
    *material*: place a translucent plan, touch material to it, and it fills by
    exactly that piece's volume. The first piece decides what the shape is made
    of and nothing else will go in after that; full, it turns solid and takes the
    material's colour.
-9. **Automate**: belts hand items straight into machines, ramps climb, splitters
-   fan output three ways, filters sort by type, belts can be stopped, storage
-   buffers the surplus, and a sell chute closes the loop.
+9. **Automate**: belts run into and out of the machine tunnels, ramps climb,
+   long and wide belts come in the store, splitters fan output three ways,
+   filters sort by type, belts can be stopped and storage buffers the surplus.
+   In build mode, **F** selects a placed building and gives it handles: move
+   it (blue diamonds; up and down in quarter metres), scale it (belts stretch
+   up to 16 m and widen, plans and doodads grow) or rotate it (a ring round
+   each axis). Doodads - fences, lamps, benches, planters, flags, a gnome, and
+   up the mountain a golden statue, a fountain and a crystal beacon - are just
+   for looks.
 
 ## The map
 
@@ -245,6 +271,21 @@ you what you will be cutting, and the hard woods are out in the hard country:
 | Willow | swamp (standing in shallow water) | willow |
 | Ironwood | mountains | ironwood |
 | Desert Ironwood | desert | ironwood |
+| Birch | woodland, taiga - white bark, round light crown | birch |
+| Maple | woodland - autumn red and orange, all year | maple |
+| Cherry Blossom | woodland, swamp - low and wide, a cloud of pink | cherry |
+| Redwood | taiga - a giant: 14-19 m, a metre-plus thick | redwood |
+| Palm | desert - fronds from the top of a thin trunk | palm |
+| Baobab | desert - a barrel of a trunk, a tuft on top | baobab |
+| Frostbark | snow - ice-blue needles that catch the light | frostbark |
+| Spirit Tree | swamp - ghost-white, glowing teal leaves (rare) | spiritwood |
+| Emberbark | mountains - charcoal black with smouldering knots (rare) | emberbark |
+| Dead Snag | mountains, desert, swamp - grey and bare | pine |
+
+About 290 trees stand at once, across all sixteen. The strange ones are rare and
+worth the most (Emberbark lumber is ~1,000 a cubic metre, pine ~70). Rocks come
+in six ores - iron, copper, silver, cobalt, gold and sunstone, each in its own
+host rock, the last three glowing - about 130 at once.
 
 Tree and wood are still separate ideas - the two ironwoods are different trees
 cutting the same wood - but each biome that is worth a trip pays for it. Willow
@@ -258,23 +299,23 @@ region that is not there.
 ## Materials are volumes
 
 Nothing in the game is counted in "items". Every piece is a solid with real
-dimensions, and machines conserve volume rather than swapping one item id for
-another:
+dimensions:
 
 * A piece is a box or a tapered cylinder whose long axis is local +Y. Its
   **mass is density x volume** and its **price is rate x volume**, both from
   `data/items.json`. A 4 m trunk weighs what a 4 m trunk should.
-* **The sawmill** measures what it is fed, mills at a fixed cubic metres per
-  second, and pushes out boards with the outlet hole's cross-section, cut to
-  whatever length that volume needs and never longer than it can cut in one
-  piece. Feed it a fat 2 m log and you get long boards; feed it a branch and you
-  get a short one. In, out and on the ground always add up.
-* **The furnace** does the same through a roof hatch and a side vent, with
-  billets instead of boards: the bar's length is what carries the volume.
+* **The planker** turns a log into one plank the log's length, 1.8 radii wide
+  and 0.8 thick - the slabs and sawdust are the waste, and the plank is still
+  worth about half as much again as the log. **The smelter** turns a lump of ore
+  into one bar holding 60% of its volume. **The crusher** breaks a chunk into
+  lumps and conserves ore exactly. **The sander** and **refiner** add a finish
+  (x1.35 and x1.45 on the price) that stays with the piece through cutting and
+  saving. Each is a change to the same physics body as it passes the middle of
+  the tunnel, so it keeps its place and speed on the belt.
 * **The workbench** works the other way round - it consumes *volume by
   category* (0.12 m3 of any lumber plus a little metal makes a crate), so any
   offcut length is usable.
-* Because value is per cubic metre, milling never creates or destroys money.
+* Because value is per cubic metre, a machine's worth is exactly what it adds.
   What changes is the **rate**: lumber is worth more per cubic metre than the
   wood it came from, and the day's market decides by how much.
 * Bucking, splitting, storing, loading and unloading all conserve volume too,
@@ -329,18 +370,16 @@ them than before.
   catches the light - sunk into the ground by however much is buried, and
   drawn from the ore left in them, so hammering a piece off visibly shrinks the
   rock. Open cracks are dark seams that lengthen as they deepen.
-* **Machines** are shells, not blocks: each wall is built as up to four boxes
-  around a rectangular opening, so the intake and outlet are real holes you can
-  see material go into and come out of - and they *are* real holes, since a
-  piece has to fit through one to go in. Upgrading a machine rebuilds its shell
-  around the new mouth. Every machine is framed on its edges, plated and vented
-  on its solid faces, stripes under its holes, and has a control box with a
-  **status light**: green working, amber waiting, red stopped with its outlet
-  full. Then each is its machine - the sawmill a toothed blade through the roof,
-  a finned motor, in-feed rollers and a sawdust chute; the furnace brick
-  courses, a banded chimney and a glowing mouth that lights the ground; the
-  crusher a hopper, a spoked flywheel and a drive belt; the workbench a vise,
-  a pegboard of tools and a lamp.
+* **Machines** are tunnels over a belt, dressed like a curing oven: steel side
+  panels with ribs and a bolted access panel, a dark inside the belt vanishes
+  into, a bulkhead at each end with the mouth cut out of it, hazard stripes
+  round the mouth and strip curtains hanging over it, and a status light. The
+  planker and sander carry a motor and a drive guard on the roof, the smelter a
+  chimney and a fire glow inside, the refiner three glowing cells, the crusher
+  a hopper and a flywheel. Each throws its own sawdust, steam, dust, sparks or
+  flame from its mouths while it works, with a burst as each piece changes.
+  The workbench is still the old kind of machine: a shell with an intake and an
+  outlet.
 * **Belts** are a rubber belt between steel channels, with rollers at the ends,
   legs down to the pad on ramps, visible rails where they have them, and
   **chevrons painted on the belt pointing the way it runs** (cyan on the fast
@@ -440,11 +479,13 @@ rule below is enforced in one place rather than per object.
   and the contact constraint cancels the spin. The tree instead gets a rotation
   about its base plus the matching centre-of-mass velocity and two degrees of
   lean, so it swings over like a felled tree instead of sinking straight down.
-* **Carrying is kinematic, dragging is velocity-driven.** Rack items are frozen
-  (`FREEZE_MODE_KINEMATIC`) and snapped to slots: no solver cost, no jitter. The
-  single-item heavy drag steers the body's velocity toward a hold point, which is
-  stable at any mass where a camera-to-log joint is the classic way to make a
-  solver explode.
+* **Dragging pulls the point you grabbed.** Each physics step the hand works
+  out the impulse that would bring the grabbed point toward the hold point,
+  using the body's real mass and inertia *as seen from that point* (the 3x3
+  effective-mass matrix `1/m - [r] I^-1 [r]`), caps it at a tonne of strength,
+  and applies it there. A log held by one end swings from that end; a light
+  billet comes at once and a heavy trunk comes slowly. No joint, so nothing to
+  explode. The carry rack is still kinematic slots, for now.
 * **Belts, splitters and truck beds are physical.** Nothing is locked down.
   A belt deck is a static body with a surface velocity, so the engine itself
   drags whatever rests on it along by friction: pieces ride at belt speed,
@@ -494,7 +535,7 @@ Budget is 16.67 ms.
 
 ### Integration tests (`scenes/tests.tscn`)
 
-906 checks across 55 tests, all passing. Every test has to say it reached its
+About 1,570 checks across 71 tests, all passing. Every test has to say it reached its
 own end, so one that dies part way through - a parse error in what it exercises,
 say - is reported as a failure instead of quietly contributing fewer checks.
 
@@ -522,6 +563,12 @@ and braking, weighs the truck down, surges forward and spills when inverted,
 saves with the truck and tips out the back; belts carrying by friction, jamming
 against a wall and clearing; vehicle pads spawning one truck and replacing it; winch and
 crane power ratings; kill plane; item cap; a full automated base under load;
+the tunnel machines (one plank per log, sanding and refining adding value and
+surviving a save, crushing, smelting to bars, an oversized trunk jamming on the
+mouth until a higher tier widens it, a belt running into a machine); the tool
+hotbar and inventory; dragging by the grabbed point; the build-mode editor
+(move, stretch, turn, lift, refuse an overlap, save the result); the sectioned
+stores with tiers and the summit store; every vehicle; debug money;
 and the interface's logic - settings coercing, persisting and resetting, the
 title screen reading a save without loading it, prompt keys told apart from
 counts in brackets (`[E]` is a key, `[2/5]` is not), compass bearings through
@@ -562,12 +609,12 @@ third of the table, at a fifth to a quarter of budget.
 
 ### Whole game, headless (`scenes/smoke_world.tscn`)
 
-The assembled world - a 600 m biome map with rivers and roads, 90 trees and 33
-ore chunks kept stocked by their fields, the plot, machines, belts, the sell
-yard, the store, the hauler, the HUD and ~130 loose pieces - plus three caves,
-nine outposts, ~9,000 pieces of dressing and ~130 boulders - runs at **about
-1.5 ms/frame average**, with trees felling, chunks breaking, machines milling
-and the sell chute paying out. Building the world and the interface costs one
+The assembled world - a 600 m biome map with rivers and roads, ~290 trees of
+sixteen species and ~130 ore chunks kept stocked by their fields, the plot,
+tunnel machines, belts, the sell yard, both stores, the hauler, the HUD and
+~130 loose pieces - plus three caves, nine outposts, ~9,000 pieces of dressing
+and ~130 boulders - runs at **about 2 ms/frame average** headless, with trees
+felling, chunks breaking and machines working. Building the world and the interface costs one
 frame of about 75 ms at startup; opening a journal page costs 15-25 ms of UI
 the first time, and pages are only rebuilt when what they show changes.
 
@@ -621,12 +668,13 @@ Done: physics foundation, the full loop from standing tree to sold material,
 volume-conserving materials and machines, limb-by-limb felling and bucking,
 embedded ore and hammer-cracking, quota-stocked resource fields, a biome map
 with rivers and roads, plot building with JSON save/load, schematic shapes,
-automation (belts, ramps, splitters, filters, storage, sell chutes), the
-physical store, the sell yard and standing orders, vehicle pads, the winch and
+automation (belts, ramps, splitters, filters, storage, tunnel machines), two
+physical stores in sections, seven vehicles, a tool hotbar and inventory, a
+build-mode editor with move, scale and rotate handles, the sell yard and standing orders, vehicle pads, the winch and
 crane, ownership and persistence, and daily-changing prices.
 
-Natural next steps, in the order they would pay off: caves and the terrain
-representation they need; the build-mode gizmo and multi-select; a second and
-third vehicle so the vehicle upgrade path is a real choice; belt curves; and
+Natural next steps, in the order they would pay off: carry working like drag
+(lift off the ground; drag stays on it); multi-select in build mode; belt
+curves and tees; trailers; and
 performance work on the manager's per-frame loop (the ~0.4 ms floor at rest is
 that loop, not the solver).

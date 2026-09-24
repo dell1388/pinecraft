@@ -6,6 +6,7 @@ extends Node
 signal upgraded(track: StringName, level: int)
 signal unlocked(building_id: StringName)
 signal vehicle_purchased()
+signal inventory_changed()
 
 const VEHICLE_PAD := &"vehicle_pad"
 
@@ -18,6 +19,11 @@ var tutorial_done: Array[StringName] = []
 var discovered: Array[String] = []
 ## Supply caches opened: name -> the market day it was last opened.
 var caches: Dictionary = {}
+## Tools owned, in the order they were got, and what is on each hotbar slot
+## (a tool id, or &"" for an empty slot).
+var tools: Array[StringName] = []
+var hotbar: Array[StringName] = []
+const HOTBAR_SLOTS := 9
 
 func _ready() -> void:
 	reset()
@@ -30,6 +36,12 @@ func reset() -> void:
 	tutorial_done.clear()
 	discovered.clear()
 	caches.clear()
+	tools.clear()
+	hotbar.clear()
+	hotbar.resize(HOTBAR_SLOTS)
+	hotbar.fill(&"")
+	for id in GameData.start_tools:
+		give_tool(id, false)
 	for def: BuildingDef in GameData.buildings.values():
 		if def.unlock_cost <= 0:
 			unlocked_buildings.append(def.id)
@@ -107,6 +119,52 @@ func try_buy_vehicle() -> bool:
 	vehicle_purchased.emit()
 	return true
 
+# --- Tools and the hotbar --------------------------------------------------
+
+func owns_tool(id: StringName) -> bool:
+	return tools.has(id)
+
+## Adds a tool to the inventory and, if there is room, the hotbar.
+func give_tool(id: StringName, announce: bool = true) -> bool:
+	if GameData.tool(id).is_empty() or tools.has(id):
+		return false
+	tools.append(id)
+	var free := hotbar.find(&"")
+	if free >= 0:
+		hotbar[free] = id
+	if announce:
+		inventory_changed.emit()
+	return true
+
+## Puts a tool on a hotbar slot. A tool is on the bar at most once, so it
+## moves if it was already somewhere else; `id` &"" clears the slot.
+func set_hotbar(slot: int, id: StringName) -> void:
+	if slot < 0 or slot >= HOTBAR_SLOTS:
+		return
+	if id != &"" and not tools.has(id):
+		return
+	var was := hotbar.find(id) if id != &"" else -1
+	if was >= 0:
+		hotbar[was] = hotbar[slot]
+	hotbar[slot] = id
+	inventory_changed.emit()
+
+func hotbar_tool(slot: int) -> StringName:
+	if slot < 0 or slot >= hotbar.size():
+		return &""
+	return hotbar[slot]
+
+## The best tool of a kind you own (for things that do not care which).
+func best_tool(kind: String) -> StringName:
+	var best := &""
+	var best_cost := -1
+	for id in tools:
+		var t := GameData.tool(id)
+		if String(t.get("kind", "")) == kind and int(t.get("cost", 0)) > best_cost:
+			best = id
+			best_cost = int(t.get("cost", 0))
+	return best
+
 func to_dict() -> Dictionary:
 	var lv := {}
 	for k in levels:
@@ -118,7 +176,9 @@ func to_dict() -> Dictionary:
 	for step in tutorial_done:
 		tut.append(String(step))
 	return {"levels": lv, "unlocked": ub, "tutorial": tut,
-		"discovered": discovered.duplicate(), "caches": caches.duplicate()}
+		"discovered": discovered.duplicate(), "caches": caches.duplicate(),
+		"tools": tools.map(func(t): return String(t)),
+		"hotbar": hotbar.map(func(t): return String(t))}
 
 func from_dict(d: Dictionary) -> void:
 	reset()
@@ -133,6 +193,23 @@ func from_dict(d: Dictionary) -> void:
 		tutorial_done.append(StringName(step))
 	for place in d.get("discovered", []):
 		discovered.append(String(place))
+	if d.has("tools"):
+		tools.clear()
+		for id in d["tools"]:
+			if not GameData.tool(StringName(id)).is_empty():
+				tools.append(StringName(id))
+		var bar: Array = d.get("hotbar", [])
+		for i in HOTBAR_SLOTS:
+			var id := StringName(bar[i]) if i < bar.size() else &""
+			hotbar[i] = id if tools.has(id) else &""
+	# Saves from before tools were things: the old axe and hammer levels
+	# become the matching tools.
+	var old_levels: Dictionary = d.get("levels", {})
+	for pair in [["axe", ["rusty_axe", "steel_axe", "timber_axe", "ironwood_cleaver", "goldleaf_axe"]],
+			["hammer", ["club_hammer", "sledge", "splitting_maul", "drop_hammer"]]]:
+		var lv := int(old_levels.get(pair[0], 0))
+		for i in mini(lv, (pair[1] as Array).size()):
+			give_tool(StringName(pair[1][i]), false)
 	var opened: Dictionary = d.get("caches", {})
 	for key in opened:
 		caches[String(key)] = int(opened[key])

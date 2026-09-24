@@ -64,6 +64,10 @@ var _debug: Label
 var _saved: Label
 var _banner: Label
 var journal: Journal
+var inventory: InventoryPanel
+var _hotbar: HBoxContainer
+var _hotbar_sig: String = ""
+var _hotbar_name: Label
 
 var _refresh: float = 0.0
 var _orders_sig: String = ""
@@ -83,6 +87,7 @@ func setup(p_player: Player, p_plot: Plot, p_manager: LooseItemManager, p_world:
 	build_system = p_world.get("build_system") as BuildSystem
 	quests = p_world.get("quests") as QuestLog
 	player.interacted.connect(func(msg: String): if msg != "": log_message(msg))
+	PlayerState.inventory_changed.connect(func(): _hotbar_sig = "")
 	Economy.item_sold.connect(_on_item_sold)
 	Economy.day_changed.connect(func(day: int):
 		# Not while a save is being read in: that is not a new day.
@@ -125,6 +130,7 @@ func _ready() -> void:
 	_build_build_bar()
 	_build_drive()
 	_build_misc()
+	_build_hotbar()
 	journal = Journal.new()
 	_root.add_child(journal)
 	journal.quests = quests
@@ -133,6 +139,9 @@ func _ready() -> void:
 	journal.visibility_changed.connect(_on_journal_visibility)
 	_ignore_mouse(_root)
 	journal.mouse_filter = Control.MOUSE_FILTER_STOP
+	inventory = InventoryPanel.new()
+	_root.add_child(inventory)
+	inventory.mouse_filter = Control.MOUSE_FILTER_STOP
 	Settings.changed.connect(func(_k): _apply_settings())
 	_apply_settings()
 
@@ -545,7 +554,7 @@ static func _wrapped_key_text(text: String, width: float, size: int = 15) -> HFl
 # --- Journal ---------------------------------------------------------------
 
 func journal_open() -> bool:
-	return journal != null and journal.visible
+	return (journal != null and journal.visible) or (inventory != null and inventory.visible)
 
 func open_journal(tab: String) -> void:
 	var i := journal.tab_index(tab)
@@ -574,13 +583,22 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			open_journal("Upgrades")
 		KEY_F1:
 			open_journal("Controls")
+		KEY_I:
+			if journal.visible:
+				journal.visible = false
+			inventory.player = player
+			inventory.toggle()
 		KEY_H:
 			Settings.set_value(&"show_hints", not Settings.flag(&"show_hints"))
 		KEY_F3:
 			show_debug = not show_debug
 		KEY_ESCAPE:
-			if journal_open():
+			if inventory.visible:
+				inventory.visible = false
+			elif journal.visible:
 				journal.visible = false
+			elif build_system != null and build_system.editing():
+				build_system.deselect()
 			elif build_system != null and build_system.active:
 				build_system.set_active(false)
 			elif world != null and world.has_method("pause_game"):
@@ -628,6 +646,9 @@ func _process(delta: float) -> void:
 	if building:
 		_update_build_bar()
 	_drive_panel.visible = driving and not building
+	_hotbar.visible = not building and not driving
+	if _hotbar.visible:
+		_update_hotbar()
 	if driving:
 		_update_drive()
 	_update_debug()
@@ -663,8 +684,7 @@ func _update_status() -> void:
 		"" if player.carried_count() == 1 else "s"]
 	_rack_bar.value = used / cap
 	UIKit.tint_bar(_rack_bar, UITheme.BAD if used / cap > 0.95 else UITheme.INFO)
-	_tools.text = "%s   ·   %s   ·   %s" % [PlayerState.label(&"axe"),
-		PlayerState.label(&"hammer"), PlayerState.label(&"boots")]
+	_tools.text = "%s   ·   %s" % [PlayerState.label(&"carry"), PlayerState.label(&"boots")]
 
 func _update_orders() -> void:
 	if quests == null:
@@ -727,7 +747,63 @@ func _update_hints(building: bool, driving: bool) -> void:
 				caps.custom_minimum_size.x = 84
 	_ignore_mouse(_hints_box)
 
+# --- Hotbar ------------------------------------------------------------------
+
+func _build_hotbar() -> void:
+	var col := UIKit.vbox(4)
+	_root.add_child(col)
+	col.alignment = BoxContainer.ALIGNMENT_END
+	_hotbar_name = UIKit.label("", "", 15)
+	_hotbar_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_hotbar_name.add_theme_font_override("font", UITheme.font(600))
+	col.add_child(_hotbar_name)
+	_hotbar = UIKit.hbox(6)
+	_hotbar.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_child(_hotbar)
+	_pin(col, Control.PRESET_CENTER_BOTTOM)
+	# The label rides with the bar.
+	_hotbar.visibility_changed.connect(func(): _hotbar_name.visible = _hotbar.visible)
+
+func _update_hotbar() -> void:
+	var sig := "%s|%d" % [",".join(PlayerState.hotbar), player.selected_slot]
+	if sig == _hotbar_sig:
+		return
+	_hotbar_sig = sig
+	for c in _hotbar.get_children():
+		c.queue_free()
+	for i in PlayerState.HOTBAR_SLOTS:
+		var id := PlayerState.hotbar_tool(i)
+		var held := player.selected_slot == i
+		var card := PanelContainer.new()
+		card.add_theme_stylebox_override("panel", UITheme.box(
+			Color(0.10, 0.13, 0.11, 0.92) if held else Color(UITheme.PANEL, 0.75), 9,
+			Vector4(4, 3, 4, 3), UITheme.ACCENT if held else UITheme.EDGE, 2 if held else 1))
+		card.custom_minimum_size = Vector2(58, 60)
+		var box := Control.new()
+		card.add_child(box)
+		var icon := ToolIcon.new()
+		icon.tool_id = id
+		UIKit.fill(icon)
+		box.add_child(icon)
+		var num := UIKit.label(str(i + 1), "Small", 11, UITheme.ACCENT if held else UITheme.MUTED)
+		num.position = Vector2(2, 0)
+		box.add_child(num)
+		_hotbar.add_child(card)
+	var tool := player.selected_tool()
+	_hotbar_name.text = GameData.tool_name(tool) if tool != &"" else "Empty hand - left mouse drags"
+	_ignore_mouse(_hotbar)
+
 func _update_build_bar() -> void:
+	if build_system.editing():
+		var rec := build_system.selected_record()
+		_build_name.text = "Editing: %s" % (rec.def as BuildingDef).display_name
+		_build_blurb.text = build_system.edit_hint()
+		_build_error.text = build_system.edit_error
+		_build_error.visible = build_system.edit_error != ""
+		_build_slots.visible = false
+		_build_sig = ""
+		return
+	_build_slots.visible = true
 	var def := build_system.current()
 	_build_name.text = def.display_name if def != null else "Nothing unlocked"
 	_build_blurb.text = def.blurb if def != null else "Buy machines at the Store."

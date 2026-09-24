@@ -50,6 +50,9 @@ func _draw() -> void:
 		["Store", world.get("store").global_position, Color(0.55, 0.78, 1.0)],
 		["Quarry", World.QUARRY_CENTRE, Color(0.80, 0.70, 0.62)],
 	]
+	var summit: Node3D = world.get("summit_store")
+	if summit != null:
+		fixed.append(["Summit Outfitters", summit.global_position, Color(0.7, 0.62, 1.0)])
 	for f in fixed:
 		_marker(_to_map(f[1], rect), f[0], f[2], 6.0)
 	for poi in world.call("points_of_interest"):

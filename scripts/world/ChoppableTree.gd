@@ -44,7 +44,19 @@ signal limb_cut(tree: ChoppableTree, wood_volume: float)
 ## fraction of trunk height. A zero radius leaves the tree bare-topped.
 @export var crown_spread: float = 6.5
 @export var crown_height: float = 0.45
+## How the leaves are drawn: cone (a conifer's tiers), ball (a round
+## broadleaf), puff (a cloud of blossom), palm (fronds from the top only) or
+## bare (a dead snag, or something stranger).
+@export var foliage_style: StringName = &"cone"
+## Bark colour when it is not the wood's own (a birch is white outside).
+@export var bark_color: Color = Color(0, 0, 0, 0)
+## Leaves (or cracks) that give off light, for the stranger trees.
+@export var leaf_glow: float = 0.0
+## A second leaf colour mixed through the canopy (blossom, autumn).
+@export var leaf_accent: Color = Color(0, 0, 0, 0)
 
+## Past this a tree is not drawn at all; the fog has it by then.
+const VIEW_RANGE := 300.0
 ## How fast a severed trunk swings over, in radians per second about the cut.
 const FALL_RATE := 0.9
 ## A trunk shorter than this is a stump: nothing left worth cutting.
@@ -111,6 +123,8 @@ func _branch_dims(b: Dictionary) -> Dictionary:
 func _build() -> void:
 	var wood_def := GameData.item(wood_item)
 	var bark: Color = wood_def.color if wood_def != null else Color(0.42, 0.29, 0.17)
+	if bark_color.a > 0.0:
+		bark = bark_color
 	# A little variation per tree, so a stand is not one colour repeated.
 	var leaf := leaf_color.lightened(_rng.randf_range(0.0, 0.10)) \
 		if _rng.randf() > 0.5 else leaf_color.darkened(_rng.randf_range(0.0, 0.10))
@@ -123,9 +137,9 @@ func _build() -> void:
 		Transform3D(Basis(), Vector3(0, 0.25, 0)), bark.darkened(0.15))
 	_trunk_mesh = _add_cylinder(trunk_radius, trunk_radius * trunk_taper, trunk_height,
 		Transform3D(Basis(), Vector3(0, trunk_height * 0.5, 0)), bark)
-	if crown_spread > 0.01:
-		_crown = _add_cone(trunk_radius * crown_spread, trunk_height * crown_height,
-			Transform3D(Basis(), Vector3(0, trunk_height * 1.02, 0)), leaf.darkened(0.05))
+	if crown_spread > 0.01 and foliage_style != &"bare":
+		_crown = _add_foliage(trunk_radius * crown_spread, trunk_height * crown_height,
+			Transform3D(Basis(), Vector3(0, trunk_height * 1.02, 0)), leaf.darkened(0.05), true)
 
 	for i in branch_count:
 		var span: float = maxf(0.05, 0.98 - branch_start)
@@ -140,8 +154,13 @@ func _build() -> void:
 		var basis := _basis_from_up(dir)
 		var mesh := _add_cylinder(radius, radius * 0.7, length,
 			Transform3D(basis, base + dir * length * 0.5), bark.lightened(0.05))
-		var foliage := _add_cone(radius * foliage_spread, length * 1.25,
-			Transform3D(Basis(), base + dir * (length + length * 0.35)), leaf)
+		var tint := leaf
+		if leaf_accent.a > 0.0 and _rng.randf() < 0.45:
+			tint = leaf_accent
+		var foliage: MeshInstance3D = null
+		if foliage_style != &"bare" and foliage_style != &"palm":
+			foliage = _add_foliage(radius * foliage_spread, length * 1.25,
+				Transform3D(Basis(), base + dir * (length + length * 0.35)), tint, false)
 		# Each branch gets its own collider, so the aim ray can say which one
 		# the player is standing under.
 		var shape := CollisionShape3D.new()
@@ -169,7 +188,7 @@ func _refresh_trunk() -> void:
 	cyl.height = trunk_height
 	_trunk_shape.position = Vector3(0, trunk_height * 0.5, 0)
 	if _crown != null and is_instance_valid(_crown):
-		_crown.visible = _standing and not branches.is_empty()
+		_crown.visible = _standing and (not branches.is_empty() or foliage_style == &"palm")
 		_crown.position = Vector3(0, trunk_height * 1.02, 0)
 
 func _basis_from_up(up: Vector3) -> Basis:
@@ -190,6 +209,7 @@ func _add_cylinder(r_bottom: float, r_top: float, height: float, xform: Transfor
 	mi.mesh = cm
 	mi.transform = xform
 	mi.material_override = _mat(color)
+	mi.visibility_range_end = VIEW_RANGE
 	add_child(mi)
 	return mi
 
@@ -204,14 +224,94 @@ func _add_cone(radius: float, height: float, xform: Transform3D, color: Color) -
 	mi.mesh = cm
 	mi.transform = xform
 	mi.material_override = _mat(color)
+	mi.visibility_range_end = VIEW_RANGE
 	add_child(mi)
 	return mi
 
-func _mat(color: Color) -> StandardMaterial3D:
+## Trees share materials by colour, so a forest of a few species is a few
+## materials rather than one per branch.
+static var _materials: Dictionary = {}
+
+func _mat(color: Color, glow: float = 0.0) -> StandardMaterial3D:
+	var key := "%s|%.2f" % [color.to_html(), glow]
+	if _materials.has(key):
+		return _materials[key]
 	var m := StandardMaterial3D.new()
 	m.albedo_color = color
 	m.roughness = 0.95
+	if glow > 0.0:
+		m.emission_enabled = true
+		m.emission = color
+		m.emission_energy_multiplier = glow
+	_materials[key] = m
 	return m
+
+## One clump of leaves in the tree's style. `crown` is the top of the tree.
+func _add_foliage(radius: float, height: float, xform: Transform3D, color: Color,
+		crown: bool) -> MeshInstance3D:
+	var mi: MeshInstance3D
+	match foliage_style:
+		&"ball":
+			mi = _add_ball(radius * 0.85, height * 0.85, xform.translated(Vector3(0, height * 0.2, 0)), color)
+		&"puff":
+			# A few overlapping balls: blossom or a cloud of small leaves.
+			mi = _add_ball(radius * 0.7, height * 0.7, xform.translated(Vector3(0, height * 0.2, 0)), color)
+			for k in 3:
+				var a := TAU * float(k) / 3.0 + _rng.randf()
+				var puff := _add_ball(radius * 0.5, height * 0.5,
+					Transform3D(Basis(), Vector3(cos(a) * radius * 0.55, height * 0.1, sin(a) * radius * 0.55)),
+					color.lightened(_rng.randf_range(0.0, 0.12)))
+				remove_child(puff)
+				mi.add_child(puff)
+		&"palm":
+			mi = _add_fronds(radius, xform, color)
+		_:
+			mi = _add_cone(radius, height, xform, color)
+	if leaf_glow > 0.0:
+		mi.material_override = _mat(color, leaf_glow)
+	return mi
+
+func _add_ball(radius: float, height: float, xform: Transform3D, color: Color) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var sm := SphereMesh.new()
+	sm.radius = radius
+	sm.height = maxf(height, radius * 1.2)
+	sm.radial_segments = 8
+	sm.rings = 4
+	mi.mesh = sm
+	mi.transform = xform
+	mi.material_override = _mat(color)
+	mi.visibility_range_end = VIEW_RANGE
+	add_child(mi)
+	return mi
+
+## Palm fronds: long flat blades drooping out from the top of the trunk.
+func _add_fronds(radius: float, xform: Transform3D, color: Color) -> MeshInstance3D:
+	var root := MeshInstance3D.new()
+	var hub := SphereMesh.new()
+	hub.radius = trunk_radius * 1.4
+	hub.height = trunk_radius * 2.0
+	hub.radial_segments = 6
+	hub.rings = 3
+	root.mesh = hub
+	root.transform = xform
+	root.material_override = _mat(color.darkened(0.2))
+	add_child(root)
+	var count := 8
+	var reach := maxf(radius, 2.2)
+	for k in count:
+		var a := TAU * float(k) / float(count) + _rng.randf_range(-0.2, 0.2)
+		var blade := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = Vector3(1.1, 0.06, reach)
+		blade.mesh = bm
+		var dir := Vector3(cos(a), 0, sin(a))
+		var droop := _rng.randf_range(0.25, 0.55)
+		blade.transform = Transform3D(Basis(Vector3.UP, -a + PI * 0.5) * Basis(Vector3.RIGHT, droop),
+			dir * reach * 0.45 + Vector3(0, -reach * 0.18, 0))
+		blade.material_override = _mat(color if k % 2 == 0 else color.lightened(0.08))
+		root.add_child(blade)
+	return root
 
 # --- Cutting ---------------------------------------------------------------
 
@@ -350,10 +450,11 @@ func _drop_branch(index: int, impulse: Vector3) -> float:
 		manager.spawn(wood_item, Transform3D(basis, pos), plot_id,
 			impulse + (b.dir as Vector3) * 0.8, dims)
 	(b.mesh as MeshInstance3D).queue_free()
-	(b.leaf as MeshInstance3D).queue_free()
+	if b.leaf != null and is_instance_valid(b.leaf):
+		(b.leaf as MeshInstance3D).queue_free()
 	(b.shape as CollisionShape3D).queue_free()
 	branches.remove_at(index)
-	if branches.is_empty() and _crown != null:
+	if branches.is_empty() and _crown != null and foliage_style != &"palm":
 		_crown.visible = false
 	return Solid.volume(dims)
 

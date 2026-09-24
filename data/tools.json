@@ -1,0 +1,19 @@
+{
+  "_note": "Hand tools. Each is its own thing you own, kept in the inventory and put on the hotbar to use. An axe's damage is cut work per swing; a hammer's head_kg is what opens a crack in rock. `shop` says which store sells it: the general store in town or the outfitters up the mountain.",
+  "start": ["rusty_axe", "club_hammer"],
+  "tools": [
+    {"id": "rusty_axe", "display_name": "Rusty Axe", "kind": "axe", "damage": 34, "cooldown": 0.42, "cost": 0, "shop": "general", "head": [0.55, 0.42, 0.36], "handle": [0.45, 0.32, 0.2], "blurb": "It still cuts. Mostly."},
+    {"id": "steel_axe", "display_name": "Steel Axe", "kind": "axe", "damage": 55, "cooldown": 0.38, "cost": 150, "shop": "general", "head": [0.7, 0.72, 0.76], "handle": [0.55, 0.38, 0.22], "blurb": "A proper axe with an honest edge."},
+    {"id": "timber_axe", "display_name": "Timber Axe", "kind": "axe", "damage": 90, "cooldown": 0.32, "cost": 700, "shop": "general", "head": [0.85, 0.3, 0.2], "handle": [0.6, 0.45, 0.28], "blurb": "Heavy-headed for felling big trunks."},
+    {"id": "twin_bit_axe", "display_name": "Twin-Bit Axe", "kind": "axe", "damage": 120, "cooldown": 0.3, "cost": 1600, "shop": "general", "head": [0.62, 0.64, 0.7], "handle": [0.35, 0.25, 0.16], "twin": true, "blurb": "Two edges, twice the swagger."},
+    {"id": "ironwood_cleaver", "display_name": "Ironwood Cleaver", "kind": "axe", "damage": 160, "cooldown": 0.26, "cost": 3200, "shop": "general", "head": [0.3, 0.3, 0.34], "handle": [0.25, 0.18, 0.14], "blurb": "Made for wood that fights back."},
+    {"id": "frostbite_hatchet", "display_name": "Frostbite Hatchet", "kind": "axe", "damage": 140, "cooldown": 0.16, "cost": 5500, "shop": "summit", "head": [0.55, 0.85, 1.0], "handle": [0.85, 0.9, 0.95], "glow": true, "blurb": "Light as ice and nearly as quick."},
+    {"id": "goldleaf_axe", "display_name": "Goldleaf Felling Axe", "kind": "axe", "damage": 320, "cooldown": 0.2, "cost": 14000, "shop": "summit", "head": [1.0, 0.8, 0.25], "handle": [0.3, 0.2, 0.12], "blurb": "Gilded, balanced, ruinously expensive."},
+    {"id": "ember_axe", "display_name": "Ember Axe", "kind": "axe", "damage": 520, "cooldown": 0.22, "cost": 32000, "shop": "summit", "head": [1.0, 0.4, 0.1], "handle": [0.18, 0.12, 0.1], "glow": true, "twin": true, "blurb": "The edge never quite cools down."},
+    {"id": "club_hammer", "display_name": "Club Hammer", "kind": "hammer", "head_kg": 3, "cooldown": 0.55, "cost": 0, "shop": "general", "head": [0.4, 0.4, 0.42], "handle": [0.45, 0.32, 0.2], "blurb": "For cracking small chunks."},
+    {"id": "sledge", "display_name": "Sledge", "kind": "hammer", "head_kg": 6, "cooldown": 0.5, "cost": 500, "shop": "general", "head": [0.28, 0.28, 0.3], "handle": [0.55, 0.38, 0.22], "blurb": "Twice the head, twice the crack."},
+    {"id": "splitting_maul", "display_name": "Splitting Maul", "kind": "hammer", "head_kg": 11, "cooldown": 0.44, "cost": 2400, "shop": "general", "head": [0.75, 0.2, 0.18], "handle": [0.6, 0.45, 0.28], "blurb": "Opens a crack right through."},
+    {"id": "drop_hammer", "display_name": "Drop Hammer", "kind": "hammer", "head_kg": 20, "cooldown": 0.38, "cost": 11000, "shop": "summit", "head": [0.95, 0.72, 0.15], "handle": [0.2, 0.2, 0.22], "blurb": "Industrial, and it feels it."},
+    {"id": "meteor_maul", "display_name": "Meteor Maul", "kind": "hammer", "head_kg": 36, "cooldown": 0.42, "cost": 27000, "shop": "summit", "head": [0.45, 0.3, 0.6], "handle": [0.15, 0.12, 0.18], "glow": true, "blurb": "Forged from something that fell."}
+  ]
+}

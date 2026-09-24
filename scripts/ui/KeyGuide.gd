@@ -10,9 +10,13 @@ const GROUPS := [
 		[["W", "A", "S", "D"], "Move"],
 		[["Shift"], "Sprint"],
 		[["Space"], "Jump"],
-		[["LMB"], "Chop, mine, hammer or buck what you aim at"],
-		[["RMB"], "Pick up onto your carry rack"],
-		[["F"], "Heavy-drag one piece (again to let go, LMB to throw)"],
+		[["1", "/", "9"], "Take a tool from the hotbar (again to put it away)"],
+		[["Wheel"], "Step through the hotbar"],
+		[["LMB"], "Empty hand: hold to drag by the point you grab"],
+		[["LMB"], "Axe: chop and buck. Hammer: crack rock"],
+		[["Wheel"], "While dragging: pull it closer or push it away"],
+		[["RMB"], "Pick up onto your carry rack (while dragging: throw)"],
+		[["I"], "Inventory: put tools on the hotbar"],
 		[["Q"], "Drop one piece from the rack"],
 		[["G"], "Drop everything on the rack"],
 		[["E"], "Use: deposit, sell, pay, load, talk"],
@@ -28,10 +32,16 @@ const GROUPS := [
 		[["Wheel"], "Next / previous building"],
 		[["1", "/", "7"], "Pick from the build bar"],
 		[["Z", "X", "C"], "Rotate around each axis"],
+		[["F"], "Select the building you aim at to edit it (again: done)"],
+		[["1", "/", "3"], "While editing: move, scale or rotate handles"],
+		[["LMB"], "While editing: drag a handle"],
+		[["RMB"], "While editing: hold to look around"],
+		[["Del"], "While editing: remove it"],
 		[["Esc"], "Leave build mode"],
 	]},
 	{"title": "Vehicles", "rows": [
-		[["V"], "Get in or out"],
+		[["E"], "Aim at the driver's seat or cab to get in"],
+		[["V"], "Get out"],
 		[["W", "S"], "Throttle and reverse"],
 		[["A", "D"], "Steer"],
 		[["Space"], "Brake"],
@@ -46,6 +56,7 @@ const GROUPS := [
 	{"title": "Game", "rows": [
 		[["Esc"], "Pause menu"],
 		[["Tab"], "Journal: orders, map, market, upgrades"],
+		[["I"], "Inventory and hotbar"],
 		[["M"], "Map"],
 		[["P"], "Market prices"],
 		[["U"], "Upgrades and land"],
@@ -78,8 +89,8 @@ static func sheet() -> Control:
 static func hints_for(state: String) -> Array:
 	match state:
 		"build":
-			return [[["LMB"], "Place"], [["RMB"], "Remove"], [["Wheel"], "Choose"],
-				[["Z", "X", "C"], "Rotate"], [["Shift", "/", "Ctrl"], "Up / down"], [["B"], "Done"]]
+			return [[["LMB"], "Place"], [["RMB"], "Remove"], [["F"], "Edit what you aim at"],
+				[["Wheel"], "Choose"], [["Z", "X", "C"], "Rotate"], [["Shift", "/", "Ctrl"], "Up / down"], [["B"], "Done"]]
 		"drive":
 			return [[["W", "S"], "Drive"], [["Space"], "Brake"], [["X"], "Unload"],
 				[["E"], "Winch"], [["F"], "Crane"], [["C"], "Recover"], [["V"], "Get out"]]
@@ -87,9 +98,9 @@ static func hints_for(state: String) -> Array:
 			return [[["W", "A", "S", "D"], "Move load"], [["Shift", "/", "Ctrl"], "Raise / lower"],
 				[["R", "/", "T"], "Turn"], [["F"], "Release"]]
 		"dragging":
-			return [[["F"], "Let go"], [["LMB"], "Throw"], [["E"], "Deposit"]]
+			return [[["LMB"], "Hold to keep hold"], [["Wheel"], "Closer / further"], [["RMB"], "Throw"]]
 		"carrying":
 			return [[["E"], "Deposit / sell"], [["Q"], "Drop one"], [["G"], "Drop all"],
 				[["RMB"], "Pick up more"], [["B"], "Build"]]
-	return [[["LMB"], "Chop / mine"], [["RMB"], "Pick up"], [["F"], "Drag"],
-		[["E"], "Use"], [["B"], "Build"], [["Tab"], "Journal"]]
+	return [[["1", "/", "9"], "Tools"], [["LMB"], "Drag / use tool"], [["RMB"], "Pick up"],
+		[["E"], "Use"], [["I"], "Inventory"], [["B"], "Build"], [["Tab"], "Journal"]]

@@ -48,7 +48,7 @@ func mass_of(dims: Dictionary) -> float:
 func base_value_of(dims: Dictionary) -> float:
 	if fixed_value > 0:
 		return float(fixed_value)
-	return value_per_m3 * Solid.volume(dims)
+	return value_per_m3 * Solid.volume(dims) * Solid.quality(dims)
 
 static func from_dict(d: Dictionary) -> ItemDef:
 	var def := ItemDef.new()
