@@ -1138,30 +1138,43 @@ func test_regions() -> void:
 	check(total > 200, "the test island is mostly sea")
 	check(float(agree) / float(total) > 0.75, "biomes are scattered, not regional (%d of %d agree)" % [agree, total])
 	check(float(woods[1]) - float(woods[0]) > 12.0, "the woods are flat (%.1f m of relief)" % (float(woods[1]) - float(woods[0])))
-	check(peak > 55.0, "the mountain ground tops out at %.0f m" % peak)
-	# The drama is in blocks stood on the land: rock massifs in the mountains
-	# well over a hundred metres up, red mesas in the desert, all of it solid
-	# and none of it on a road.
+	# The ground itself rises; the peaks are the stacks on it.
+	check(peak > 40.0, "the mountain ground tops out at %.0f m" % peak)
+	# Mountains are stacks: sheer-sided levels, each smaller and higher, a ramp
+	# up to each from the one below. Mesas in red, all of it solid, standing
+	# where it can be walked on, and none of it on a road.
 	var marks := Landmarks.new()
 	marks.setup(land, 5)
 	world.add_child(marks)
 	await step(2)
-	check(marks.blocks.size() > 20, "only %d landmark blocks" % marks.blocks.size())
+	check(marks.stacks > 5, "only %d stacks" % marks.stacks)
+	check(marks.levels.size() > marks.stacks, "the stacks are one level each")
+	check(marks.ramps.size() > marks.stacks, "only %d ramps" % marks.ramps.size())
 	var high := 0.0
 	var reds := 0
-	for b in marks.blocks:
-		var xf: Transform3D = b.xform
-		high = maxf(high, xf.origin.y + (b.size as Vector3).y * 0.5)
-		if (b.color as Color).r > 0.8 and (b.color as Color).g < 0.7:
+	for lv in marks.levels:
+		high = maxf(high, float(lv.top))
+		if Landmarks.REDS.has(lv.wall_color):
 			reds += 1
-		check(not land.is_road(xf.origin.x, xf.origin.z), "a block stands on a road")
-	check(high > 100.0, "the highest rock is %.0f m up" % high)
+		for p: Vector2 in lv.poly:
+			check(not land.is_road(p.x, p.y), "a stack corner stands on a road")
+	check(high > 100.0, "the highest level is %.0f m up" % high)
 	check(reds > 0, "the desert has no mesas")
+	for r in marks.ramps:
+		var a: Vector3 = r.a
+		var b: Vector3 = r.b
+		var grade := (b.y - a.y) / Vector2(b.x - a.x, b.z - a.z).length()
+		check(grade < Landmarks.RAMP_GRADE + 0.02, "a ramp is %.0f%% steep" % (grade * 100.0))
 	var space := world.get_world_3d().direct_space_state
-	var first: Dictionary = marks.blocks[0]
-	var top: Vector3 = (first.xform as Transform3D).origin + Vector3(0, 400, 0)
-	var q := PhysicsRayQueryParameters3D.create(top, top - Vector3(0, 800, 0))
-	check(not space.intersect_ray(q).is_empty(), "a landmark block is not solid")
+	var lv0: Dictionary = marks.levels[0]
+	var c := Vector2.ZERO
+	for p: Vector2 in lv0.poly:
+		c += p
+	c /= float((lv0.poly as PackedVector2Array).size())
+	var q := PhysicsRayQueryParameters3D.create(Vector3(c.x, 400, c.y), Vector3(c.x, -400, c.y))
+	var hit := space.intersect_ray(q)
+	check(not hit.is_empty() and float(hit.position.y) > float(lv0.top) - 0.5, "a stack top is not solid")
+	check(not land.top_at(c.x, c.y).is_empty(), "the terrain does not know about a stack top")
 	done()
 
 ## Spec: roads that wind round hills and switch back up mountains, laid on the

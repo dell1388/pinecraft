@@ -71,7 +71,7 @@ var road_paths: Array[Dictionary] = []
 ## meshing.
 var cache_path: String = ""
 ## Bumped whenever generation changes, so an old cache is not trusted.
-const GENERATOR_VERSION := 9
+const GENERATOR_VERSION := 11
 
 var _cells: int = 0
 var _heights: PackedFloat32Array = PackedFloat32Array()
@@ -295,8 +295,62 @@ func points_in_biomes(wanted: Array, step: int = 2, max_water: float = 0.0) -> P
 			var z := -half_extent + float(iz) * CELL
 			if _in_build_site(x, z) or _in_crater(x, z) or is_blocked(x, z):
 				continue
+			# On a plateau, on its top - but not at the lip of a cliff.
+			var top := top_at(x, z)
+			if not top.is_empty():
+				if float(top[1]) < 5.0:
+					continue
+				height = maxf(height, float(top[0]))
 			out.append(Vector3(x, height, z))
 	return out
+
+## Plateau tops stood on the land (see `Landmarks`): {poly (PackedVector2Array),
+## y, color, bbox (Rect2)}. Things that grow and are placed stand on the
+## highest top over a point rather than the ground under it.
+var tops: Array[Dictionary] = []
+var _top_cells: Dictionary = {}
+const TOP_GRID := 64.0
+
+func add_top(poly: PackedVector2Array, y: float, color: Color) -> void:
+	var box := Rect2(poly[0], Vector2.ZERO)
+	for p in poly:
+		box = box.expand(p)
+	var i := tops.size()
+	tops.append({"poly": poly, "y": y, "color": color, "bbox": box})
+	for gx in range(int(floor(box.position.x / TOP_GRID)), int(floor(box.end.x / TOP_GRID)) + 1):
+		for gz in range(int(floor(box.position.y / TOP_GRID)), int(floor(box.end.y / TOP_GRID)) + 1):
+			var key := Vector2i(gx, gz)
+			if not _top_cells.has(key):
+				_top_cells[key] = []
+			(_top_cells[key] as Array).append(i)
+
+## The plateau top over a point: [y, distance in from its edge], or [] if
+## there is none.
+func top_at(x: float, z: float) -> Array:
+	var best: Array = []
+	var p := Vector2(x, z)
+	for i in _top_cells.get(Vector2i(int(floor(x / TOP_GRID)), int(floor(z / TOP_GRID))), []):
+		var t: Dictionary = tops[i]
+		if not (t.bbox as Rect2).has_point(p):
+			continue
+		if not Geometry2D.is_point_in_polygon(p, t.poly):
+			continue
+		if best.is_empty() or float(t.y) > float(best[0]):
+			best = [float(t.y), _edge_distance(t.poly, p)]
+	return best
+
+static func _edge_distance(poly: PackedVector2Array, p: Vector2) -> float:
+	var d := INF
+	for i in poly.size():
+		var a := poly[i]
+		var b := poly[(i + 1) % poly.size()]
+		d = minf(d, p.distance_to(Geometry2D.get_closest_point_to_segment(p, a, b)))
+	return d
+
+## Where something stands: the highest plateau top over a point, or the ground.
+func surface_at(x: float, z: float) -> float:
+	var t := top_at(x, z)
+	return height_at(x, z) if t.is_empty() else maxf(float(t[0]), height_at(x, z))
 
 ## Ground under a landmark block, on a coarse grid: nothing grows there.
 var _blocked: Dictionary = {}
@@ -324,7 +378,7 @@ func _in_build_site(x: float, z: float) -> bool:
 
 ## Drops a point onto the ground, which is how anything gets placed out here.
 func place(point: Vector3, lift: float = 0.0) -> Vector3:
-	return Vector3(point.x, height_at(point.x, point.z) + lift, point.z)
+	return Vector3(point.x, surface_at(point.x, point.z) + lift, point.z)
 
 func reserve_site(centre: Vector3, radius: float) -> void:
 	build_sites.append({"centre": centre, "radius": radius})
@@ -369,7 +423,14 @@ class RowBuf:
 
 ## Every grid point's height and biome, a row per task across the worker
 ## threads: on a big map this is the bulk of generation.
+## On the region map the land is sampled on a lattice this many cells apart
+## and laid flat between: every hill is a few big planes with hard edges.
+const LATTICE := 4
+
 func _fill_heights() -> void:
+	if not regions.is_empty() and _cells % LATTICE == 0:
+		_fill_lattice()
+		return
 	var rows := _cells + 1
 	var bufs: Array = []
 	for i in rows:
@@ -381,6 +442,56 @@ func _fill_heights() -> void:
 	for buf: RowBuf in bufs:
 		_heights.append_array(buf.heights)
 		_biomes.append_array(buf.biomes)
+
+func _fill_lattice() -> void:
+	var n := _cells / LATTICE
+	var rows := n + 1
+	var bufs: Array = []
+	for i in rows:
+		bufs.append(RowBuf.new())
+	var task := WorkerThreadPool.add_group_task(_lattice_row.bind(bufs, n), rows, -1, true, "terrain lattice")
+	WorkerThreadPool.wait_for_group_task_completion(task)
+	var coarse_h := PackedFloat32Array()
+	var coarse_b := PackedByteArray()
+	for buf: RowBuf in bufs:
+		coarse_h.append_array(buf.heights)
+		coarse_b.append_array(buf.biomes)
+	_heights.resize((_cells + 1) * (_cells + 1))
+	_biomes.resize((_cells + 1) * (_cells + 1))
+	var inv := 1.0 / float(LATTICE)
+	for iz in _cells + 1:
+		var cz := mini(iz / LATTICE, n - 1)
+		var fz := float(iz - cz * LATTICE) * inv
+		for ix in _cells + 1:
+			var cx := mini(ix / LATTICE, n - 1)
+			var fx := float(ix - cx * LATTICE) * inv
+			var i00 := cz * (n + 1) + cx
+			var h00 := coarse_h[i00]
+			var h10 := coarse_h[i00 + 1]
+			var h01 := coarse_h[i00 + n + 1]
+			var h11 := coarse_h[i00 + n + 2]
+			var h: float
+			# The same diagonal as the mesh, so each lattice cell is two planes.
+			if fx >= fz:
+				h = h00 + (h10 - h00) * fx + (h11 - h10) * fz
+			else:
+				h = h00 + (h01 - h00) * fz + (h11 - h01) * fx
+			var idx := iz * (_cells + 1) + ix
+			_heights[idx] = h
+			var bx := cx + int(round(fx))
+			var bz := cz + int(round(fz))
+			_biomes[idx] = coarse_b[bz * (n + 1) + bx]
+
+func _lattice_row(iz: int, bufs: Array, n: int) -> void:
+	var buf: RowBuf = bufs[iz]
+	buf.heights.resize(n + 1)
+	buf.biomes.resize(n + 1)
+	var step := CELL * float(LATTICE)
+	var z := -half_extent + float(iz) * step
+	for ix in n + 1:
+		var sample := _sample(-half_extent + float(ix) * step, z)
+		buf.biomes[ix] = int(sample[0])
+		buf.heights[ix] = float(sample[1])
 
 func _fill_row(iz: int, bufs: Array) -> void:
 	var buf: RowBuf = bufs[iz]
@@ -548,10 +659,10 @@ func _biome_height(biome: Biome, x: float, z: float) -> float:
 			return 5.0 + 12.0 * e + 3.0 * dune
 		Biome.MOUNTAIN:
 			var r2 := _ridge.get_noise_2d(x, z) * 0.5 + 0.5
-			return 20.0 + 45.0 * e + 70.0 * pow(r2, 2.0) + 1.5 * d
+			return 18.0 + 32.0 * e + 34.0 * pow(r2, 2.0) + 1.5 * d
 		Biome.SNOW:
 			var r3 := _ridge.get_noise_2d(x * 1.2, z * 1.2) * 0.5 + 0.5
-			return 18.0 + 32.0 * e + 55.0 * pow(r3, 2.0) + 1.5 * d
+			return 16.0 + 26.0 * e + 30.0 * pow(r3, 2.0) + 1.5 * d
 	return 6.0 + 20.0 * e
 
 ## How much a point is land (x, 0..1), and the climate nudges of the island it
@@ -924,7 +1035,7 @@ func _route_on(a: Vector3, b: Vector3, lo: Vector2, nx: int, nz: int, grade: flo
 				+ absf(height_at(x, z + ROUTE_STEP * 0.5) - height_at(x, z - ROUTE_STEP * 0.5))
 			# Rough ground costs more, and a slow wander in the cost makes a road
 			# drift about across open country rather than run dead straight.
-			var weight := 1.0 + rough * 0.14 + 0.9 * (_warp.get_noise_2d(x * 3.0, z * 3.0) * 0.5 + 0.5)
+			var weight := 1.0 + rough * 0.14 + 6.0 * pow(_warp.get_noise_2d(x * 7.0, z * 7.0) * 0.5 + 0.5, 2.0)
 			if wet[id] != 0:
 				weight += 1.5 if wade else 5.0
 			if _in_build_site(x, z) and not (Vector2(x - a.x, z - a.z).length() < 60.0 or Vector2(x - b.x, z - b.z).length() < 60.0):
@@ -1255,6 +1366,39 @@ func _vertex_color(ix: int, iz: int, n: Vector3) -> Color:
 			color = Color(0.22, 0.19, 0.2).lerp(Color(0.46, 0.33, 0.28), clampf(d / (r * 1.35), 0.0, 1.0))
 	return color
 
+const PLANE_CLIFF := {
+	Biome.WOODLAND: Color(0.47, 0.37, 0.29),
+	Biome.SWAMP: Color(0.38, 0.32, 0.24),
+	Biome.DESERT: Color(0.80, 0.50, 0.40),
+	Biome.MOUNTAIN: Color(0.46, 0.40, 0.34),
+	Biome.TAIGA: Color(0.43, 0.35, 0.28),
+	Biome.SNOW: Color(0.45, 0.37, 0.31),
+}
+const PLANE_ROAD := Color(0.64, 0.66, 0.70)
+
+## A face's colour on the block-built map: grass, sand, snow; cliff brown on
+## the steep; sand along the water; road grey on the road.
+func _plane_color(ix: int, iz: int, height: float, n: Vector3) -> Color:
+	var index := _index(ix, iz)
+	var biome := _biomes[index] as Biome
+	var color: Color = SMOOTH_COLORS[biome]
+	if height < WATER_LEVEL - 0.3:
+		color = BEACH.darkened(0.3)
+	elif height < WATER_LEVEL + 1.8 and biome != Biome.SWAMP and biome != Biome.SNOW:
+		color = BEACH
+	elif n.y < 0.72:
+		color = PLANE_CLIFF[biome]
+	for f in features:
+		if String(f.kind) != "crater":
+			continue
+		var d := Vector2(-half_extent + (float(ix) + 0.5) * CELL, -half_extent + (float(iz) + 0.5) * CELL).distance_to(f.centre)
+		var r: float = float(f.radius)
+		if d < r * 1.35 and height >= WATER_LEVEL - 0.2:
+			color = Color(0.22, 0.19, 0.2).lerp(Color(0.46, 0.33, 0.28), clampf(d / (r * 1.35), 0.0, 1.0))
+	# A shade apart face to face, so the planes read.
+	var jitter := float((ix * 73 + iz * 151) % 13) / 13.0 - 0.5
+	return color.lightened(jitter * 0.05) if jitter > 0.0 else color.darkened(-jitter * 0.05)
+
 func _wet(ix: int, iz: int) -> bool:
 	return minf(minf(_heights[_index(ix, iz)], _heights[_index(ix + 1, iz)]),
 		minf(_heights[_index(ix, iz + 1)], _heights[_index(ix + 1, iz + 1)])) < WATER_LEVEL
@@ -1325,14 +1469,12 @@ func _chunk_arrays(buf: ChunkBuf, x0: int, z0: int, x1: int, z1: int) -> void:
 				verts[v + 1] = t1
 				verts[v + 2] = t2
 				if smooth:
-					# Shaded smooth, and coloured by corner: big clean surfaces.
-					var corners := [Vector2i(ix, iz), Vector2i(ix + 1, iz + 1) if k == 0 else Vector2i(ix + 1, iz),
-						Vector2i(ix, iz + 1) if k == 0 else Vector2i(ix + 1, iz + 1)]
+					# Flat planes with hard edges, one colour a face.
+					var fn: Vector3 = (t2 - t0).cross(t1 - t0).normalized()
+					var fc := _plane_color(ix, iz, (t0.y + t1.y + t2.y) / 3.0, fn)
 					for c in 3:
-						var g: Vector2i = corners[c]
-						var n := _grid_normal(g.x, g.y)
-						normals[v + c] = n
-						colors[v + c] = _vertex_color(g.x, g.y, n)
+						normals[v + c] = fn
+						colors[v + c] = fc
 				else:
 					var normal: Vector3 = (t2 - t0).cross(t1 - t0).normalized()
 					# Coloured per face: a flat top is ground, a steep face is rock.
@@ -1620,9 +1762,24 @@ func map_image(px_per_cell: int = 2) -> Image:
 			if height < WATER_LEVEL - 0.05:
 				color = Color(0.20, 0.42, 0.60).darkened(clampf(-height * 0.08, 0.0, 0.3))
 			else:
-				color = _face_color(ix, iz, height, normal)
+				color = _face_color(ix, iz, height, normal) if regions.is_empty() \
+					else _plane_color(ix, iz, height, normal)
 				color = color.darkened(clampf(0.35 - normal.dot(sun) * 0.45, 0.0, 0.4))
 			img.set_pixel(ix, iz, color)
+	# The plateaus, drawn over the ground in their own colours, lowest first,
+	# each edged a shade darker.
+	var order := range(tops.size())
+	order.sort_custom(func(a, b): return float(tops[a].y) < float(tops[b].y))
+	for i in order:
+		var t: Dictionary = tops[i]
+		var box: Rect2 = t.bbox
+		var c: Color = t.color
+		for iz in range(maxi(0, int(_grid_coord(box.position.y))), mini(_cells, int(_grid_coord(box.end.y)) + 1)):
+			for ix in range(maxi(0, int(_grid_coord(box.position.x))), mini(_cells, int(_grid_coord(box.end.x)) + 1)):
+				var p := Vector2(-half_extent + (float(ix) + 0.5) * CELL, -half_extent + (float(iz) + 0.5) * CELL)
+				if Geometry2D.is_point_in_polygon(p, t.poly):
+					var edge := _edge_distance(t.poly, p) < CELL * 1.2
+					img.set_pixel(ix, iz, c.darkened(0.35) if edge else c.darkened(0.08))
 	if px_per_cell > 1:
 		img.resize(_cells * px_per_cell, _cells * px_per_cell, Image.INTERPOLATE_NEAREST)
 	return img

@@ -22,8 +22,8 @@ static var _materials: Dictionary = {}
 ## Plain roads: just a band of a different colour on the land, no paint, no
 ## verges, no posts - the look of a block-built world.
 var plain: bool = true
-const PLAIN_ROAD := Color(0.86, 0.64, 0.52)
-const PLAIN_DIRT := Color(0.82, 0.62, 0.42)
+const PLAIN_ROAD := Color(0.64, 0.66, 0.70)
+const PLAIN_DIRT := Color(0.76, 0.62, 0.46)
 
 func setup(p_terrain: Terrain) -> void:
 	terrain = p_terrain
@@ -86,7 +86,9 @@ func _build_road(path: Array, style: String) -> void:
 			uvs = PackedVector2Array()
 			colors = PackedColorArray()
 			piece_start = along
-		along += STEP
+		# Plain roads are laid in long straight pieces, so their edges are
+		# lines and corners, like the ground they sit on.
+		along += STEP * (4.0 if plain else 1.0)
 	_flush(verts, uvs, colors, dirt)
 	if not posts.is_empty():
 		add_child(posts.instance("RoadPosts", false))

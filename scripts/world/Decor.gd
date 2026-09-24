@@ -249,6 +249,12 @@ func _build_tile(key: Vector2i) -> void:
 						if terrain.is_road(p.x, p.z) or _steep(p.x, p.z):
 							continue
 						p.y = terrain.height_at(p.x, p.z) - 0.02
+						# Up on a plateau, on its top, clear of the lip.
+						var top := terrain.top_at(p.x, p.z)
+						if not top.is_empty():
+							if float(top[1]) < 2.0:
+								continue
+							p.y = maxf(p.y, float(top[0]) - 0.02)
 					var s := _rng.randf_range(0.75, 1.3)
 					var xform := Transform3D(Basis(Vector3.UP, _rng.randf() * TAU).scaled(Vector3(s, s, s)), p)
 					if not buckets.has(kind):
