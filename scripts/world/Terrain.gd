@@ -23,13 +23,13 @@ const WATER_LEVEL := 0.0
 ## Half the carriageway. This has to be comfortably wider than a terrain cell,
 ## or the road is narrower than the grid that represents it and "flat across"
 ## stops meaning anything - which is what a 4.5 m half-width on a 6 m grid was.
-const ROAD_HALF_WIDTH := 9.0
+const ROAD_HALF_WIDTH := 6.5
 ## Beyond the carriageway the grade blends back into whatever the land was
 ## doing, so a road does not sit on a plinth. It has to be generous: a short
 ## shoulder on steep ground is a cliff at the roadside, and because the heightfield
 ## is sampled between grid points, a sharp step just outside the carriageway
 ## bleeds back into it.
-const ROAD_SHOULDER := 20.0
+const ROAD_SHOULDER := 16.0
 const ROAD_SPEED_BONUS := 0.18
 ## The steepest a road is graded, as rise over run.
 const MAX_GRADE := 0.1
@@ -58,6 +58,20 @@ var islands: Array[Dictionary] = []
 var features: Array[Dictionary] = []
 ## Found sites that want a road to them: names from `site_requests`.
 var spur_sites: Array = []
+## Big consolidated biome regions: {name, centre (Vector2), biome, scale}. A
+## point belongs to the nearest centre (measured through a slow warp, so the
+## borders wander), and each biome has its own shape of land - rolling woods,
+## dunes and mesas, a range of peaks. Empty means the old noise-picked biomes.
+var regions: Array[Dictionary] = []
+## Where a found or routed road got to, for drawing its surface: {path,
+## style}. Filled by `generate`.
+var road_paths: Array[Dictionary] = []
+## When set, the whole generated country is written here and read back next
+## time the same country is asked for, which skips all of generation bar the
+## meshing.
+var cache_path: String = ""
+## Bumped whenever generation changes, so an old cache is not trusted.
+const GENERATOR_VERSION := 7
 
 var _cells: int = 0
 var _heights: PackedFloat32Array = PackedFloat32Array()
@@ -69,6 +83,10 @@ var _holes: PackedByteArray = PackedByteArray()
 ## How many caves to look for. Zero, the default, looks for none, so a test
 ## terrain is exactly the ground it asks for.
 @export var cave_count: int = 0
+## Where the caves are wanted, when it matters which island they are on:
+## {centre (Vector2), radius, count}. Each zone gets its own count of the best
+## mouths inside it. Empty means the best `cave_count` anywhere.
+var cave_zones: Array[Dictionary] = []
 ## Where the caves went: {entrance, dir, ground, name}. Filled by `generate`.
 var caves: Array[Dictionary] = []
 ## Places the world wants put somewhere suitable rather than at fixed spots:
@@ -81,6 +99,10 @@ var _coast := FastNoiseLite.new()
 var _elevation := FastNoiseLite.new()
 var _moisture := FastNoiseLite.new()
 var _detail := FastNoiseLite.new()
+var _hills := FastNoiseLite.new()
+var _ridge := FastNoiseLite.new()
+var _warp := FastNoiseLite.new()
+var _mesa := FastNoiseLite.new()
 
 ## Flat ground, per biome: the tops of the terraces.
 const BIOME_COLORS := {
@@ -158,6 +180,27 @@ func _configure_noise() -> void:
 	_coast.noise_type = FastNoiseLite.TYPE_SIMPLEX
 	_coast.frequency = 0.0045
 	_coast.fractal_octaves = 3
+
+	_hills.seed = noise_seed + 71
+	_hills.noise_type = FastNoiseLite.TYPE_SIMPLEX
+	_hills.frequency = 0.0017
+	_hills.fractal_octaves = 5
+
+	_ridge.seed = noise_seed + 191
+	_ridge.noise_type = FastNoiseLite.TYPE_SIMPLEX
+	_ridge.fractal_type = FastNoiseLite.FRACTAL_RIDGED
+	_ridge.frequency = 0.0014
+	_ridge.fractal_octaves = 5
+
+	_warp.seed = noise_seed + 404
+	_warp.noise_type = FastNoiseLite.TYPE_SIMPLEX
+	_warp.frequency = 0.0009
+	_warp.fractal_octaves = 2
+
+	_mesa.seed = noise_seed + 808
+	_mesa.noise_type = FastNoiseLite.TYPE_SIMPLEX
+	_mesa.frequency = 0.004
+	_mesa.fractal_octaves = 2
 
 	_detail.seed = noise_seed + 5501
 	_detail.noise_type = FastNoiseLite.TYPE_SIMPLEX
@@ -275,35 +318,107 @@ func reserve_site(centre: Vector3, radius: float) -> void:
 
 func generate() -> void:
 	_lap_ms = Time.get_ticks_msec()
+	_key_at_start = _cache_key()
 	_cells = int(round(half_extent * 2.0 / CELL))
 	var verts := (_cells + 1) * (_cells + 1)
 	_heights.resize(verts)
 	_biomes.resize(verts)
 	_road_mask.resize(verts)
 
-	for iz in _cells + 1:
-		for ix in _cells + 1:
-			var x := -half_extent + float(ix) * CELL
-			var z := -half_extent + float(iz) * CELL
-			var sample := _sample(x, z)
-			_biomes[_index(ix, iz)] = int(sample[0])
-			_heights[_index(ix, iz)] = float(sample[1])
-
-	_lap("heights")
-	_holes.resize(_cells * _cells)
-	_holes.fill(0)
-	bridges.clear()
-	_carve_rivers()
-	_grade_roads(roads)
-	_lap("rivers+roads")
-	_place_requested_sites()
-	_grade_roads(_spur_roads())
-	_lap("sites")
-	_plan_caves()
-	_lap("caves")
-	_flatten_sites()
+	if not _load_cache():
+		_fill_heights()
+		_lap("heights")
+		_holes.resize(_cells * _cells)
+		_holes.fill(0)
+		bridges.clear()
+		road_paths.clear()
+		_carve_rivers()
+		_route_roads()
+		_lap("routing")
+		_grade_roads(roads)
+		_lap("rivers+roads")
+		_place_requested_sites()
+		_grade_roads(_spur_roads())
+		_lap("sites")
+		_plan_caves()
+		_lap("caves")
+		_flatten_sites()
+		_save_cache()
 	_build_mesh()
 	_lap("mesh")
+
+## A row of samples, filled on a worker thread.
+class RowBuf:
+	var heights := PackedFloat32Array()
+	var biomes := PackedByteArray()
+
+## Every grid point's height and biome, a row per task across the worker
+## threads: on a big map this is the bulk of generation.
+func _fill_heights() -> void:
+	var rows := _cells + 1
+	var bufs: Array = []
+	for i in rows:
+		bufs.append(RowBuf.new())
+	var task := WorkerThreadPool.add_group_task(_fill_row.bind(bufs), rows, -1, true, "terrain rows")
+	WorkerThreadPool.wait_for_group_task_completion(task)
+	_heights = PackedFloat32Array()
+	_biomes = PackedByteArray()
+	for buf: RowBuf in bufs:
+		_heights.append_array(buf.heights)
+		_biomes.append_array(buf.biomes)
+
+func _fill_row(iz: int, bufs: Array) -> void:
+	var buf: RowBuf = bufs[iz]
+	buf.heights.resize(_cells + 1)
+	buf.biomes.resize(_cells + 1)
+	var z := -half_extent + float(iz) * CELL
+	for ix in _cells + 1:
+		var sample := _sample(-half_extent + float(ix) * CELL, z)
+		buf.biomes[ix] = int(sample[0])
+		buf.heights[ix] = float(sample[1])
+
+# --- Cache -------------------------------------------------------------------
+
+func _cache_key() -> String:
+	var config := [GENERATOR_VERSION, half_extent, noise_seed, islands, regions, features, rivers,
+		roads, build_sites, site_requests, spur_sites, cave_count]
+	return str(hash(var_to_str(config)))
+
+func _load_cache() -> bool:
+	if cache_path == "" or not FileAccess.file_exists(cache_path):
+		return false
+	var f := FileAccess.open(cache_path, FileAccess.READ)
+	if f == null:
+		return false
+	var data: Variant = f.get_var()
+	if not (data is Dictionary) or String(data.get("key", "")) != _key_at_start:
+		return false
+	_heights = data.heights
+	_biomes = data.biomes
+	_road_mask = data.road_mask
+	_holes = data.holes
+	bridges.assign(data.bridges)
+	caves.assign(data.caves)
+	found_sites = data.found_sites
+	road_paths.assign(data.road_paths)
+	build_sites.assign(data.build_sites)
+	roads = data.roads
+	return _heights.size() == (_cells + 1) * (_cells + 1)
+
+func _save_cache() -> void:
+	if cache_path == "":
+		return
+	# The key is taken from the config as it was asked for, before generation
+	# added the found sites and routed roads to it.
+	var f := FileAccess.open(cache_path, FileAccess.WRITE)
+	if f == null:
+		return
+	f.store_var({"key": _key_at_start, "heights": _heights, "biomes": _biomes,
+		"road_mask": _road_mask, "holes": _holes, "bridges": bridges, "caves": caves,
+		"found_sites": found_sites, "road_paths": road_paths, "build_sites": build_sites,
+		"roads": roads})
+
+var _key_at_start: String = ""
 
 var _lap_ms: int = 0
 
@@ -315,6 +430,8 @@ func _lap(what: String) -> void:
 
 ## Biome and height at a point, from one read of the noise.
 func _sample(x: float, z: float) -> Array:
+	if not regions.is_empty():
+		return _sample_regions(x, z)
 	var isle := _island_at(x, z)
 	if isle.x <= 0.0:
 		return [Biome.WOODLAND, -7.0]          # open sea: nothing to work out
@@ -328,6 +445,96 @@ func _sample(x: float, z: float) -> Array:
 	if feature.size() > 0:
 		h = lerpf(h, float(feature[2]), float(feature[0]))
 	return [biome, terrace(h, float(TERRACE_STEP[biome]))]
+
+## How far apart two regions' land blends, metres.
+const REGION_BLEND := 160.0
+## Mountains above this are snow-capped.
+const SNOWLINE := 150.0
+
+## The region map: whichever region centre is nearest (through the warp) owns
+## the point, and the land blends into its neighbour's near the border.
+func _sample_regions(x: float, z: float) -> Array:
+	var isle := _island_at(x, z)
+	if isle.x <= 0.0:
+		return [Biome.WOODLAND, SEA_FLOOR]
+	var wx := x + _warp.get_noise_2d(x, z) * 240.0
+	var wz := z + _warp.get_noise_2d(x + 7000.0, z - 3000.0) * 240.0
+	var d1 := INF
+	var d2 := INF
+	var r1 := 0
+	var r2 := -1
+	for i in regions.size():
+		var reg: Dictionary = regions[i]
+		var d := Vector2(wx, wz).distance_to(reg.centre) * float(reg.get("scale", 1.0))
+		if d < d1:
+			d2 = d1
+			r2 = r1
+			d1 = d
+			r1 = i
+		elif d < d2:
+			d2 = d
+			r2 = i
+	var biome: Biome = regions[r1].biome
+	var h := _biome_height(biome, x, z)
+	if r2 >= 0 and r2 != r1 and d2 - d1 < REGION_BLEND:
+		var other: Biome = regions[r2].biome
+		if other != biome:
+			var t := 0.5 + 0.5 * smoothstep(0.0, 1.0, (d2 - d1) / REGION_BLEND)
+			h = lerpf(_biome_height(other, x, z), h, t)
+	# Down to the beach and the sea bed round every island.
+	var coast := smoothstep(0.0, 1.0, isle.x)
+	h = lerpf(SEA_FLOOR, h, coast)
+	var to_edge := half_extent - maxf(absf(x), absf(z))
+	h = lerpf(SEA_FLOOR, h, smoothstep(4.0, SHORE_WIDTH, to_edge))
+	if biome == Biome.MOUNTAIN and h > SNOWLINE:
+		biome = Biome.SNOW
+	h = _basins(x, z, h)
+	var feature := _feature_at(x, z)
+	if feature.size() > 0:
+		biome = feature[1]
+		h = lerpf(h, float(feature[2]), float(feature[0]))
+	if h < WATER_LEVEL - 0.5 and biome == Biome.SWAMP:
+		return [biome, h]
+	return [biome, terrace(h, float(TERRACE_STEP[biome]))]
+
+## A basin draws the land down toward the water line: the sheltered valley
+## home sits in, low enough for the rivers, the yard and the store.
+func _basins(x: float, z: float, h: float) -> float:
+	for f in features:
+		if String(f.kind) != "basin":
+			continue
+		var d := Vector2(x, z).distance_to(f.centre) / float(f.radius)
+		var w := 1.0 - smoothstep(0.55, 1.35, d)
+		if w > 0.0:
+			h = lerpf(h, 1.4 + maxf(0.0, h - 6.0) * 0.12, w)
+	return h
+
+## The shape of each kind of country. Every one has real relief - the woods
+## roll, the desert has dunes and flat-topped mesas, the taiga climbs - and the
+## mountains are a range of ridged peaks well over two hundred metres high.
+func _biome_height(biome: Biome, x: float, z: float) -> float:
+	var e := _hills.get_noise_2d(x, z) * 0.5 + 0.5
+	var d := _detail.get_noise_2d(x, z)
+	match biome:
+		Biome.WOODLAND:
+			return 6.0 + 30.0 * e + 4.0 * d
+		Biome.TAIGA:
+			var r := _ridge.get_noise_2d(x, z) * 0.5 + 0.5
+			return 10.0 + 40.0 * e + 22.0 * r * r + 4.0 * d
+		Biome.SWAMP:
+			var wet := smoothstep(0.55, 0.78, _moisture.get_noise_2d(x, z) * 0.5 + 0.5)
+			return 1.6 + 4.0 * e - 2.8 * wet + 0.6 * d
+		Biome.DESERT:
+			var dune := absf(sin((x * 0.8 + z * 0.35) * 0.03 + d * 2.2))
+			var mesa := smoothstep(0.60, 0.66, _mesa.get_noise_2d(x, z) * 0.5 + 0.5)
+			return 6.0 + 16.0 * e + 6.0 * dune + 32.0 * mesa
+		Biome.MOUNTAIN:
+			var r2 := _ridge.get_noise_2d(x, z) * 0.5 + 0.5
+			return 24.0 + 50.0 * e + 230.0 * pow(r2, 2.2) + 4.0 * d
+		Biome.SNOW:
+			var r3 := _ridge.get_noise_2d(x * 1.2, z * 1.2) * 0.5 + 0.5
+			return 22.0 + 40.0 * e + 170.0 * pow(r3, 2.0) + 4.0 * d
+	return 6.0 + 20.0 * e
 
 ## How much a point is land (x, 0..1), and the climate nudges of the island it
 ## is on: y cold, z wet, w lift. With no islands everywhere is land.
@@ -411,6 +618,8 @@ func _feature_at(x: float, z: float) -> Array:
 		if d > r * 2.6:
 			continue
 		match String(f.kind):
+			"basin":
+				continue
 			"valley":
 				var floor_h: float = float(f.get("floor", 6.0))
 				if d <= r:
@@ -627,9 +836,129 @@ func _spur_roads() -> Array:
 					best_d = d
 					best = p
 				along += 12.0
-		if best_d == INF or best_d > 700.0:
+		if best_d == INF or best_d > 900.0:
 			continue
-		out.append({"path": [Vector3(site.x, 0, site.z), best], "bridge": true})
+		var path := _smooth_path(_route(Vector3(site.x, 0, site.z), best, false))
+		out.append({"path": path, "bridge": true, "style": "dirt"})
+		road_paths.append({"path": path, "style": "dirt", "bridge": true})
+	return out
+
+# --- Routing -----------------------------------------------------------------
+
+## Grid spacing roads are routed on, metres.
+const ROUTE_STEP := 20.0
+## Steepest a routed leg may climb. Steeper ground is not ruled out, only
+## climbed at an angle - which up a mountainside means switchbacks.
+const ROUTE_GRADE := 0.11
+
+## Turns every road given as waypoints ({route: [...]}) into a real path: one
+## that goes round the hills rather than over them, eases across valleys and
+## zig-zags up a mountain, and crosses water where the crossing is short.
+func _route_roads() -> void:
+	for road in roads:
+		if road is Dictionary and road.has("route"):
+			var points: Array = road.route
+			var path: Array = [points[0]]
+			for i in points.size() - 1:
+				var leg := _route(points[i], points[i + 1], bool(road.get("ford", false)))
+				for k in range(1, leg.size()):
+					path.append(leg[k])
+			road["path"] = _smooth_path(path)
+		var p: Array = road.get("path", []) if road is Dictionary else road
+		road_paths.append({"path": p, "style": String(road.get("style", "asphalt")) if road is Dictionary else "asphalt",
+			"bridge": road is Dictionary and bool(road.get("bridge", false))})
+
+## A* over a coarse grid in the box round the two ends. Edges steeper than the
+## grade limit are left out altogether, so the search has to find a way that
+## climbs gently; each point costs more on rough or wet ground, so the way it
+## finds keeps to easy country and crosses water where it is narrow.
+func _route(a: Vector3, b: Vector3, wade: bool) -> Array:
+	var reach := maxf(260.0, Vector2(a.x - b.x, a.z - b.z).length() * 0.35)
+	var lo := Vector2(minf(a.x, b.x) - reach, minf(a.z, b.z) - reach)
+	var hi := Vector2(maxf(a.x, b.x) + reach, maxf(a.z, b.z) + reach)
+	lo = lo.clamp(Vector2(-half_extent + 30.0, -half_extent + 30.0), Vector2(half_extent - 30.0, half_extent - 30.0))
+	hi = hi.clamp(Vector2(-half_extent + 30.0, -half_extent + 30.0), Vector2(half_extent - 30.0, half_extent - 30.0))
+	var nx := int((hi.x - lo.x) / ROUTE_STEP) + 1
+	var nz := int((hi.y - lo.y) / ROUTE_STEP) + 1
+	for grade in [ROUTE_GRADE, ROUTE_GRADE * 1.8, 10.0]:
+		var path := _route_on(a, b, lo, nx, nz, grade, wade)
+		if path.size() >= 2:
+			return path
+	return [a, b]
+
+func _route_on(a: Vector3, b: Vector3, lo: Vector2, nx: int, nz: int, grade: float, wade: bool) -> Array:
+	var astar := AStar2D.new()
+	astar.reserve_space(nx * nz)
+	var heights := PackedFloat32Array()
+	heights.resize(nx * nz)
+	var wet := PackedByteArray()
+	wet.resize(nx * nz)
+	for iz in nz:
+		for ix in nx:
+			var id := iz * nx + ix
+			var x := lo.x + float(ix) * ROUTE_STEP
+			var z := lo.y + float(iz) * ROUTE_STEP
+			var h := height_at(x, z)
+			wet[id] = int(h < WATER_LEVEL + 0.3)
+			# Across water the deck or the causeway is level, whatever the bed.
+			heights[id] = maxf(h, WATER_LEVEL + 0.8)
+			var rough := absf(height_at(x + ROUTE_STEP * 0.5, z) - height_at(x - ROUTE_STEP * 0.5, z)) \
+				+ absf(height_at(x, z + ROUTE_STEP * 0.5) - height_at(x, z - ROUTE_STEP * 0.5))
+			# Rough ground costs more, and a slow wander in the cost makes a road
+			# drift about across open country rather than run dead straight.
+			var weight := 1.0 + rough * 0.14 + 0.9 * (_warp.get_noise_2d(x * 3.0, z * 3.0) * 0.5 + 0.5)
+			if wet[id] != 0:
+				weight += 1.5 if wade else 5.0
+			if _in_build_site(x, z) and not (Vector2(x - a.x, z - a.z).length() < 60.0 or Vector2(x - b.x, z - b.z).length() < 60.0):
+				weight += 3.0
+			astar.add_point(id, Vector2(x, z), weight)
+	var steps := [Vector2i(1, 0), Vector2i(0, 1), Vector2i(1, 1), Vector2i(1, -1),
+		Vector2i(2, 1), Vector2i(1, 2), Vector2i(2, -1), Vector2i(1, -2)]
+	for iz in nz:
+		for ix in nx:
+			var id := iz * nx + ix
+			for st: Vector2i in steps:
+				var jx := ix + st.x
+				var jz := iz + st.y
+				if jx < 0 or jz < 0 or jx >= nx or jz >= nz:
+					continue
+				var jd := jz * nx + jx
+				var run := Vector2(st).length() * ROUTE_STEP
+				if absf(heights[id] - heights[jd]) > grade * run:
+					continue
+				astar.connect_points(id, jd)
+	var start := astar.get_closest_point(Vector2(a.x, a.z))
+	var goal := astar.get_closest_point(Vector2(b.x, b.z))
+	var ids := astar.get_id_path(start, goal)
+	if ids.is_empty():
+		return []
+	var out: Array = [a]
+	for k in range(1, ids.size() - 1):
+		var p := astar.get_point_position(ids[k])
+		out.append(Vector3(p.x, 0.0, p.y))
+	out.append(b)
+	return out
+
+## Grid corners rounded off (Chaikin), then evened out to one point every few
+## metres, so a routed road reads as curves and hairpins rather than steps.
+func _smooth_path(path: Array) -> Array:
+	var pts := path
+	for pass_index in 3:
+		if pts.size() < 3:
+			break
+		var next: Array = [pts[0]]
+		for i in pts.size() - 1:
+			var p0: Vector3 = pts[i]
+			var p1: Vector3 = pts[i + 1]
+			next.append(p0.lerp(p1, 0.25))
+			next.append(p0.lerp(p1, 0.75))
+		next.append(pts[pts.size() - 1])
+		pts = next
+	var span := _path_length(pts)
+	var out: Array = []
+	var n := maxi(2, int(span / 8.0))
+	for i in n + 1:
+		out.append(_point_along(pts, span * float(i) / float(n)))
 	return out
 
 ## Heights along a road's centre-line, taken off the land it crosses and then
@@ -736,14 +1065,63 @@ func _build_mesh() -> void:
 	mat.vertex_color_use_as_albedo = true
 	mat.roughness = 1.0
 	var chunks := int(ceil(float(_cells) / float(CHUNK)))
-	for cz in chunks:
-		for cx in chunks:
-			_build_chunk(cx * CHUNK, cz * CHUNK, mini(_cells, (cx + 1) * CHUNK),
-				mini(_cells, (cz + 1) * CHUNK), mat)
-	_build_sea_floor()
-	_build_water()
+	var bufs: Array = []
+	for i in chunks * chunks:
+		bufs.append(ChunkBuf.new())
+	# The triangles for each chunk are worked out across the worker threads;
+	# the meshes and shapes are made here, on the main one.
+	var task := WorkerThreadPool.add_group_task(_chunk_task.bind(bufs, chunks), chunks * chunks,
+		-1, true, "terrain chunks")
+	WorkerThreadPool.wait_for_group_task_completion(task)
+	var sea := PackedVector3Array()
+	var water := PackedVector3Array()
+	for buf: ChunkBuf in bufs:
+		sea.append_array(buf.sea)
+		water.append_array(buf.water)
+		if not buf.sea.is_empty():
+			var sea_cs := CollisionShape3D.new()
+			var sea_shape := ConcavePolygonShape3D.new()
+			sea_shape.set_faces(buf.sea)
+			sea_cs.shape = sea_shape
+			add_child(sea_cs)
+		if buf.verts.is_empty():
+			continue
+		var arrays := []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = buf.verts
+		arrays[Mesh.ARRAY_NORMAL] = buf.normals
+		arrays[Mesh.ARRAY_COLOR] = buf.colors
+		var mesh := ArrayMesh.new()
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		var mi := MeshInstance3D.new()
+		mi.mesh = mesh
+		mi.material_override = mat
+		add_child(mi)
+		var cs := CollisionShape3D.new()
+		var shape := ConcavePolygonShape3D.new()
+		shape.set_faces(buf.verts)
+		cs.shape = shape
+		add_child(cs)
+	_build_sheets(sea, water)
 
-## The open sea floor is one flat sheet (see `_build_sea_floor`), so a cell
+class ChunkBuf:
+	var verts := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var colors := PackedColorArray()
+	## The flat sea bed where no land cell is drawn, and the water surface
+	## over every cell with any of it below the water line - each one quad for
+	## a chunk that is all sea. Kept to where the sea is, so neither sheet runs
+	## through the caves under the land.
+	var sea := PackedVector3Array()
+	var water := PackedVector3Array()
+
+func _chunk_task(i: int, bufs: Array, chunks: int) -> void:
+	var cx := i % chunks
+	var cz := i / chunks
+	_chunk_arrays(bufs[i], cx * CHUNK, cz * CHUNK, mini(_cells, (cx + 1) * CHUNK),
+		mini(_cells, (cz + 1) * CHUNK))
+
+## The open sea floor is drawn flat (see `_build_sheets`), so a cell
 ## lying flat on it is not drawn again.
 const SEA_FLOOR := -7.0
 
@@ -753,36 +1131,90 @@ func _drawn(ix: int, iz: int) -> bool:
 	return _heights[_index(ix, iz)] > SEA_FLOOR + 0.01 or _heights[_index(ix + 1, iz)] > SEA_FLOOR + 0.01 \
 		or _heights[_index(ix, iz + 1)] > SEA_FLOOR + 0.01 or _heights[_index(ix + 1, iz + 1)] > SEA_FLOOR + 0.01
 
-## Under the open sea: one plane to see and one to land on.
-func _build_sea_floor() -> void:
-	if islands.is_empty():
-		return
-	var mi := MeshInstance3D.new()
-	var plane := PlaneMesh.new()
-	plane.size = Vector2(half_extent * 8.0, half_extent * 8.0)
-	mi.mesh = plane
-	mi.position = Vector3(0, SEA_FLOOR - 0.01, 0)
+## The sea bed and the water surface, drawn only where the sea is; and past
+## the edge of the map, open water out to the horizon.
+func _build_sheets(sea: PackedVector3Array, water: PackedVector3Array) -> void:
+	if not sea.is_empty():
+		var bed := StandardMaterial3D.new()
+		bed.albedo_color = BED_COLOR
+		bed.roughness = 1.0
+		add_child(_flat_mesh(sea, bed, "SeaBed"))
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = BED_COLOR
-	mat.roughness = 1.0
-	mi.material_override = mat
-	add_child(mi)
-	# A thick slab rather than a boundary plane: its top is the sea floor.
-	var cs := CollisionShape3D.new()
-	var slab := BoxShape3D.new()
-	slab.size = Vector3(half_extent * 4.0, 4.0, half_extent * 4.0)
-	cs.shape = slab
-	cs.position = Vector3(0, SEA_FLOOR - 2.0, 0)
-	add_child(cs)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_color = Color(0.18, 0.34, 0.46, 0.72)
+	mat.roughness = 0.15
+	mat.metallic = 0.2
+	var outer := PackedVector3Array()
+	var h := half_extent
+	var far := half_extent * 4.0
+	var y := WATER_LEVEL - 0.02
+	for r in [[-far, -far, far, -h], [-far, h, far, far], [-far, -h, -h, h], [h, -h, far, h]]:
+		var p00 := Vector3(r[0], y, r[1])
+		var p10 := Vector3(r[2], y, r[1])
+		var p01 := Vector3(r[0], y, r[3])
+		var p11 := Vector3(r[2], y, r[3])
+		outer.append_array(PackedVector3Array([p00, p11, p01, p00, p10, p11]))
+	water.append_array(outer)
+	add_child(_flat_mesh(water, mat, "Water"))
 
-func _build_chunk(x0: int, z0: int, x1: int, z1: int, mat: Material) -> void:
+func _flat_mesh(verts: PackedVector3Array, mat: Material, label: String) -> MeshInstance3D:
+	var normals := PackedVector3Array()
+	normals.resize(verts.size())
+	normals.fill(Vector3.UP)
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var mi := MeshInstance3D.new()
+	mi.name = label
+	mi.mesh = mesh
+	mi.material_override = mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return mi
+
+func _wet(ix: int, iz: int) -> bool:
+	return minf(minf(_heights[_index(ix, iz)], _heights[_index(ix + 1, iz)]),
+		minf(_heights[_index(ix, iz + 1)], _heights[_index(ix + 1, iz + 1)])) < WATER_LEVEL
+
+## A flat, face-up rectangle of grid cells at height `y`.
+func _quad_into(out: PackedVector3Array, ix0: int, iz0: int, ix1: int, iz1: int, y: float) -> void:
+	var xa := -half_extent + float(ix0) * CELL
+	var za := -half_extent + float(iz0) * CELL
+	var xb := -half_extent + float(ix1) * CELL
+	var zb := -half_extent + float(iz1) * CELL
+	var p00 := Vector3(xa, y, za)
+	var p10 := Vector3(xb, y, za)
+	var p01 := Vector3(xa, y, zb)
+	var p11 := Vector3(xb, y, zb)
+	out.append_array(PackedVector3Array([p00, p11, p01, p00, p10, p11]))
+
+func _chunk_arrays(buf: ChunkBuf, x0: int, z0: int, x1: int, z1: int) -> void:
 	var verts := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var colors := PackedColorArray()
 	var count := 0
+	var wet := 0
 	for iz in range(z0, z1):
 		for ix in range(x0, x1):
 			count += int(_drawn(ix, iz))
+			wet += int(_wet(ix, iz))
+	var cells := (x1 - x0) * (z1 - z0)
+	if count == 0:
+		_quad_into(buf.sea, x0, z0, x1, z1, SEA_FLOOR)
+	else:
+		for iz in range(z0, z1):
+			for ix in range(x0, x1):
+				if not _drawn(ix, iz) and _holes[iz * _cells + ix] == 0:
+					_quad_into(buf.sea, ix, iz, ix + 1, iz + 1, SEA_FLOOR)
+	if wet == cells:
+		_quad_into(buf.water, x0, z0, x1, z1, WATER_LEVEL - 0.02)
+	elif wet > 0:
+		for iz in range(z0, z1):
+			for ix in range(x0, x1):
+				if _wet(ix, iz):
+					_quad_into(buf.water, ix, iz, ix + 1, iz + 1, WATER_LEVEL - 0.02)
 	if count == 0:
 		return
 	verts.resize(count * 6)
@@ -820,39 +1252,9 @@ func _build_chunk(x0: int, z0: int, x1: int, z1: int, mat: Material) -> void:
 				colors[v + 1] = color
 				colors[v + 2] = color
 				v += 3
-	var arrays := []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = verts
-	arrays[Mesh.ARRAY_NORMAL] = normals
-	arrays[Mesh.ARRAY_COLOR] = colors
-	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	var mi := MeshInstance3D.new()
-	mi.mesh = mesh
-	mi.material_override = mat
-	add_child(mi)
-	var cs := CollisionShape3D.new()
-	var shape := ConcavePolygonShape3D.new()
-	shape.set_faces(verts)
-	cs.shape = shape
-	add_child(cs)
-
-## One sheet at the water line. With the land mostly above it, it only shows in
-## the river channels and the low ground, which is exactly where water belongs.
-func _build_water() -> void:
-	var mi := MeshInstance3D.new()
-	var plane := PlaneMesh.new()
-	# Out to the horizon: the island sits in open water.
-	plane.size = Vector2(half_extent * 8.0, half_extent * 8.0)
-	mi.mesh = plane
-	mi.position = Vector3(0, WATER_LEVEL - 0.02, 0)
-	var mat := StandardMaterial3D.new()
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.albedo_color = Color(0.18, 0.34, 0.46, 0.72)
-	mat.roughness = 0.15
-	mat.metallic = 0.2
-	mi.material_override = mat
-	add_child(mi)
+	buf.verts = verts
+	buf.normals = normals
+	buf.colors = colors
 
 func _face_color(ix: int, iz: int, height: float, normal: Vector3) -> Color:
 	var index := _index(ix, iz)
@@ -924,6 +1326,8 @@ func _place_requested_sites() -> void:
 				if request.has("toward") and Vector2(p.x, p.z).normalized().dot(request.toward) < 0.6:
 					continue
 				var score := _site_score(p, radius)
+				if request.get("high", false) and score > -INF:
+					score += height_at(p.x, p.z) * 0.08
 				if score > best_score:
 					best_score = score
 					best = p
@@ -1016,33 +1420,47 @@ func _plan_caves() -> void:
 					candidates.append([score, entrance, dir])
 	candidates.sort_custom(func(a, b): return a[0] > b[0])
 	var names := ["Glimmer Cave", "Old Seam", "Frostvein Hollow", "Deepcut", "Echo Mine",
-		"Crystal Throat", "Wormhole Drift", "Lantern Gallery", "Hollow King", "Starless Deep"]
+		"Crystal Throat", "Wormhole Drift", "Lantern Gallery", "Hollow King", "Blackwater Sink",
+		"Sandglass Hole", "Rimefall", "Moonmilk Grotto", "Cinder Vent", "Spore Hollow",
+		"Drowned Stair", "Whistling Adit", "Bramble Pit", "Gull's Throat", "Lastlight"]
 	var spacing := 150.0 if islands.is_empty() else 280.0
-	for c in candidates:
-		if caves.size() >= cave_count:
-			break
-		var entrance: Vector3 = c[1]
-		var clear := true
-		for other in caves:
-			if (other.entrance as Vector3).distance_to(entrance) < spacing:
-				clear = false
+	var zones: Array = cave_zones if not cave_zones.is_empty() else \
+		[{"centre": Vector2.ZERO, "radius": INF, "count": cave_count}]
+	for zone in zones:
+		var taken := 0
+		for c in candidates:
+			if taken >= int(zone.count):
 				break
-		if not clear:
-			continue
-		var dir: Vector3 = c[2]
-		var ground := height_at(entrance.x, entrance.z)
-		entrance.y = ground
-		caves.append({"entrance": entrance, "dir": dir, "ground": ground,
-			"name": names[caves.size() % names.size()]})
-		# Level the mouth and the approach to it.
-		reserve_site(Vector3(entrance.x, ground, entrance.z) + dir * Cave.SHAFT_LENGTH * 0.4, 14.0)
-		var side := Vector3(-dir.z, 0.0, dir.x)
-		for along in [Cave.SHAFT_LENGTH * 0.25, Cave.SHAFT_LENGTH * 0.75]:
-			var p: Vector3 = entrance + dir * along
-			var gx := int(floor(_grid_coord(p.x)))
-			var gz := int(floor(_grid_coord(p.z)))
-			if gx >= 0 and gz >= 0 and gx < _cells and gz < _cells:
-				_holes[gz * _cells + gx] = 1
+			var at: Vector3 = c[1]
+			if Vector2(at.x, at.z).distance_to(zone.centre) > float(zone.radius):
+				continue
+			if _take_cave(c, spacing, names):
+				taken += 1
+
+func _take_cave(c: Array, spacing: float, names: Array) -> bool:
+	var entrance: Vector3 = c[1]
+	var clear := true
+	for other in caves:
+		if (other.entrance as Vector3).distance_to(entrance) < spacing:
+			clear = false
+			break
+	if not clear:
+		return false
+	var dir: Vector3 = c[2]
+	var ground := height_at(entrance.x, entrance.z)
+	entrance.y = ground
+	caves.append({"entrance": entrance, "dir": dir, "ground": ground,
+		"name": names[caves.size() % names.size()]})
+	# Level the mouth and the approach to it.
+	reserve_site(Vector3(entrance.x, ground, entrance.z) + dir * Cave.SHAFT_LENGTH * 0.4, 14.0)
+	var side := Vector3(-dir.z, 0.0, dir.x)
+	for along in [Cave.SHAFT_LENGTH * 0.25, Cave.SHAFT_LENGTH * 0.75]:
+		var p: Vector3 = entrance + dir * along
+		var gx := int(floor(_grid_coord(p.x)))
+		var gz := int(floor(_grid_coord(p.z)))
+		if gx >= 0 and gz >= 0 and gx < _cells and gz < _cells:
+			_holes[gz * _cells + gx] = 1
+	return true
 
 ## How much rock is over a cave dug here, in metres of spare cover; zero or
 ## less means no.

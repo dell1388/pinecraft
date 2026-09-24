@@ -188,7 +188,8 @@ func _refresh_trunk() -> void:
 	cyl.height = trunk_height
 	_trunk_shape.position = Vector3(0, trunk_height * 0.5, 0)
 	if _crown != null and is_instance_valid(_crown):
-		_crown.visible = _standing and (not branches.is_empty() or foliage_style == &"palm")
+		_crown.visible = _standing and (not branches.is_empty() or foliage_style == &"palm" \
+			or foliage_style == &"cap")
 		_crown.position = Vector3(0, trunk_height * 1.02, 0)
 
 func _basis_from_up(up: Vector3) -> Basis:
@@ -265,6 +266,20 @@ func _add_foliage(radius: float, height: float, xform: Transform3D, color: Color
 				mi.add_child(puff)
 		&"palm":
 			mi = _add_fronds(radius, xform, color)
+		&"cap":
+			# A giant mushroom's cap: a broad, flattened dome with a pale
+			# rim of gills under it.
+			mi = _add_ball(radius, height * 0.5, xform.translated(Vector3(0, height * 0.05, 0)), color)
+			var gills := MeshInstance3D.new()
+			var cyl := CylinderMesh.new()
+			cyl.top_radius = radius * 0.92
+			cyl.bottom_radius = trunk_radius * 1.3
+			cyl.height = height * 0.14
+			cyl.radial_segments = 10
+			gills.mesh = cyl
+			gills.position = Vector3(0, -height * 0.02, 0)
+			gills.material_override = _mat(leaf_accent if leaf_accent.a > 0.0 else color.lightened(0.4), leaf_glow * 0.6)
+			mi.add_child(gills)
 		_:
 			mi = _add_cone(radius, height, xform, color)
 	if leaf_glow > 0.0:
@@ -454,7 +469,7 @@ func _drop_branch(index: int, impulse: Vector3) -> float:
 		(b.leaf as MeshInstance3D).queue_free()
 	(b.shape as CollisionShape3D).queue_free()
 	branches.remove_at(index)
-	if branches.is_empty() and _crown != null and foliage_style != &"palm":
+	if branches.is_empty() and _crown != null and foliage_style != &"palm" and foliage_style != &"cap":
 		_crown.visible = false
 	return Solid.volume(dims)
 

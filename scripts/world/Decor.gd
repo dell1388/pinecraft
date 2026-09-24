@@ -10,7 +10,7 @@ extends Node3D
 ## drawn as MultiMeshes in tiles, each tile fading out past a distance, so the
 ## whole map can be dressed for a few dozen draw calls in view at a time.
 
-const TILE := 75.0
+const TILE := 72.0
 const REACH := 150.0
 
 ## Per biome: [kind, instances per terrain cell]. Fractions are chances.
@@ -141,23 +141,88 @@ func _build_meshes() -> void:
 
 # --- Scattering --------------------------------------------------------------
 
+## The map is far too big to dress all at once, so it is dressed in tiles
+## round whoever is walking it: a tile is built as it comes within reach and
+## freed once it is well behind. Each tile is seeded from its own position, so
+## coming back to one grows exactly the same grass.
+var focus: Node3D
+var _tiles: Dictionary = {}           ## Vector2i -> Node3D
+const BUILD_REACH := 260.0
+const FREE_REACH := 420.0
+
 func _scatter() -> void:
+	set_process(true)
+
+func _process(_delta: float) -> void:
 	if terrain == null:
 		return
+	var at := focus.global_position if focus != null and is_instance_valid(focus) else Vector3.ZERO
+	var here := Vector2i(int(floor((at.x + terrain.half_extent) / TILE)), int(floor((at.z + terrain.half_extent) / TILE)))
+	var reach := int(ceil(BUILD_REACH / TILE))
+	var built := 0
+	# Nearest first, and only a couple a frame, so walking never hitches.
+	var wanted: Array = []
+	for dz in range(-reach, reach + 1):
+		for dx in range(-reach, reach + 1):
+			var key := Vector2i(here.x + dx, here.y + dz)
+			if _tiles.has(key):
+				continue
+			var centre := _tile_centre(key)
+			if Vector2(centre.x - at.x, centre.z - at.z).length() > BUILD_REACH + TILE:
+				continue
+			wanted.append([Vector2(centre.x - at.x, centre.z - at.z).length(), key])
+	wanted.sort_custom(func(a, b): return a[0] < b[0])
+	for w in wanted:
+		if built >= 2:
+			break
+		_build_tile(w[1])
+		built += 1
+	for key in _tiles.keys():
+		var c := _tile_centre(key)
+		if Vector2(c.x - at.x, c.z - at.z).length() > FREE_REACH:
+			var node: Node3D = _tiles[key]
+			instance_count -= int(node.get_meta("instances", 0))
+			boulder_count -= int(node.get_meta("boulders", 0))
+			node.queue_free()
+			_tiles.erase(key)
+
+## Builds every tile within reach at once: for the first frame, and for tests.
+func build_around(at: Vector3, reach: float = BUILD_REACH) -> void:
+	var r := int(ceil(reach / TILE))
+	var here := Vector2i(int(floor((at.x + terrain.half_extent) / TILE)), int(floor((at.z + terrain.half_extent) / TILE)))
+	for dz in range(-r, r + 1):
+		for dx in range(-r, r + 1):
+			var key := Vector2i(here.x + dx, here.y + dz)
+			if not _tiles.has(key):
+				_build_tile(key)
+
+func _tile_centre(key: Vector2i) -> Vector3:
+	return Vector3(-terrain.half_extent + (float(key.x) + 0.5) * TILE, 0.0,
+		-terrain.half_extent + (float(key.y) + 0.5) * TILE)
+
+func _build_tile(key: Vector2i) -> void:
+	var holder := Node3D.new()
+	holder.name = "Tile_%d_%d" % [key.x, key.y]
+	add_child(holder)
+	_tiles[key] = holder
+	_rng.seed = hash(key) + 7331
 	var half := terrain.half_extent
-	var tiles := int(ceil(half * 2.0 / TILE))
-	# kind -> tile index -> transforms
 	var buckets: Dictionary = {}
 	var boulders := Greeble.new()
 	var body := StaticBody3D.new()
 	body.name = "Boulders"
 	body.collision_layer = Layers.WORLD
 	body.collision_mask = 0
-	add_child(body)
-
+	holder.add_child(body)
+	var before_boulders := boulder_count
+	var per := int(TILE / Terrain.CELL)
 	var cells := int(round(half * 2.0 / Terrain.CELL))
-	for iz in cells:
-		for ix in cells:
+	for cz in per:
+		for cx in per:
+			var ix := key.x * per + cx
+			var iz := key.y * per + cz
+			if ix < 0 or iz < 0 or ix >= cells or iz >= cells:
+				continue
 			var x0 := -half + float(ix) * Terrain.CELL
 			var z0 := -half + float(iz) * Terrain.CELL
 			var centre := Vector3(x0 + Terrain.CELL * 0.5, 0, z0 + Terrain.CELL * 0.5)
@@ -167,7 +232,6 @@ func _scatter() -> void:
 			var biome := terrain.biome_at(centre.x, centre.z)
 			if not _clear(centre.x, centre.z, 4.0):
 				continue
-			var tile := int((centre.x + half) / TILE) + int((centre.z + half) / TILE) * tiles
 			for entry in PLANTING.get(biome, []):
 				var kind: String = entry[0]
 				var n := _count(float(entry[1]))
@@ -189,32 +253,32 @@ func _scatter() -> void:
 					var s := _rng.randf_range(0.75, 1.3)
 					var xform := Transform3D(Basis(Vector3.UP, _rng.randf() * TAU).scaled(Vector3(s, s, s)), p)
 					if not buckets.has(kind):
-						buckets[kind] = {}
-					if not buckets[kind].has(tile):
-						buckets[kind][tile] = []
-					buckets[kind][tile].append(xform)
+						buckets[kind] = []
+					(buckets[kind] as Array).append(xform)
 			if _rng.randf() < float(BOULDERS.get(biome, 0.0)) and _clear(centre.x, centre.z, 8.0):
 				_boulder(boulders, body, centre + Vector3(_rng.randf_range(-2, 2), 0, _rng.randf_range(-2, 2)), biome)
-
+	var made := 0
 	for kind in buckets:
-		for tile in buckets[kind]:
-			var list: Array = buckets[kind][tile]
-			var mm := MultiMesh.new()
-			mm.transform_format = MultiMesh.TRANSFORM_3D
-			mm.mesh = _meshes[kind]
-			mm.instance_count = list.size()
-			for i in list.size():
-				mm.set_instance_transform(i, list[i])
-			var mmi := MultiMeshInstance3D.new()
-			mmi.multimesh = mm
-			mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			mmi.visibility_range_end = REACH if kind != "cactus" else REACH * 1.6
-			mmi.visibility_range_end_margin = 20.0
-			mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
-			add_child(mmi)
-			instance_count += list.size()
+		var list: Array = buckets[kind]
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.mesh = _meshes[kind]
+		mm.instance_count = list.size()
+		for i in list.size():
+			mm.set_instance_transform(i, list[i])
+		var mmi := MultiMeshInstance3D.new()
+		mmi.multimesh = mm
+		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mmi.visibility_range_end = REACH if kind != "cactus" else REACH * 1.6
+		mmi.visibility_range_end_margin = 20.0
+		mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+		holder.add_child(mmi)
+		made += list.size()
+	instance_count += made
+	holder.set_meta("instances", made)
+	holder.set_meta("boulders", boulder_count - before_boulders)
 	if not boulders.is_empty():
-		add_child(boulders.instance("BoulderMesh"))
+		holder.add_child(boulders.instance("BoulderMesh"))
 
 func _count(rate: float) -> int:
 	var n := int(rate)

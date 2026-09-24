@@ -39,6 +39,16 @@ signal retired(field: ResourceField, node: Node3D)
 
 ## The player, or whatever the distances above are measured from. Optional.
 var focus: Node3D
+## Where distances are measured from until there is a focus: the spawn.
+var anchor: Vector3 = Vector3.ZERO
+## Past this distance a node is kept as a note - what it is, its seed and where
+## it stands - rather than as a built node, and built when the player comes
+## within it; an untouched node well behind them goes back to being a note. The
+## same seed makes the same tree, so nothing visibly changes. Zero builds all.
+@export var wake_distance: float = 0.0
+## The notes: {entry, seed, position}.
+var dormant: Array[Dictionary] = []
+var _wake_timer: float = 0.0
 
 ## Forms to draw from. Each entry is passed to `builder` as-is.
 var species: Array[Dictionary] = []
@@ -70,7 +80,7 @@ func _ready() -> void:
 
 func count() -> int:
 	_prune()
-	return alive.size()
+	return alive.size() + dormant.size()
 
 func at_quota() -> bool:
 	return count() >= quota
@@ -89,6 +99,11 @@ func prefill() -> int:
 	return placed
 
 func _process(delta: float) -> void:
+	if wake_distance > 0.0:
+		_wake_timer -= delta
+		if _wake_timer <= 0.0:
+			_wake_timer = 0.4
+			_wake_and_sleep()
 	if at_quota():
 		# Armed while full, so the first loss waits out a refill interval like
 		# any other. Otherwise a felled tree is replaced the same frame it falls.
@@ -115,20 +130,59 @@ func _try_spawn() -> Node3D:
 	# mixed instead of drifting to whatever the generator favoured.
 	var entry: Dictionary = species[_next_index % species.size()]
 	_next_index += 1
-	var node: Node3D = builder.call(entry, _rng.randi())
+	var form_seed := _rng.randi()
+	total_spawned += 1
+	if wake_distance > 0.0 and not _near_focus(to_global(position), wake_distance):
+		dormant.append({"entry": entry, "seed": form_seed, "position": position})
+		return self
+	return _build(entry, form_seed, position)
+
+func _build(entry: Dictionary, form_seed: int, position: Vector3) -> Node3D:
+	var node: Node3D = builder.call(entry, form_seed)
 	if node == null:
 		return null
 	node.position = position
+	node.set_meta("form_seed", form_seed)
+	node.set_meta("entry", entry)
 	add_child(node)
 	alive.append(node)
-	total_spawned += 1
 	_watch(node)
 	populated.emit(self, node)
 	return node
 
+## Builds the notes that have come within reach, a few at a time, and turns
+## untouched nodes well out of reach back into notes.
+func _wake_and_sleep() -> void:
+	var woken := 0
+	for i in range(dormant.size() - 1, -1, -1):
+		if woken >= 8:
+			break
+		var d: Dictionary = dormant[i]
+		if _near_focus(to_global(d.position), wake_distance):
+			dormant.remove_at(i)
+			_build(d.entry, int(d.seed), d.position)
+			woken += 1
+	for i in range(alive.size() - 1, -1, -1):
+		var node := alive[i]
+		if not is_instance_valid(node) or node.is_queued_for_deletion():
+			continue
+		if node.has_method("untouched") and not node.call("untouched"):
+			continue
+		if not node.has_meta("form_seed") or _near_focus(node.global_position, wake_distance * 1.35):
+			continue
+		alive.remove_at(i)
+		dormant.append({"entry": node.get_meta("entry"), "seed": int(node.get_meta("form_seed")),
+			"position": node.position})
+		node.queue_free()
+
 ## Takes away one untouched node out of the player's reach, if there is one.
 ## Returns what it took, or null.
 func retire_one() -> Node3D:
+	# A note far away is the cheapest thing to retire, and nobody can see it go.
+	if not dormant.is_empty():
+		dormant.remove_at(_rng.randi() % dormant.size())
+		total_retired += 1
+		return self
 	var candidates: Array[Node3D] = []
 	for node in alive:
 		if not is_instance_valid(node) or node.is_queued_for_deletion():
@@ -148,9 +202,11 @@ func retire_one() -> Node3D:
 	return node
 
 func _near_focus(point: Vector3, distance: float) -> bool:
-	if focus == null or not is_instance_valid(focus):
+	var f := anchor
+	if focus != null and is_instance_valid(focus):
+		f = focus.global_position
+	elif wake_distance <= 0.0:
 		return false
-	var f := focus.global_position
 	return Vector2(point.x - f.x, point.z - f.z).length() < distance
 
 func _find_spot() -> Variant:
@@ -165,6 +221,11 @@ func _find_spot() -> Variant:
 			if other.position.distance_to(candidate) < min_spacing:
 				clear = false
 				break
+		if clear:
+			for note in dormant:
+				if (note.position as Vector3).distance_to(candidate) < min_spacing:
+					clear = false
+					break
 		if clear:
 			return candidate
 	return null

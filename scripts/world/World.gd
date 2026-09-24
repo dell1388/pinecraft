@@ -4,13 +4,33 @@ extends Node3D
 ## The game scene: terrain, forest, quarry, the player's plot, the sell depot,
 ## the player and the HUD, plus save/load and vehicle handling.
 
-## 2.5 km across: a home island and four more, joined by bridges and a causeway.
-const MAP_HALF := 1250.0
+## 4.8 km across: a big home island and five more round it, joined by bridges
+## and a causeway - bar one, which only a tunnel under the sea reaches.
+const MAP_HALF := 2400.0
 const DEPOT_POSITION := Vector3(0, 0, 70)
 const STORE_POSITION := Vector3(-52, 0, 62)
 const QUARRY_CENTRE := Vector3(-150, 0, -40)
 ## Where the demo lines stand when they are switched on (Settings > Debug).
 const SHOWCASE_POSITION := Vector3(28, 0, 188)
+const SHOWCASE_GROUND := 2.0
+## The cave networks: one per island (the home island's is huge), each with
+## its cave biomes placed under the country that matches them, and how many
+## surface mouths it gets. Home and Hollow Isle are joined by the deep tunnel.
+const CAVE_ZONES := [
+	{"name": "Home", "centre": Vector2(0, 0), "radius": 1150.0, "rooms": 44, "mouths": 9,
+		"kinds": [[CaveNetwork.Kind.RIVER, Vector2(80, 260)], [CaveNetwork.Kind.RIVER, Vector2(-980, -120)],
+			[CaveNetwork.Kind.CRYSTAL, Vector2(660, -540)], [CaveNetwork.Kind.DESERT, Vector2(-640, 680)],
+			[CaveNetwork.Kind.ICE, Vector2(-320, -820)], [CaveNetwork.Kind.MAGMA, Vector2(900, 500)]]},
+	{"name": "Frostreach", "centre": Vector2(0, -1850), "radius": 380.0, "rooms": 10, "mouths": 2,
+		"kinds": [[CaveNetwork.Kind.ICE, Vector2(0, -1850)]]},
+	{"name": "Sunscar", "centre": Vector2(1850, 120), "radius": 370.0, "rooms": 10, "mouths": 2,
+		"kinds": [[CaveNetwork.Kind.MAGMA, Vector2(1850, 120)]]},
+	{"name": "Mirewood", "centre": Vector2(-1850, 220), "radius": 380.0, "rooms": 10, "mouths": 2,
+		"kinds": [[CaveNetwork.Kind.FUNGAL, Vector2(-1850, 220)]]},
+	{"name": "Hollow Isle", "centre": Vector2(-1450, 1450), "radius": 240.0, "rooms": 5, "mouths": 1,
+		"kinds": [[CaveNetwork.Kind.CRYSTAL, Vector2(-1450, 1450)]]},
+]
+const CAVE_LINKS := [[0, 4]]
 ## The plot pad stands clear of two things: the water line, so the yard is never
 ## flooded, and the ground itself, so the pad and the land are not two surfaces
 ## fighting over one plane. The slab's top is PLOT_GROUND + 0.05.
@@ -22,7 +42,7 @@ const AUTOSAVE_SECONDS := 60.0
 const OUTDOOR_AMBIENT := 0.6
 const STARTING_MONEY := 250
 
-@export var tree_count: int = 900
+@export var tree_count: int = 1800
 @export var rock_count: int = 80
 @export var autosave: bool = true
 
@@ -45,17 +65,36 @@ var rock_fields: Array[ResourceField] = []
 var caves: Array[Cave] = []
 var outposts: Array[Outpost] = []
 var bridges: Array[Bridge] = []
+var network: CaveNetwork
 var showcase: Showcase
 
-## The islands: home in the middle, the cold north, the desert east, the wet
-## west and a little scorched isle in the south-east where something fell out
-## of the sky. Biases nudge each one's climate.
+## The islands: a big home island in the middle; the cold north, the desert
+## east and the wet west; a scorched isle in the south-east where something
+## fell out of the sky; and Hollow Isle in the south-west, which no road or
+## bridge reaches - only the deep tunnel under the sea.
 const ISLANDS := [
-	{"name": "Home Island", "centre": Vector2(0, 0), "radius": 610.0},
-	{"name": "Frostreach", "centre": Vector2(-60, -975), "radius": 285.0, "cold": 0.32, "lift": 0.08},
-	{"name": "Sunscar", "centre": Vector2(960, 60), "radius": 280.0, "wet": -0.34, "cold": -0.2, "lift": 0.04},
-	{"name": "Mirewood", "centre": Vector2(-955, 170), "radius": 285.0, "wet": 0.22, "cold": -0.1},
-	{"name": "Crater Isle", "centre": Vector2(600, 860), "radius": 175.0, "wet": -0.2, "cold": -0.2},
+	{"name": "Home Island", "centre": Vector2(0, 0), "radius": 1220.0},
+	{"name": "Frostreach", "centre": Vector2(0, -1850), "radius": 403.0},
+	{"name": "Sunscar", "centre": Vector2(1850, 120), "radius": 396.0},
+	{"name": "Mirewood", "centre": Vector2(-1850, 220), "radius": 403.0},
+	{"name": "Crater Isle", "centre": Vector2(1150, 1150), "radius": 247.0},
+	{"name": "Hollow Isle", "centre": Vector2(-1450, 1450), "radius": 262.0},
+]
+## One big region per kind of country: the home island's woods round the plot,
+## a mountain range to the north-east, a desert to the south-west, a swamp
+## along the west coast and taiga to the north-west; then an island each.
+const REGIONS := [
+	{"name": "The Greenwood", "centre": Vector2(80, 260), "biome": Terrain.Biome.WOODLAND, "scale": 0.85},
+	{"name": "Spine Mountains", "centre": Vector2(660, -540), "biome": Terrain.Biome.MOUNTAIN},
+	{"name": "Redsand Desert", "centre": Vector2(-640, 680), "biome": Terrain.Biome.DESERT},
+	{"name": "Mudflat Swamp", "centre": Vector2(-980, -120), "biome": Terrain.Biome.SWAMP},
+	{"name": "Northpine Taiga", "centre": Vector2(-320, -820), "biome": Terrain.Biome.TAIGA},
+	{"name": "Frostreach", "centre": Vector2(0, -1850), "biome": Terrain.Biome.SNOW},
+	{"name": "Sunscar Mesas", "centre": Vector2(1850, 120), "biome": Terrain.Biome.DESERT},
+	{"name": "Mirewood", "centre": Vector2(-1900, 320), "biome": Terrain.Biome.SWAMP},
+	{"name": "Mirewood Hills", "centre": Vector2(-1760, 60), "biome": Terrain.Biome.WOODLAND, "scale": 1.3},
+	{"name": "Crater Isle", "centre": Vector2(1150, 1150), "biome": Terrain.Biome.WOODLAND},
+	{"name": "Hollow Isle", "centre": Vector2(-1450, 1450), "biome": Terrain.Biome.TAIGA},
 ]
 ## Places that are there to be found: no road goes to them.
 const HIDDEN_VALLEY := "Hidden Valley"
@@ -66,11 +105,8 @@ var _discover_timer: float = 0.0
 ## Where the land is under a loose item, for the manager's fall-through
 ## check. Nothing is claimed inside a cave, where everything is below the land.
 func _ground_for_items(p: Vector3) -> float:
-	for cave in caves:
-		var local := cave.to_local(p)
-		if absf(local.x) < Cave.CHAMBER_WIDTH * 0.5 + 2.0 and local.z > -2.0 \
-				and local.z < Cave.FOOTPRINT_LENGTH + 2.0:
-			return -INF
+	if network != null and network.contains(p, 2.0):
+		return -INF
 	if absf(p.x) > MAP_HALF or absf(p.z) > MAP_HALF:
 		return -INF
 	return terrain.height_at(p.x, p.z)
@@ -79,24 +115,27 @@ func _ground_for_items(p: Vector3) -> float:
 ## put at fixed spots, so each sits on a level patch of the right ground.
 const OUTPOSTS := [
 	{"name": "Dune Trading Post", "kind": Outpost.Kind.TRADING_POST, "radius": 15.0,
-		"biomes": [Terrain.Biome.DESERT], "near": 650.0, "far": 1200.0,
+		"biomes": [Terrain.Biome.DESERT], "near": 1500.0, "far": 2300.0,
 		"premium": {&"lumber": 1.45, &"goods": 1.3, &"jewel": 1.25}},
 	{"name": "Frostline Post", "kind": Outpost.Kind.TRADING_POST, "radius": 15.0,
-		"biomes": [Terrain.Biome.SNOW, Terrain.Biome.TAIGA], "near": 700.0, "far": 1200.0,
+		"biomes": [Terrain.Biome.SNOW], "near": 1450.0, "far": 2300.0,
 		"premium": {&"ore": 1.35, &"metal": 1.45}},
 	{"name": "Mire Gem Exchange", "kind": Outpost.Kind.TRADING_POST, "radius": 15.0,
-		"biomes": [Terrain.Biome.SWAMP, Terrain.Biome.WOODLAND], "near": 700.0, "far": 1200.0,
+		"biomes": [Terrain.Biome.SWAMP, Terrain.Biome.WOODLAND], "near": 1450.0, "far": 2300.0,
 		"toward": Vector2(-1, 0), "premium": {&"gem": 1.3, &"jewel": 1.5}},
+	{"name": "Eagle's Rest", "kind": Outpost.Kind.LOOKOUT, "radius": 9.0,
+		"biomes": [Terrain.Biome.MOUNTAIN, Terrain.Biome.SNOW], "near": 450.0, "far": 1100.0,
+		"toward": Vector2(0.7, -0.7), "high": true},
 	{"name": "Ranger Lookout", "kind": Outpost.Kind.LOOKOUT, "radius": 9.0,
-		"biomes": [Terrain.Biome.WOODLAND, Terrain.Biome.TAIGA, Terrain.Biome.MOUNTAIN], "near": 150.0, "far": 520.0},
+		"biomes": [Terrain.Biome.WOODLAND, Terrain.Biome.TAIGA], "near": 300.0, "far": 1000.0},
 	{"name": "Old Logging Camp", "kind": Outpost.Kind.CAMP, "radius": 11.0,
-		"biomes": [Terrain.Biome.TAIGA, Terrain.Biome.WOODLAND], "near": 200.0, "far": 560.0},
+		"biomes": [Terrain.Biome.TAIGA], "near": 400.0, "far": 1150.0},
 	{"name": "Stilt Shack", "kind": Outpost.Kind.SHACK, "radius": 10.0,
-		"biomes": [Terrain.Biome.SWAMP], "near": 100.0, "far": 1200.0},
+		"biomes": [Terrain.Biome.SWAMP], "near": 500.0, "far": 1200.0},
 	{"name": "Sunken Ruins", "kind": Outpost.Kind.RUINS, "radius": 11.0,
-		"biomes": [Terrain.Biome.DESERT, Terrain.Biome.WOODLAND], "near": 300.0, "far": 1200.0},
+		"biomes": [Terrain.Biome.DESERT], "near": 400.0, "far": 1200.0},
 	{"name": "Far Camp", "kind": Outpost.Kind.CAMP, "radius": 11.0,
-		"biomes": [Terrain.Biome.SNOW, Terrain.Biome.TAIGA, Terrain.Biome.MOUNTAIN], "near": 750.0, "far": 1200.0},
+		"biomes": [Terrain.Biome.SNOW], "near": 1500.0, "far": 2300.0},
 ]
 ## 0 in daylight, 1 deep in a cave: eased, so going underground is a descent.
 var underground: float = 0.0
@@ -164,8 +203,9 @@ func _ready() -> void:
 	_lap("forest")
 	_build_quarry()
 	_build_crater()
+	_lap("rocks")
 	_build_caves()
-	_lap("rocks+caves")
+	_lap("cave fields")
 	_build_outposts()
 	_build_depot()
 	_build_store()
@@ -176,6 +216,7 @@ func _ready() -> void:
 	# Fields keep their churn and spawning away from wherever the player is.
 	for field in tree_fields + rock_fields:
 		field.focus = player
+	decor.focus = player
 	player.manager = manager
 	player.plot = plot
 	player.store = store
@@ -279,46 +320,50 @@ func _build_terrain() -> void:
 	terrain.half_extent = MAP_HALF
 	terrain.noise_seed = 20260921
 
-	# Two rivers off the high ground, each with a couple of places shallow
-	# enough to drive through. Everywhere else wants a bridge.
+	# Two rivers through the home valley and down to the sea, each with a
+	# couple of places shallow enough to drive through.
 	terrain.rivers = [
-		{"width": 10.0, "depth": 3.4, "fords": [{"at": 120.0, "width": 26.0},
-			{"at": 300.0, "width": 22.0}],
-			"path": [Vector3(-260, 0, -250), Vector3(-170, 0, -160), Vector3(-110, 0, -95),
-				Vector3(-82, 0, -20), Vector3(-96, 0, 60), Vector3(-60, 0, 150),
-				Vector3(10, 0, 285)]},
-		{"width": 8.0, "depth": 2.8, "fords": [{"at": 90.0, "width": 24.0}],
-			"path": [Vector3(280, 0, -180), Vector3(170, 0, -120), Vector3(80, 0, -95),
-				Vector3(-40, 0, -110), Vector3(-180, 0, -170)]},
+		{"width": 11.0, "depth": 3.4, "fords": [{"at": 300.0, "width": 26.0}, {"at": 700.0, "width": 24.0}],
+			"path": [Vector3(-360, 0, -350), Vector3(-240, 0, -220), Vector3(-150, 0, -130),
+				Vector3(-115, 0, -30), Vector3(-135, 0, 85), Vector3(-85, 0, 210), Vector3(15, 0, 400),
+				Vector3(100, 0, 700), Vector3(200, 0, 1000), Vector3(300, 0, 1300)]},
+		{"width": 9.0, "depth": 2.8, "fords": [{"at": 380.0, "width": 24.0}],
+			"path": [Vector3(390, 0, -250), Vector3(240, 0, -170), Vector3(110, 0, -135),
+				Vector3(-55, 0, -155), Vector3(-250, 0, -240), Vector3(-600, 0, -350),
+				Vector3(-1000, 0, -420), Vector3(-1350, 0, -450)]},
 	]
-	# Roads joining the places worth driving between. The trunk roads run out
-	# to each island and bridge whatever water is in the way; the south-east
-	# one is a causeway through the shallows instead.
+	# Roads. The two short ones round home are laid; the rest are given as
+	# waypoints and routed over the land, so they wind round hills, switch
+	# back up the mountains, and take water where the crossing is short.
 	terrain.roads = [
 		[Vector3(0, 0, 0), Vector3(0, 0, 30), DEPOT_POSITION,
 			Vector3(-20, 0, 66), STORE_POSITION],
 		[Vector3(0, 0, 0), Vector3(-40, 0, -14), Vector3(-90, 0, -28), QUARRY_CENTRE],
-		{"bridge": true, "path": [Vector3(0, 0, 0), Vector3(40, 0, -20), Vector3(110, 0, -40),
-			Vector3(190, 0, -30), Vector3(330, 0, -10), Vector3(470, 0, 20), Vector3(580, 0, 40),
-			Vector3(700, 0, 55), Vector3(830, 0, 60), Vector3(960, 0, 60), Vector3(1080, 0, 40)]},
-		{"bridge": true, "path": [Vector3(-40, 0, -14), Vector3(-45, 0, -150), Vector3(-60, 0, -320),
-			Vector3(-70, 0, -470), Vector3(-70, 0, -600), Vector3(-65, 0, -760), Vector3(-60, 0, -900),
-			Vector3(-60, 0, -1080)]},
-		{"bridge": true, "path": [QUARRY_CENTRE, Vector3(-260, 0, -10), Vector3(-400, 0, 40),
-			Vector3(-540, 0, 90), Vector3(-680, 0, 130), Vector3(-800, 0, 160), Vector3(-880, 0, 170)]},
-		{"ford": true, "path": [Vector3(30, 0, 80), Vector3(150, 0, 220), Vector3(280, 0, 380),
-			Vector3(400, 0, 540), Vector3(490, 0, 670), Vector3(540, 0, 770)]},
+		{"bridge": true, "route": [Vector3(40, 0, -20), Vector3(260, 0, 40), Vector3(1000, 0, 180),
+			Vector3(1850, 0, 120)]},
+		{"bridge": true, "route": [Vector3(-40, 0, -14), Vector3(-120, 0, -500), Vector3(-60, 0, -1150),
+			Vector3(0, 0, -1850)]},
+		{"bridge": true, "route": [QUARRY_CENTRE, Vector3(-500, 0, 60), Vector3(-1150, 0, 160),
+			Vector3(-1850, 0, 220)]},
+		{"ford": true, "style": "gravel", "route": [Vector3(30, 0, 80), Vector3(500, 0, 520),
+			Vector3(1150, 0, 1150)]},
+		# Into the desert, and up into the Spine Mountains.
+		{"bridge": true, "route": [Vector3(-20, 0, 66), Vector3(-640, 0, 680)]},
+		{"bridge": true, "route": [Vector3(260, 0, 40), Vector3(560, 0, -380)]},
 	]
 	for isle in ISLANDS:
 		terrain.islands.append(isle)
+	for region in REGIONS:
+		terrain.regions.append(region)
 	# The hidden places: a green valley walled in by a ridge with one gorge
-	# into it, on the far side of the wet island; and the crater where the
-	# starmetal came down.
+	# into it, on Hollow Isle; and the crater where the starmetal came down.
+	# And the low, sheltered valley round home that the plot sits in.
 	terrain.features = [
-		{"name": HIDDEN_VALLEY, "kind": "valley", "centre": Vector2(-1030, 70), "radius": 42.0,
-			"gap": PI * 0.5, "floor": 7.0},
-		{"name": STAR_CRATER, "kind": "crater", "centre": Vector2(620, 885), "radius": 40.0,
-			"rim": 20.0, "floor": 4.5},
+		{"name": "Home Valley", "kind": "basin", "centre": Vector2(-20, 60), "radius": 330.0},
+		{"name": HIDDEN_VALLEY, "kind": "valley", "centre": Vector2(-1470, 1480), "radius": 45.0,
+			"gap": PI * 0.5, "floor": 16.0},
+		{"name": STAR_CRATER, "kind": "crater", "centre": Vector2(1160, 1170), "radius": 48.0,
+			"rim": 30.0, "floor": 8.0},
 	]
 	# Everything that has to stand on the level, and all of it above the water
 	# line so a levelled site is never under the sheet.
@@ -327,21 +372,30 @@ func _build_terrain() -> void:
 	terrain.reserve_site(Vector3(STORE_POSITION.x, 0.6, STORE_POSITION.z), 20.0)
 	terrain.reserve_site(Vector3(QUARRY_CENTRE.x, 0.5, QUARRY_CENTRE.z), 34.0)
 	# Kept clear for the demo lines, whether or not they are switched on.
-	terrain.reserve_site(Vector3(SHOWCASE_POSITION.x, 5.9, SHOWCASE_POSITION.z - 4.0), 30.0)
-	terrain.cave_count = 9
+	terrain.reserve_site(Vector3(SHOWCASE_POSITION.x, SHOWCASE_GROUND, SHOWCASE_POSITION.z - 4.0), 30.0)
+	# Cave mouths: most on the home island, a couple on each of the others,
+	# and one on Hollow Isle for the far end of the deep tunnel.
+	terrain.cave_count = 16
+	for zone in CAVE_ZONES:
+		terrain.cave_zones.append({"centre": zone.centre, "radius": zone.radius * 0.92,
+			"count": zone.mouths})
 	for spec in OUTPOSTS:
 		var request := {"name": spec.name, "biomes": spec.biomes,
 			"radius": spec.radius, "near": spec.near, "far": spec.far}
 		if spec.has("toward"):
 			request["toward"] = spec.toward
+		if spec.get("high", false):
+			request["high"] = true
 		terrain.site_requests.append(request)
-		# The traders and the far camp are on the road; the rest are found.
-		if spec.kind == Outpost.Kind.TRADING_POST or spec.name == "Far Camp":
+		# The traders, the far camp and the mountain lookout are on the road;
+		# the rest are found.
+		if spec.kind == Outpost.Kind.TRADING_POST or spec.name == "Far Camp" or spec.name == "Eagle's Rest":
 			terrain.spur_sites.append(spec.name)
-	# The better shop is a trip: up in the high country, over the north bridge.
-	terrain.site_requests.append({"name": SUMMIT_STORE, "biomes": [Terrain.Biome.MOUNTAIN,
-		Terrain.Biome.SNOW, Terrain.Biome.TAIGA], "radius": 18.0, "near": 720.0, "far": 1200.0})
+	# The better shop is a trip: up in the snowfields of Frostreach.
+	terrain.site_requests.append({"name": SUMMIT_STORE, "biomes": [Terrain.Biome.SNOW],
+		"radius": 18.0, "near": 1500.0, "far": 2300.0})
 	terrain.spur_sites.append(SUMMIT_STORE)
+	terrain.cache_path = "user://terrain_cache.bin"
 	add_child(terrain)
 
 	# A wall at the map edge, so nothing drives off the world.
@@ -363,6 +417,10 @@ func _build_terrain() -> void:
 		bounds.add_child(cs)
 	add_child(bounds)
 	_build_bridges()
+	var roads := RoadSurface.new()
+	roads.name = "RoadSurface"
+	roads.setup(terrain)
+	add_child(roads)
 
 func _build_bridges() -> void:
 	for plan in terrain.bridges:
@@ -421,7 +479,7 @@ func _build_forest() -> void:
 			# Standing in the water, which is where a willow belongs.
 			"wet": 0.7},
 
-		{"name": "Ironwood", "near": 350.0, "item": &"wood_ironwood",
+		{"name": "Ironwood", "near": 700.0, "item": &"wood_ironwood",
 			"biomes": [Terrain.Biome.MOUNTAIN],
 			"leaf": Color(0.18, 0.30, 0.20), "work": 1900.0,
 			"radius": [0.46, 0.60], "height": [5.0, 7.0], "taper": 0.82, "branches": [4, 6],
@@ -429,7 +487,7 @@ func _build_forest() -> void:
 			"start": 0.48, "pitch": [0.70, 1.10], "length": [0.20, 0.32],
 			"foliage": 6.0, "crown": [4.6, 0.28]},
 
-		{"name": "Desert Ironwood", "near": 350.0, "item": &"wood_ironwood",
+		{"name": "Desert Ironwood", "near": 700.0, "item": &"wood_ironwood",
 			"biomes": [Terrain.Biome.DESERT],
 			"leaf": Color(0.42, 0.46, 0.28), "work": 1750.0,
 			"radius": [0.38, 0.50], "height": [3.8, 5.4], "taper": 0.80, "branches": [5, 7],
@@ -447,7 +505,7 @@ func _build_forest() -> void:
 			"start": 0.55, "pitch": [0.35, 0.75], "length": [0.14, 0.22],
 			"foliage": 7.0, "crown": [7.0, 0.28], "style": &"ball"},
 
-		{"name": "Maple", "near": 180.0, "item": &"wood_maple",
+		{"name": "Maple", "near": 360.0, "item": &"wood_maple",
 			"biomes": [Terrain.Biome.WOODLAND],
 			"leaf": Color(0.86, 0.32, 0.14), "accent": Color(0.96, 0.62, 0.16), "work": 900.0,
 			"radius": [0.34, 0.46], "height": [5.5, 7.5], "taper": 0.7, "branches": [6, 8],
@@ -455,7 +513,7 @@ func _build_forest() -> void:
 			"start": 0.5, "pitch": [0.6, 1.05], "length": [0.22, 0.34],
 			"foliage": 8.5, "crown": [9.0, 0.34], "style": &"ball", "weight": 0.7},
 
-		{"name": "Cherry Blossom", "near": 220.0, "item": &"wood_cherry",
+		{"name": "Cherry Blossom", "near": 440.0, "item": &"wood_cherry",
 			"biomes": [Terrain.Biome.WOODLAND, Terrain.Biome.SWAMP],
 			"leaf": Color(0.98, 0.70, 0.82), "accent": Color(1.0, 0.86, 0.92), "work": 820.0,
 			"bark": Color(0.36, 0.20, 0.18),
@@ -464,7 +522,7 @@ func _build_forest() -> void:
 			"start": 0.45, "pitch": [0.9, 1.3], "length": [0.3, 0.44],
 			"foliage": 9.0, "crown": [7.5, 0.3], "style": &"puff", "weight": 0.45},
 
-		{"name": "Redwood", "min": 14, "near": 250.0, "item": &"wood_redwood",
+		{"name": "Redwood", "min": 14, "near": 500.0, "item": &"wood_redwood",
 			"biomes": [Terrain.Biome.TAIGA],
 			"leaf": Color(0.13, 0.30, 0.18), "work": 760.0,
 			"radius": [0.70, 0.95], "height": [14.0, 19.0], "taper": 0.45, "branches": [6, 8],
@@ -480,7 +538,7 @@ func _build_forest() -> void:
 			"start": 0.9, "pitch": [0.0, 0.1], "length": [0.1, 0.1],
 			"foliage": 1.0, "crown": [14.0, 0.2], "style": &"palm", "wet": 0.2},
 
-		{"name": "Baobab", "near": 300.0, "item": &"wood_baobab",
+		{"name": "Baobab", "near": 600.0, "item": &"wood_baobab",
 			"biomes": [Terrain.Biome.DESERT],
 			"leaf": Color(0.40, 0.52, 0.22), "work": 700.0,
 			"radius": [0.9, 1.2], "height": [4.5, 6.0], "taper": 0.62, "branches": [5, 7],
@@ -488,7 +546,7 @@ func _build_forest() -> void:
 			"start": 0.86, "pitch": [0.9, 1.3], "length": [0.16, 0.24],
 			"foliage": 3.5, "crown": [2.2, 0.16], "style": &"ball", "weight": 0.4},
 
-		{"name": "Frostbark", "min": 14, "near": 650.0, "item": &"wood_frost",
+		{"name": "Frostbark", "min": 14, "near": 1300.0, "item": &"wood_frost",
 			"biomes": [Terrain.Biome.SNOW],
 			"leaf": Color(0.62, 0.86, 1.0), "work": 1300.0, "glow": 0.35,
 			"radius": [0.28, 0.38], "height": [6.0, 8.0], "taper": 0.55, "branches": [6, 8],
@@ -496,7 +554,7 @@ func _build_forest() -> void:
 			"start": 0.3, "pitch": [0.35, 0.6], "length": [0.1, 0.16],
 			"foliage": 5.0, "crown": [3.6, 0.5], "weight": 0.35},
 
-		{"name": "Spirit Tree", "min": 10, "near": 650.0, "item": &"wood_spirit",
+		{"name": "Spirit Tree", "min": 10, "near": 1300.0, "item": &"wood_spirit",
 			"biomes": [Terrain.Biome.SWAMP],
 			"leaf": Color(0.45, 0.95, 0.85), "work": 1500.0, "glow": 1.2,
 			"radius": [0.34, 0.44], "height": [5.0, 7.0], "taper": 0.66, "branches": [6, 8],
@@ -504,7 +562,7 @@ func _build_forest() -> void:
 			"start": 0.48, "pitch": [1.0, 1.4], "length": [0.3, 0.44],
 			"foliage": 7.0, "crown": [5.5, 0.26], "style": &"puff", "weight": 0.2, "wet": 0.6},
 
-		{"name": "Emberbark", "min": 12, "near": 700.0, "item": &"wood_ember",
+		{"name": "Emberbark", "min": 12, "near": 1400.0, "item": &"wood_ember",
 			"biomes": [Terrain.Biome.MOUNTAIN],
 			"leaf": Color(1.0, 0.42, 0.10), "work": 2200.0, "glow": 1.6,
 			"radius": [0.40, 0.52], "height": [4.5, 6.0], "taper": 0.7, "branches": [4, 6],
@@ -568,6 +626,7 @@ func _build_forest() -> void:
 		field.min_spacing = 4.2
 		field.refill_seconds = 6.0
 		field.churn_seconds = 30.0
+		field.wake_distance = 360.0
 		field.setup([kind], _build_tree, _from_pool(pool), _rng.randi())
 		add_child(field)
 		field.prefill()
@@ -648,45 +707,45 @@ func _build_tree(kind: Dictionary, form_seed: int) -> Node3D:
 const WILD_ORE := [
 	# Common, and close to home.
 	{"item": &"ore_tin", "biomes": [Terrain.Biome.WOODLAND, Terrain.Biome.TAIGA, Terrain.Biome.MOUNTAIN],
-		"quota": 26, "volume": [0.35, 2.4], "embed": [0.30, 0.55], "far": 520.0},
+		"quota": 52, "volume": [0.35, 2.4], "embed": [0.30, 0.55], "far": 1092.0},
 	{"item": &"gem_quartz", "biomes": [Terrain.Biome.WOODLAND, Terrain.Biome.MOUNTAIN, Terrain.Biome.DESERT, Terrain.Biome.TAIGA],
-		"quota": 18, "volume": [0.25, 1.4], "embed": [0.35, 0.60], "far": 600.0},
+		"quota": 36, "volume": [0.25, 1.4], "embed": [0.35, 0.60], "far": 1260.0},
 	{"item": &"ore_iron", "biomes": [Terrain.Biome.MOUNTAIN, Terrain.Biome.TAIGA, Terrain.Biome.WOODLAND],
-		"quota": 34, "volume": [0.35, 2.4], "embed": [0.30, 0.55], "far": 900.0},
+		"quota": 68, "volume": [0.35, 2.4], "embed": [0.30, 0.55], "far": 1890.0},
 	{"item": &"ore_zinc", "biomes": [Terrain.Biome.DESERT, Terrain.Biome.MOUNTAIN, Terrain.Biome.WOODLAND],
-		"quota": 20, "volume": [0.30, 2.0], "embed": [0.35, 0.60], "near": 120.0, "far": 700.0},
+		"quota": 40, "volume": [0.30, 2.0], "embed": [0.35, 0.60], "near": 252.0, "far": 1470.0},
 	{"item": &"ore_copper", "biomes": [Terrain.Biome.DESERT, Terrain.Biome.MOUNTAIN],
-		"quota": 24, "volume": [0.30, 2.0], "embed": [0.35, 0.60], "near": 120.0},
+		"quota": 48, "volume": [0.30, 2.0], "embed": [0.35, 0.60], "near": 252.0},
 	# A trip: the edge of home island and the near shores of the others.
 	{"item": &"ore_magnetite", "biomes": [Terrain.Biome.MOUNTAIN, Terrain.Biome.TAIGA],
-		"quota": 16, "volume": [0.3, 1.8], "embed": [0.40, 0.60], "near": 300.0},
+		"quota": 32, "volume": [0.3, 1.8], "embed": [0.40, 0.60], "near": 630.0},
 	{"item": &"ore_silver", "biomes": [Terrain.Biome.TAIGA, Terrain.Biome.SNOW],
-		"quota": 16, "volume": [0.25, 1.5], "embed": [0.40, 0.60], "near": 380.0},
+		"quota": 32, "volume": [0.25, 1.5], "embed": [0.40, 0.60], "near": 798.0},
 	{"item": &"gem_amethyst", "biomes": [Terrain.Biome.MOUNTAIN, Terrain.Biome.DESERT],
-		"quota": 12, "volume": [0.2, 1.1], "embed": [0.40, 0.65], "near": 400.0},
+		"quota": 24, "volume": [0.2, 1.1], "embed": [0.40, 0.65], "near": 840.0},
 	{"item": &"ore_nickel", "biomes": [Terrain.Biome.SNOW, Terrain.Biome.TAIGA, Terrain.Biome.MOUNTAIN],
-		"quota": 14, "volume": [0.25, 1.5], "embed": [0.40, 0.60], "near": 450.0},
+		"quota": 28, "volume": [0.25, 1.5], "embed": [0.40, 0.60], "near": 945.0},
 	{"item": &"gem_jade", "biomes": [Terrain.Biome.SWAMP, Terrain.Biome.WOODLAND],
-		"quota": 12, "volume": [0.25, 1.3], "embed": [0.40, 0.65], "near": 600.0},
+		"quota": 24, "volume": [0.25, 1.3], "embed": [0.40, 0.65], "near": 1260.0},
 	{"item": &"gem_obsidian", "biomes": [Terrain.Biome.DESERT, Terrain.Biome.MOUNTAIN],
-		"quota": 12, "volume": [0.25, 1.4], "embed": [0.40, 0.60], "near": 600.0},
+		"quota": 24, "volume": [0.25, 1.4], "embed": [0.40, 0.60], "near": 1260.0},
 	{"item": &"ore_cobalt", "biomes": [Terrain.Biome.SWAMP, Terrain.Biome.MOUNTAIN],
-		"quota": 12, "volume": [0.25, 1.4], "embed": [0.40, 0.65], "near": 550.0},
+		"quota": 24, "volume": [0.25, 1.4], "embed": [0.40, 0.65], "near": 1155.0},
 	# The far islands.
 	{"item": &"ore_bismuth", "biomes": [Terrain.Biome.DESERT],
-		"quota": 8, "volume": [0.2, 1.0], "embed": [0.45, 0.65], "near": 700.0},
+		"quota": 16, "volume": [0.2, 1.0], "embed": [0.45, 0.65], "near": 1470.0},
 	{"item": &"ore_tungsten", "biomes": [Terrain.Biome.MOUNTAIN, Terrain.Biome.SNOW],
-		"quota": 10, "volume": [0.25, 1.4], "embed": [0.45, 0.70], "near": 750.0},
+		"quota": 20, "volume": [0.25, 1.4], "embed": [0.45, 0.70], "near": 1575.0},
 	{"item": &"ore_gold", "biomes": [Terrain.Biome.SNOW, Terrain.Biome.MOUNTAIN],
-		"quota": 8, "volume": [0.20, 1.0], "embed": [0.45, 0.70], "near": 750.0},
+		"quota": 16, "volume": [0.20, 1.0], "embed": [0.45, 0.70], "near": 1575.0},
 	{"item": &"gem_emerald", "biomes": [Terrain.Biome.SWAMP, Terrain.Biome.WOODLAND],
-		"quota": 5, "volume": [0.15, 0.7], "embed": [0.50, 0.70], "near": 800.0},
+		"quota": 10, "volume": [0.15, 0.7], "embed": [0.50, 0.70], "near": 1680.0},
 	{"item": &"ore_platinum", "biomes": [Terrain.Biome.SNOW],
-		"quota": 5, "volume": [0.15, 0.8], "embed": [0.50, 0.70], "near": 850.0},
+		"quota": 10, "volume": [0.15, 0.8], "embed": [0.50, 0.70], "near": 1785.0},
 	{"item": &"gem_ruby", "biomes": [Terrain.Biome.DESERT],
-		"quota": 5, "volume": [0.15, 0.7], "embed": [0.50, 0.70], "near": 850.0},
+		"quota": 10, "volume": [0.15, 0.7], "embed": [0.50, 0.70], "near": 1785.0},
 	{"item": &"ore_sunstone", "biomes": [Terrain.Biome.DESERT],
-		"quota": 4, "volume": [0.15, 0.7], "embed": [0.50, 0.70], "near": 850.0},
+		"quota": 8, "volume": [0.15, 0.7], "embed": [0.50, 0.70], "near": 1785.0},
 ]
 
 ## Underground, by how far out the cave is: the nearest are worked-over seams of
@@ -738,6 +797,7 @@ func _build_quarry() -> void:
 		field.min_spacing = 14.0
 		field.refill_seconds = 20.0
 		field.churn_seconds = 60.0
+		field.wake_distance = 320.0
 		field.setup([kind], _build_rock, _from_pool(pool), _rng.randi())
 		add_child(field)
 		field.prefill()
@@ -759,41 +819,70 @@ func _build_crater() -> void:
 	field.prefill()
 	rock_fields.append(field)
 
-## Spec (play-test): caves. The terrain chose where; each gets its geometry and
-## a field of ore on the chamber floor - richer than the surface, and most of
-## the gold on the map.
+## The caves: the networks are planned under every island, the surface mouths
+## the terrain found are built as trench-and-portal entrances into their first
+## caverns, and every cavern gets a field of its cave biome's ore - and in the
+## fungal caves, giant glowcaps to fell.
 func _build_caves() -> void:
-	# Nearest first, so each cave's stock can follow how far out it is.
-	var plans: Array = terrain.caves.duplicate()
-	plans.sort_custom(func(a, b): return (a.entrance as Vector3).length() < (b.entrance as Vector3).length())
-	for i in plans.size():
-		var plan: Dictionary = plans[i]
-		var ores: Array = []
-		var table: Array = CAVE_TIERS[mini(CAVE_TIERS.size() - 1, i * CAVE_TIERS.size() / maxi(1, plans.size() - 1))]
-		if i == plans.size() - 1 and plans.size() > 1:
-			table = DEEPEST_CAVE
-			plan = plan.duplicate()
-			plan.name = "Starless Deep"
-		for id in table:
-			var def := GameData.item(id)
-			var rare := def != null and def.value_per_m3 >= 2400.0
-			ores.append({"item": id, "volume": [0.2, 1.0] if rare else [0.35, 2.0],
-				"embed": [0.4, 0.65] if rare else [0.3, 0.55]})
+	network = CaveNetwork.new()
+	network.name = "Caves"
+	network.manager = manager
+	network.plan(terrain, CAVE_ZONES, CAVE_LINKS, 4242)
+	_lap("cave plan")
+	for plan in terrain.caves:
 		var cave := Cave.new()
-		cave.name = String(plan.name).replace(" ", "")
+		cave.name = String(plan.name).replace(" ", "").replace("'", "")
+		cave.with_chamber = false
 		cave.setup(plan.entrance, plan.dir, String(plan.name), _rng.randi())
 		add_child(cave)
 		caves.append(cave)
+		network.entrances.append(cave)
+	add_child(network)
+	_lap("cave build")
+	for i in network.rooms.size():
+		var room: Dictionary = network.rooms[i]
+		var size := maxf(float(room.rx), float(room.rz))
+		var ores: Array = []
+		for id in CaveNetwork.ORES[int(room.kind)]:
+			var def := GameData.item(id)
+			var rare := def != null and def.value_per_m3 >= 2400.0
+			ores.append({"item": id, "volume": [0.15, 0.9] if rare else [0.3, 1.8],
+				"embed": [0.4, 0.65] if rare else [0.3, 0.55]})
 		var field := ResourceField.new()
-		field.name = "Cave_%s" % cave.name
-		field.quota = 8
+		field.name = "Cavern_%d" % i
+		field.quota = 2 if size < 10.0 else (4 if size < 17.0 else 7)
 		field.min_spacing = 3.6
-		field.refill_seconds = 30.0
+		field.refill_seconds = 40.0
 		field.spawn_clearance = 0.0
-		field.setup(ores, _build_rock, cave.chamber_point, _rng.randi())
+		field.wake_distance = 240.0
+		var cavern := room
+		field.setup(ores, _build_rock, func(rng: RandomNumberGenerator) -> Vector3:
+			return network.floor_point(cavern, rng), _rng.randi())
 		add_child(field)
 		field.prefill()
 		rock_fields.append(field)
+		if int(room.kind) == CaveNetwork.Kind.FUNGAL and size >= 9.0:
+			var grove := ResourceField.new()
+			grove.name = "Glowcaps_%d" % i
+			grove.quota = 3 if size < 16.0 else 6
+			grove.min_spacing = 5.0
+			grove.refill_seconds = 60.0
+			grove.spawn_clearance = 0.0
+			grove.wake_distance = 240.0
+			grove.setup([GLOWCAP], _build_tree, func(rng: RandomNumberGenerator) -> Vector3:
+				return network.floor_point(cavern, rng), _rng.randi())
+			add_child(grove)
+			grove.prefill()
+			tree_fields.append(grove)
+
+## The giant mushroom of the fungal caves: a pale stem and a glowing cap.
+const GLOWCAP := {"name": "Glowcap", "item": &"wood_glowcap",
+	"biomes": [0, 1, 2, 3, 4, 5], "underground": true,
+	"leaf": Color(0.35, 0.95, 0.75), "accent": Color(0.85, 1.0, 0.9), "bark": Color(0.86, 0.84, 0.76),
+	"work": 450.0, "glow": 1.4,
+	"radius": [0.45, 0.75], "height": [3.5, 6.5], "taper": 0.9, "branches": [0, 0],
+	"start": 0.9, "pitch": [0.0, 0.1], "length": [0.1, 0.1],
+	"foliage": 1.0, "crown": [6.0, 0.45], "style": &"cap"}
 
 func _build_outposts() -> void:
 	for spec in OUTPOSTS:
@@ -955,6 +1044,26 @@ func trees() -> Array[ChoppableTree]:
 			var tree := node as ChoppableTree
 			if tree != null and tree.standing():
 				out.append(tree)
+	return out
+
+## Everything the fields hold, built or still a note far away: {what, pos,
+## species}. `what` is the wood or ore item id.
+func census() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for field in tree_fields + rock_fields:
+		for node in field.alive:
+			if not is_instance_valid(node):
+				continue
+			if node is ChoppableTree:
+				var tree := node as ChoppableTree
+				if tree.standing():
+					out.append({"what": tree.wood_item, "pos": tree.global_position, "species": tree.species})
+			elif node is OreRock:
+				out.append({"what": (node as OreRock).ore_item, "pos": node.global_position, "species": ""})
+		for note in field.dormant:
+			var entry: Dictionary = note.entry
+			out.append({"what": entry.get("item", &""), "pos": field.to_global(note.position),
+				"species": String(entry.get("name", ""))})
 	return out
 
 ## Every rock still intact, across all fields.
@@ -1249,10 +1358,8 @@ func _process(delta: float) -> void:
 ## turns dark, and a lamp on the player's hat comes on. The caves' own lamps
 ## and crystals are then what you see by.
 func _update_underground(delta: float) -> void:
-	var target := 0.0
 	var eye := player.camera.global_position
-	for cave in caves:
-		target = maxf(target, cave.depth_factor(eye))
+	var target := network.depth_factor(eye) if network != null else 0.0
 	underground = move_toward(underground, target, delta * 1.5)
 	# Underground the ambient light is the cave's own - dim and cool - rather
 	# than the sky's; the lamps and crystals do the rest.

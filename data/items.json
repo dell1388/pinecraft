@@ -1398,6 +1398,82 @@
       "volatility": 0.35
     },
     {
+      "id": "wood_glowcap",
+      "display_name": "Glowcap Stem",
+      "category": "wood",
+      "shape": "cylinder",
+      "variable": true,
+      "radius": 0.3,
+      "length": 1.6,
+      "taper": 0.95,
+      "density": 90,
+      "value_per_m3": 180,
+      "color": [
+        0.78,
+        0.74,
+        0.62
+      ],
+      "volatility": 0.3
+    },
+    {
+      "id": "lumber_glowcap",
+      "display_name": "Glowcap Lumber",
+      "category": "lumber",
+      "shape": "box",
+      "variable": true,
+      "cross_section": [
+        0.3,
+        0.3
+      ],
+      "length": 1.6,
+      "density": 85,
+      "value_per_m3": 900,
+      "color": [
+        0.62,
+        0.95,
+        0.78
+      ],
+      "volatility": 0.3
+    },
+    {
+      "id": "gem_sapphire",
+      "display_name": "Rough Sapphire",
+      "category": "gem",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        0.24,
+        0.2,
+        0.22
+      ],
+      "density": 950,
+      "value_per_m3": 1000,
+      "color": [
+        0.15,
+        0.35,
+        0.95
+      ],
+      "volatility": 0.35
+    },
+    {
+      "id": "jewel_sapphire",
+      "display_name": "Cut Sapphire",
+      "category": "jewel",
+      "shape": "cylinder",
+      "variable": true,
+      "radius": 0.12,
+      "length": 0.1,
+      "taper": 0.5,
+      "density": 950,
+      "value_per_m3": 2000,
+      "color": [
+        0.2,
+        0.4,
+        1.0
+      ],
+      "volatility": 0.35
+    },
+    {
       "id": "crate",
       "display_name": "Shipping Crate",
       "category": "goods",
@@ -1779,6 +1855,26 @@
       "pre": 5000,
       "final": 22000,
       "note": "Polish does nothing; the cut is everything"
+    },
+    {
+      "id": "glowcap",
+      "path": "wood",
+      "raw_item": "wood_glowcap",
+      "final_item": "lumber_glowcap",
+      "raw": 180,
+      "pre": 170,
+      "final": 520,
+      "note": "Fungal caves only. Spongy until it is planked"
+    },
+    {
+      "id": "sapphire",
+      "path": "gem",
+      "raw_item": "gem_sapphire",
+      "final_item": "jewel_sapphire",
+      "raw": 2800,
+      "pre": 3500,
+      "final": 9000,
+      "note": "Ice caves only"
     }
   ]
 }

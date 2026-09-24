@@ -207,7 +207,7 @@ const HOST_STONE := {
 	&"gem_quartz": Color(0.62, 0.60, 0.56), &"gem_jade": Color(0.46, 0.50, 0.44),
 	&"gem_amethyst": Color(0.44, 0.40, 0.42), &"gem_obsidian": Color(0.30, 0.22, 0.20),
 	&"gem_emerald": Color(0.40, 0.42, 0.40), &"gem_ruby": Color(0.52, 0.46, 0.44),
-	&"gem_diamond": Color(0.20, 0.20, 0.24),
+	&"gem_diamond": Color(0.20, 0.20, 0.24), &"gem_sapphire": Color(0.62, 0.70, 0.78),
 }
 
 func _rebuild() -> void:

@@ -619,7 +619,10 @@ func _read_input() -> void:
 func flooded() -> bool:
 	if terrain == null or _seat == null:
 		return false
-	return _seat.global_position.y < Terrain.WATER_LEVEL
+	if _seat.global_position.y >= Terrain.WATER_LEVEL:
+		return false
+	# Below the sea in a cave is dry.
+	return CaveNetwork.active == null or not CaveNetwork.active.contains(_seat.global_position, 1.0)
 
 ## Spec: roads give a slight speed increase.
 func on_road() -> bool:

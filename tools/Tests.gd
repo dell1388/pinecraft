@@ -49,6 +49,9 @@ func _run_all() -> void:
 	await _test(&"every material is worth its raw, pre and final values", test_material_values)
 	await _test(&"stones are polished in the sander and faceted in the gem cutter", test_gem_line)
 	await _test(&"islands, bridges and carved places", test_islands)
+	await _test(&"big consolidated biome regions with real relief", test_regions)
+	await _test(&"roads are routed round hills and switch back up mountains", test_road_routing)
+	await _test(&"cave networks: joined up, below sea level, with open mouths", test_cave_network)
 	await _test(&"belted lines of machines keep flowing without jamming", test_machine_lines)
 	await _test(&"a tunnel mouth is a real opening", test_tunnel_mouth)
 	await _test(&"workbench assembles from volumes", test_workbench)
@@ -1082,6 +1085,171 @@ func test_islands() -> void:
 	var wall := land.height_at(-200.0 - 55.0, 90.0)
 	check(wall > land.height_at(-200.0, 90.0) + 15.0, "the valley has no ridge round it (%.1f)" % wall)
 	check(land.height_at(-200.0, 90.0 + 55.0) < land.height_at(-200.0, 90.0) + 3.0, "the valley has no way in")
+	done()
+
+## A small island map laid out the way the real one is, for the tests below.
+func _region_land() -> Terrain:
+	var land := Terrain.new()
+	land.half_extent = 640.0
+	land.noise_seed = 20260921
+	land.islands = [{"centre": Vector2(0, 0), "radius": 560.0}]
+	land.regions = [
+		{"name": "Woods", "centre": Vector2(-220, 120), "biome": Terrain.Biome.WOODLAND},
+		{"name": "Peaks", "centre": Vector2(260, -160), "biome": Terrain.Biome.MOUNTAIN},
+		{"name": "Sand", "centre": Vector2(-120, -330), "biome": Terrain.Biome.DESERT},
+	]
+	return land
+
+## Spec: larger, consolidated biomes - one big desert, one big range - and
+## real topography everywhere, with the mountains amplified.
+func test_regions() -> void:
+	_setup(false)
+	var land := _region_land()
+	world.add_child(land)
+	await step(2)
+	var agree := 0
+	var total := 0
+	var woods := [INF, -INF]
+	var peak := -INF
+	var x := -420.0
+	while x <= 420.0:
+		var z := -420.0
+		while z <= 420.0:
+			var h := land.height_at(x, z)
+			if h > Terrain.WATER_LEVEL + 1.0 and Vector2(x, z).length() < 380.0:
+				total += 1
+				var nearest := 0
+				var best := INF
+				for i in land.regions.size():
+					var d := Vector2(x, z).distance_to(land.regions[i].centre)
+					if d < best:
+						best = d
+						nearest = i
+				var b := land.biome_at(x, z)
+				var want: Terrain.Biome = land.regions[nearest].biome
+				if b == want or (want == Terrain.Biome.MOUNTAIN and b == Terrain.Biome.SNOW):
+					agree += 1
+				if want == Terrain.Biome.WOODLAND and best < 180.0:
+					woods = [minf(woods[0], h), maxf(woods[1], h)]
+				if want == Terrain.Biome.MOUNTAIN:
+					peak = maxf(peak, h)
+			z += 20.0
+		x += 20.0
+	check(total > 200, "the test island is mostly sea")
+	check(float(agree) / float(total) > 0.75, "biomes are scattered, not regional (%d of %d agree)" % [agree, total])
+	check(float(woods[1]) - float(woods[0]) > 12.0, "the woods are flat (%.1f m of relief)" % (float(woods[1]) - float(woods[0])))
+	check(peak > 140.0, "the mountains top out at %.0f m" % peak)
+	done()
+
+## Spec: roads that wind round hills and switch back up mountains, laid on the
+## ground as a road you can see.
+func test_road_routing() -> void:
+	_setup(false)
+	var land := _region_land()
+	var a := Vector3(-300, 0, 150)
+	var b := Vector3(300, 0, -200)
+	land.roads = [{"route": [a, b]}]
+	world.add_child(land)
+	await step(2)
+	var path: Array = land.roads[0].get("path", [])
+	check(path.size() > 20, "the road was not routed")
+	var span := land._path_length(path)
+	var straight := Vector2(a.x - b.x, a.z - b.z).length()
+	check(span > straight * 1.08, "the road runs straight (%.0f m for %.0f m)" % [span, straight])
+	# Graded no steeper than the limit, over any 30 m of it.
+	var worst := 0.0
+	var along := 0.0
+	while along + 30.0 <= span:
+		var p := land._point_along(path, along)
+		var q := land._point_along(path, along + 30.0)
+		worst = maxf(worst, absf(land.height_at(q.x, q.z) - land.height_at(p.x, p.z)) / 30.0)
+		along += 15.0
+	check(worst <= Terrain.MAX_GRADE + 0.03, "the road climbs at %.2f" % worst)
+	# The road is laid on the land: a textured surface a little above it.
+	var surface := RoadSurface.new()
+	surface.setup(land)
+	world.add_child(surface)
+	await step(1)
+	var meshes := 0
+	for c in surface.get_children():
+		if c is MeshInstance3D and c.name.begins_with("Road"):
+			meshes += 1
+	check(meshes >= 1, "no road surface was built")
+	var mid := land._point_along(path, span * 0.5)
+	check(land.is_road(mid.x, mid.z), "the middle of the road is not marked as road")
+	done()
+
+## Spec: caves much more extensive and interconnected, below sea level, big and
+## small caverns with many tunnels, cave biomes with their own resources.
+func test_cave_network() -> void:
+	_setup(false)
+	var land := _region_land()
+	land.cave_count = 3
+	land.cave_zones = [{"centre": Vector2(0, 0), "radius": 520.0, "count": 3}]
+	world.add_child(land)
+	await step(2)
+	check(land.caves.size() >= 2, "only %d cave mouths" % land.caves.size())
+	var net := CaveNetwork.new()
+	net.plan(land, [{"name": "Test", "centre": Vector2(0, 0), "radius": 520.0, "rooms": 14,
+		"kinds": [[CaveNetwork.Kind.RIVER, Vector2(-220, 120)], [CaveNetwork.Kind.CRYSTAL, Vector2(260, -160)],
+			[CaveNetwork.Kind.DESERT, Vector2(-120, -330)]]}], [], 11)
+	for plan_entry in land.caves:
+		var cave := Cave.new()
+		cave.with_chamber = false
+		cave.setup(plan_entry.entrance, plan_entry.dir, plan_entry.name, 3)
+		world.add_child(cave)
+		net.entrances.append(cave)
+	world.add_child(net)
+	await step(3)
+	var ids: Array = []
+	for i in net.rooms.size():
+		ids.append(i)
+	var comp := net._components(ids)
+	var pieces := {}
+	for i in ids:
+		pieces[comp[i]] = true
+	check(net.rooms.size() >= 12, "only %d caverns" % net.rooms.size())
+	check(pieces.size() == 1, "the network is in %d pieces" % pieces.size())
+	check(net.tunnels.size() >= net.rooms.size() - 1, "too few tunnels to join %d caverns" % net.rooms.size())
+	var below := 0
+	var big := 0
+	var small := 0
+	for room in net.rooms:
+		below += int(float(room.floor) < Terrain.WATER_LEVEL)
+		big += int(maxf(room.rx, room.rz) >= 18.0)
+		small += int(maxf(room.rx, room.rz) < 10.0)
+	check(below > net.rooms.size() / 2, "most caverns are above sea level")
+	check(big >= 1 and small >= 1, "the caverns are all one size")
+	# Every tunnel mouth open into its cavern, and every tunnel floored.
+	var space := world.get_world_3d().direct_space_state
+	var blocked := 0
+	var gaps := 0
+	for t in net.tunnels:
+		var pts: PackedVector3Array = t.points
+		for k in range(1, pts.size() - 1, 3):
+			var q := PhysicsRayQueryParameters3D.create(pts[k], pts[k] - Vector3(0, float(t.radius) * 2.0, 0))
+			q.hit_back_faces = false
+			if space.intersect_ray(q).is_empty():
+				gaps += 1
+		for end in [[int(t.a), 0, 3], [int(t.b), pts.size() - 1, pts.size() - 4]]:
+			var room: Dictionary = net.rooms[end[0]]
+			var from := pts[end[2]] + Vector3(0, 0.3, 0)
+			var mouth := pts[end[1]] + Vector3(0, 0.3, 0)
+			var centre: Vector3 = room.centre
+			centre.y = mouth.y
+			for leg in [[from, mouth], [mouth, centre]]:
+				var q2 := PhysicsRayQueryParameters3D.create(leg[0], leg[1])
+				q2.hit_back_faces = false
+				if not space.intersect_ray(q2).is_empty():
+					blocked += 1
+	check(gaps == 0, "%d places a tunnel has no floor" % gaps)
+	check(blocked == 0, "%d tunnel mouths are walled off" % blocked)
+	# Underground below sea level is dry, and it is dark.
+	var deep: Dictionary = net.rooms[net.rooms.size() - 1]
+	var inside: Vector3 = deep.centre
+	check(net.contains(inside), "the middle of a cavern is not in the caves")
+	check(net.depth_factor(inside) > 0.9, "a cavern is not underground")
+	check(not net.contains(Vector3(0, 400, 0)), "the sky is in the caves")
 	done()
 
 func manager_free_crate(at: Vector3) -> RigidBody3D:

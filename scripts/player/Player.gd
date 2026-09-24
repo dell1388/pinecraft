@@ -158,6 +158,9 @@ func water_depth() -> float:
 	# not in it, however deep it is underneath.
 	if global_position.y > Terrain.WATER_LEVEL + 0.2:
 		return 0.0
+	# Nor in a cave below sea level: the rock keeps the sea out.
+	if CaveNetwork.active != null and CaveNetwork.active.contains(global_position, 1.0):
+		return 0.0
 	return terrain.water_depth(global_position.x, global_position.z)
 
 func _water_surface() -> float:

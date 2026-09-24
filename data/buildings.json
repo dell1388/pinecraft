@@ -608,7 +608,8 @@
         "wood_frost": "lumber_frost",
         "wood_spirit": "lumber_spirit",
         "wood_ember": "lumber_ember",
-        "wood_mahogany": "lumber_mahogany"
+        "wood_mahogany": "lumber_mahogany",
+        "wood_glowcap": "lumber_glowcap"
       },
       "color": [
         0.44,
@@ -733,7 +734,8 @@
         "gem_obsidian": "jewel_obsidian",
         "gem_emerald": "jewel_emerald",
         "gem_ruby": "jewel_ruby",
-        "gem_diamond": "jewel_diamond"
+        "gem_diamond": "jewel_diamond",
+        "gem_sapphire": "jewel_sapphire"
       },
       "yield": 0.5,
       "color": [

@@ -33,6 +33,10 @@ const TIMBER := Color(0.42, 0.29, 0.17)
 const CRYSTAL_COLORS := [Color(0.55, 0.40, 1.0), Color(0.30, 0.85, 0.95), Color(0.95, 0.55, 0.85)]
 
 var cave_name: String = "Cave"
+## False for a cave that opens into a cave network: the network puts a cavern
+## where the chamber would be, so the entrance is only the trench, the portal
+## and the sloping tunnel.
+var with_chamber: bool = true
 var dir: Vector3 = Vector3(0, 0, 1)
 var _rng := RandomNumberGenerator.new()
 var _body: StaticBody3D
@@ -78,9 +82,10 @@ func _ready() -> void:
 	_build_tunnel()
 	_build_surface()
 	add_child(_mesh.instance("CaveMouth"))
-	_mesh = Greeble.new()
-	_build_chamber()
-	add_child(_mesh.instance("CaveChamber"))
+	if with_chamber:
+		_mesh = Greeble.new()
+		_build_chamber()
+		add_child(_mesh.instance("CaveChamber"))
 	Nameplate.landmark(self, cave_name.to_upper(), 9.0, Color(0.80, 0.72, 1.0))
 
 # --- Pieces ----------------------------------------------------------------
@@ -316,5 +321,7 @@ func depth_factor(point: Vector3) -> float:
 	if local.y > 1.5 or local.y < -CHAMBER_DROP - 2.0:
 		return 0.0
 	if local.z < SHAFT_LENGTH + TUNNEL_LENGTH and absf(local.x) > SHAFT_WIDTH * 0.5 + 0.5:
+		return 0.0
+	if not with_chamber and local.z > SHAFT_LENGTH + TUNNEL_LENGTH + 2.0:
 		return 0.0
 	return clampf((local.z - 3.0) / (SHAFT_LENGTH + 2.0), 0.0, 1.0)

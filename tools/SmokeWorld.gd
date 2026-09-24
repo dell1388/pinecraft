@@ -187,8 +187,7 @@ func _check_ui() -> void:
 	print("forest: %d trees of %d species %s" % [world.trees().size(), species.size(), str(species)])
 	print("rocks: %d %s" % [world.rocks().size(), str(ores)])
 	_check_spread()
-	_require(species.size() >= 14, "only %d tree species grew" % species.size())
-	_require(world.trees().size() >= 150, "only %d trees" % world.trees().size())
+	_require(world.trees().size() >= 100, "only %d trees built round home" % world.trees().size())
 	print("ui ok: journal %d tabs, pause/resume, %d toasts, checklist %d/%d" % [
 		Journal.TABS.size(), hud._toasts.get_child_count(), world.tutorial.done_count(), Tutorial.STEPS.size()])
 
@@ -196,47 +195,65 @@ func _check_ui() -> void:
 ## it is - with the best of all hidden: mahogany in a walled valley, diamonds
 ## in the farthest cave, starmetal in the crater.
 func _check_spread() -> void:
-	_require(world.terrain.half_extent * 2.0 >= 2500.0, "the map is %.0f m across" % (world.terrain.half_extent * 2.0))
+	_require(world.terrain.half_extent * 2.0 >= 4000.0, "the map is %.0f m across" % (world.terrain.half_extent * 2.0))
 	_require(world.bridges.size() >= 3, "only %d bridges" % world.bridges.size())
 	for b in world.bridges:
 		var bridge: Bridge = b
 		_require(bridge.from_point.y > Terrain.WATER_LEVEL and bridge.to_point.y > Terrain.WATER_LEVEL,
 			"a bridge ends in the water")
 	# Cheap stuff near home, dear stuff far out: mean distance by value.
+	var all := world.census()
 	var cheap := [0.0, 0]
 	var dear := [0.0, 0]
-	for rock in world.rocks():
-		var def := GameData.item(rock.ore_item)
-		var d := Vector2(rock.global_position.x, rock.global_position.z).length()
-		var bucket: Array = dear if def.value_per_m3 >= 1800.0 else (cheap if def.value_per_m3 <= 900.0 else [0.0, 0])
-		bucket[0] += d
-		bucket[1] += 1
-	var near_mean: float = cheap[0] / maxf(1.0, cheap[1])
-	var far_mean: float = dear[0] / maxf(1.0, dear[1])
-	print("spread: cheap ore %.0f m out on average, dear ore %.0f m, %d bridges" % [near_mean, far_mean, world.bridges.size()])
-	_require(far_mean > near_mean * 1.8, "the dear ore is not further out than the cheap (%.0f vs %.0f)" % [far_mean, near_mean])
+	var species := {}
+	var diamonds := 0
+	var mahogany := 0
+	var starmetal := 0
 	var deepest: Cave = null
 	for cave in world.caves:
 		if deepest == null or cave.global_position.length() > deepest.global_position.length():
 			deepest = cave
-	var diamonds := 0
-	for rock in world.rocks():
-		if rock.ore_item == &"gem_diamond":
+	for rec in all:
+		var pos: Vector3 = rec.pos
+		var id: StringName = rec.what
+		if rec.species != "":
+			species[rec.species] = int(species.get(rec.species, 0)) + 1
+		if String(id).begins_with("ore_") or String(id).begins_with("gem_"):
+			var def := GameData.item(id)
+			var d := Vector2(pos.x, pos.z).length()
+			if pos.y > world.terrain.height_at(pos.x, pos.z) - 4.0:
+				if def.value_per_m3 >= 1800.0:
+					dear[0] += d
+					dear[1] += 1
+				elif def.value_per_m3 <= 900.0:
+					cheap[0] += d
+					cheap[1] += 1
+		if id == &"gem_diamond":
 			diamonds += 1
-			_require(deepest != null and rock.global_position.distance_to(deepest.global_position) < 90.0,
-				"a diamond is outside the farthest cave")
-		if rock.ore_item == &"ore_starmetal":
-			_require(rock.global_position.distance_to(Vector3(620, rock.global_position.y, 885)) < 60.0,
-				"starmetal is outside the crater")
-	_require(diamonds > 0, "there are no diamonds")
-	_require(deepest != null and deepest.global_position.length() > 800.0, "the farthest cave is close to home")
-	var mahogany := 0
-	for tree in world.trees():
-		if tree.species == "Mahogany":
+			_require(pos.y < world.terrain.height_at(pos.x, pos.z) - 6.0, "a diamond is not underground")
+		if id == &"ore_starmetal" and pos.y > world.terrain.height_at(pos.x, pos.z) - 4.0:
+			starmetal += 1
+			_require(Vector2(pos.x - 1160.0, pos.z - 1170.0).length() < 70.0, "surface starmetal is outside the crater")
+		if rec.species == "Mahogany":
 			mahogany += 1
-			_require(Vector2(tree.global_position.x + 1030.0, tree.global_position.z - 70.0).length() < 45.0,
-				"a mahogany grew outside the hidden valley")
+			_require(Vector2(pos.x + 1470.0, pos.z - 1480.0).length() < 50.0, "a mahogany grew outside the hidden valley")
+	var near_mean: float = cheap[0] / maxf(1.0, cheap[1])
+	var far_mean: float = dear[0] / maxf(1.0, dear[1])
+	print("census: %d trees and rocks (built and dormant), %d species" % [all.size(), species.size()])
+	print("spread: cheap ore %.0f m out on average, dear ore %.0f m, %d bridges" % [near_mean, far_mean, world.bridges.size()])
+	_require(far_mean > near_mean * 1.8, "the dear ore is not further out than the cheap (%.0f vs %.0f)" % [far_mean, near_mean])
+	_require(diamonds > 0, "there are no diamonds")
+	_require(starmetal > 0, "there is no starmetal in the crater")
 	_require(mahogany > 0, "no mahogany grew")
+	_require(species.size() >= 16, "only %d tree species" % species.size())
+	_require(deepest != null and deepest.global_position.length() > 1500.0, "no cave mouth on a far island")
+	# The caves: big, deep and joined up.
+	var net: Dictionary = world.network.summary()
+	print("caves: %s" % str(net))
+	_require(int(net.caverns) >= 60, "only %d caverns" % int(net.caverns))
+	_require(float(net.tunnel_km) >= 8.0, "only %.1f km of tunnel" % float(net.tunnel_km))
+	_require(int(net.below_sea) > int(net.caverns) / 2, "most caverns are above sea level")
+	_require((net.kinds as Dictionary).size() >= 6, "only %d cave biomes" % (net.kinds as Dictionary).size())
 
 func _require(condition: bool, message: String) -> void:
 	if not condition:
