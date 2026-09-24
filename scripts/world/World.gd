@@ -326,6 +326,8 @@ func _build_terrain() -> void:
 	terrain.reserve_site(Vector3(DEPOT_POSITION.x, 0.6, DEPOT_POSITION.z), 16.0)
 	terrain.reserve_site(Vector3(STORE_POSITION.x, 0.6, STORE_POSITION.z), 20.0)
 	terrain.reserve_site(Vector3(QUARRY_CENTRE.x, 0.5, QUARRY_CENTRE.z), 34.0)
+	# Kept clear for the demo lines, whether or not they are switched on.
+	terrain.reserve_site(Vector3(SHOWCASE_POSITION.x, 5.9, SHOWCASE_POSITION.z - 4.0), 30.0)
 	terrain.cave_count = 9
 	for spec in OUTPOSTS:
 		var request := {"name": spec.name, "biomes": spec.biomes,
