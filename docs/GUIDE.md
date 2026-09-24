@@ -177,6 +177,23 @@ its cell grid and a hazard-striped edge.
 
 ## The map
 
+> **Current world (latest):** 4.8 km across. A home island 2.4 km wide, split
+> into big single-biome regions (the Greenwood round home, the Spine Mountains
+> with peaks over 250 m, the Redsand Desert with dunes and mesas, the Mudflat
+> Swamp, the Northpine Taiga), and five more islands: Frostreach (snow),
+> Sunscar (desert mesas), Mirewood (swamp and hills), Crater Isle (Star Crater,
+> starmetal) and Hollow Isle (the Hidden Valley and its mahogany), which only
+> the deep tunnel under the sea reaches. Roads are routed on the land with a
+> 1-in-9 grade limit, so they wind and switch back, and are drawn as asphalt
+> with lines, verges and posts (dirt tracks to outposts). Under every island
+> is a cave network - about 100 caverns and 15-18 km of tunnel, three quarters
+> below sea level, all joined up - in seven cave biomes: river, desert,
+> crystal, ice (sapphires), fungal (glowcap mushrooms to fell), magma and the
+> abyss (diamonds). Generation is threaded and cached in
+> `user://terrain_cache.bin`; far trees and rocks stay dormant until you come
+> near, and decor streams in round you. Some of the detail below describes the
+> earlier, smaller map.
+
 The map is **2.5 km across**, and it is mostly islands: a big home island in
 the middle with the plot, the yard, the store and the quarry, and four more
 out across the water - **Frostreach** to the north (snow and mountains, the

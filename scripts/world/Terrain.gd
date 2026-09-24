@@ -71,7 +71,7 @@ var road_paths: Array[Dictionary] = []
 ## meshing.
 var cache_path: String = ""
 ## Bumped whenever generation changes, so an old cache is not trusted.
-const GENERATOR_VERSION := 7
+const GENERATOR_VERSION := 8
 
 var _cells: int = 0
 var _heights: PackedFloat32Array = PackedFloat32Array()
@@ -517,10 +517,13 @@ func _biome_height(biome: Biome, x: float, z: float) -> float:
 	var d := _detail.get_noise_2d(x, z)
 	match biome:
 		Biome.WOODLAND:
-			return 6.0 + 30.0 * e + 4.0 * d
+			# Long swells with knolls and hollows on them.
+			var knoll := _mesa.get_noise_2d(x * 1.4, z * 1.4)
+			return 8.0 + 32.0 * e + 11.0 * knoll + 4.0 * d
 		Biome.TAIGA:
 			var r := _ridge.get_noise_2d(x, z) * 0.5 + 0.5
-			return 10.0 + 40.0 * e + 22.0 * r * r + 4.0 * d
+			var knoll2 := _mesa.get_noise_2d(x * 1.2 + 900.0, z * 1.2)
+			return 12.0 + 44.0 * e + 26.0 * r * r + 9.0 * knoll2 + 4.0 * d
 		Biome.SWAMP:
 			var wet := smoothstep(0.55, 0.78, _moisture.get_noise_2d(x, z) * 0.5 + 0.5)
 			return 1.6 + 4.0 * e - 2.8 * wet + 0.6 * d
@@ -1156,6 +1159,16 @@ func _build_sheets(sea: PackedVector3Array, water: PackedVector3Array) -> void:
 		outer.append_array(PackedVector3Array([p00, p11, p01, p00, p10, p11]))
 	water.append_array(outer)
 	add_child(_flat_mesh(water, mat, "Water"))
+	# The sea bed goes on past the edge of the map too, so open water looks
+	# the same inside the map and out.
+	if not islands.is_empty():
+		var bed_out := PackedVector3Array()
+		for i in range(0, outer.size()):
+			bed_out.append(Vector3(outer[i].x, SEA_FLOOR, outer[i].z))
+		var bed2 := StandardMaterial3D.new()
+		bed2.albedo_color = BED_COLOR
+		bed2.roughness = 1.0
+		add_child(_flat_mesh(bed_out, bed2, "SeaBedOuter"))
 
 func _flat_mesh(verts: PackedVector3Array, mat: Material, label: String) -> MeshInstance3D:
 	var normals := PackedVector3Array()
