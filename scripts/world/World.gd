@@ -686,10 +686,54 @@ func spawn_vehicle() -> void:
 	hauler.position = terrain.place(Vector3(10, 0, 16), 1.5)
 	add_child(hauler)
 
+## Pads save their own vehicles with the plot. Only a truck from a game that
+## predates pads needs saving on its own.
+func _padless_vehicle() -> Node3D:
+	if hauler == null or not is_instance_valid(hauler):
+		return null
+	for pad in plot.pads():
+		if pad.vehicle == hauler:
+			return null
+	return hauler
+
+## A pad replaces its own vehicle; if that is the one being driven, the driver
+## is put back on their feet first.
 func _on_vehicle_spawned(vehicle: Node3D) -> void:
 	if player != null and player.driving():
-		player.exit_vehicle()
-	hauler = vehicle as Hauler
+		var riding: Node3D = player.vehicle
+		if riding == null or not is_instance_valid(riding) or riding.is_queued_for_deletion():
+			player.exit_vehicle()
+	if player == null or not player.driving():
+		hauler = vehicle as Hauler
+
+## Every vehicle out in the world: one per pad, plus a truck from a save that
+## predates pads.
+func vehicles() -> Array[Hauler]:
+	var out: Array[Hauler] = []
+	for pad in plot.pads():
+		if pad.has_vehicle() and not pad.vehicle.is_queued_for_deletion():
+			out.append(pad.vehicle as Hauler)
+	if hauler != null and is_instance_valid(hauler) and not hauler.is_queued_for_deletion() \
+			and not out.has(hauler):
+		out.append(hauler)
+	return out
+
+## The vehicle you are driving, or else the nearest one within `reach`
+## (measured to its hull, so a long truck is as easy to get into as a quad).
+func vehicle_at_hand(reach: float = 6.0) -> Hauler:
+	if player != null and player.driving():
+		return player.vehicle as Hauler
+	var best: Hauler = null
+	var best_d := INF
+	for v in vehicles():
+		var local := v.global_transform.affine_inverse() * player.global_position
+		var half := v.body_size * 0.5
+		var outside := Vector3(maxf(absf(local.x) - half.x, 0.0), 0.0, maxf(absf(local.z) - half.z, 0.0))
+		var d := outside.length()
+		if d < best_d:
+			best = v
+			best_d = d
+	return best if best_d <= reach else null
 
 # --- Menus, settings and the HUD's view of the world -----------------------
 
@@ -700,11 +744,18 @@ func compass_markers() -> Array[Dictionary]:
 		{"name": "Sell Yard", "color": Color(0.98, 0.80, 0.30), "where": func(): return depot.global_position},
 		{"name": "Store", "color": Color(0.55, 0.78, 1.0), "where": func(): return store.global_position},
 		{"name": "Quarry", "color": Color(0.80, 0.70, 0.62), "where": func(): return QUARRY_CENTRE},
-		{"name": "Hauler", "color": Color(1.0, 0.55, 0.40), "where": func():
-			if hauler == null or not is_instance_valid(hauler) or player.driving():
-				return null
-			return hauler.global_position},
 	]
+	# Each kind of vehicle you own, wherever it was left.
+	for id in GameData.vehicles:
+		var spec: Dictionary = GameData.vehicles[id]
+		var c: Array = spec.get("paint", [1.0, 0.55, 0.4])
+		var kind: StringName = id
+		base.append({"name": String(spec.get("display_name", id)),
+			"color": Color(c[0], c[1], c[2]).lightened(0.2), "where": func():
+				for v in vehicles():
+					if v.vehicle_id == kind and v != player.vehicle:
+						return v.global_position
+				return null})
 	# Places out on the map: named once found, a "?" when close and not yet.
 	var markers: Array[Dictionary] = base
 	for poi in points_of_interest():
@@ -784,7 +835,7 @@ func resume_play() -> void:
 	player.capture_mouse(not hud.journal_open())
 
 func quick_save() -> bool:
-	var ok := SaveSystem.save_game(plot, player, SaveSystem.SAVE_PATH, manager, hauler, quests)
+	var ok := SaveSystem.save_game(plot, player, SaveSystem.SAVE_PATH, manager, _padless_vehicle(), quests)
 	if ok:
 		hud.flash_saved()
 	else:
@@ -818,14 +869,14 @@ func start_new_game() -> void:
 
 func quit_game() -> void:
 	if playing:
-		SaveSystem.save_game(plot, player, SaveSystem.SAVE_PATH, manager, hauler, quests)
+		SaveSystem.save_game(plot, player, SaveSystem.SAVE_PATH, manager, _padless_vehicle(), quests)
 	get_tree().quit()
 
 func _notification(what: int) -> void:
 	match what:
 		NOTIFICATION_WM_CLOSE_REQUEST:
 			if playing and hud != null:
-				SaveSystem.save_game(plot, player, SaveSystem.SAVE_PATH, manager, hauler, quests)
+				SaveSystem.save_game(plot, player, SaveSystem.SAVE_PATH, manager, _padless_vehicle(), quests)
 		NOTIFICATION_APPLICATION_FOCUS_OUT:
 			# Alt-tab pauses, rather than leaving the truck rolling.
 			if playing and pause_menu != null and not get_tree().paused \
@@ -914,10 +965,11 @@ func _update_underground(delta: float) -> void:
 		get_tree().call_group(Nameplate.LANDMARK_GROUP, "set_visible", plates_on)
 
 func _physics_process(delta: float) -> void:
-	if player != null and player.driving() and hauler != null:
+	var riding := player.vehicle as Hauler if player != null and player.driving() else null
+	if riding != null and is_instance_valid(riding):
 		# The player rides the seat; the camera is a child of the player, so
 		# this doubles as the driving camera.
-		player.global_position = hauler.seat_transform().origin
+		player.global_position = riding.seat_transform().origin
 		player.velocity = Vector3.ZERO
 	if not autosave or not playing or not Settings.flag(&"autosave"):
 		return
@@ -947,31 +999,44 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			if not building:
 				_toggle_vehicle()
 		KEY_X:
-			if hauler != null and not building:
-				var n := hauler.unload()
-				hud.log_message("tailgate down: tipping out %d piece(s)" % n if n > 0 else "the bed is empty")
+			var v := vehicle_at_hand(8.0)
+			if v != null and not building:
+				if not v.has_bed():
+					hud.log_message("the %s has nothing to unload" % v.display_name.to_lower())
+				else:
+					var n := v.unload()
+					var how := "tub up" if v.bed_kind == &"tub" else "tailgate down"
+					hud.log_message("%s: tipping out %d piece(s)" % [how, n] if n > 0 else "the bed is empty")
 		KEY_Z:
-			if hauler != null and not building and hauler.unload_one():
-				hud.log_message("dropping one off the back (%d left)" % (hauler.cargo_count() - 1))
+			var v := vehicle_at_hand(8.0)
+			if v != null and not building and v.unload_one():
+				hud.log_message("dropping one off the back (%d left)" % (v.cargo_count() - 1))
 		KEY_C:
-			if hauler != null and not building:
-				hauler.recover()
-				hud.toast("Hauler recovered", UITheme.ACCENT)
+			var v := vehicle_at_hand(8.0)
+			if v != null and not building:
+				v.recover()
+				hud.toast("%s recovered" % v.display_name, UITheme.ACCENT)
 
 func _toggle_vehicle() -> void:
-	if hauler == null:
-		hud.log_message("No hauler yet - it is sold at the Store, and spawns on a Hauler Pad")
-		return
 	if player.driving():
+		var riding := player.vehicle as Hauler
 		player.exit_vehicle()
-		hauler.driver = null
-		player.global_position = hauler.global_position + hauler.global_transform.basis.x * 2.6 + Vector3(0, 1.0, 0)
-		hud.log_message("left the hauler")
+		if riding != null and is_instance_valid(riding):
+			riding.driver = null
+			# Out of the driver's door, clear of the body whatever its width.
+			player.global_position = riding.global_position \
+				+ riding.global_transform.basis.x * (riding.body_size.x * 0.5 + 1.3) + Vector3(0, 1.0, 0)
+			hud.log_message("left the %s" % riding.display_name.to_lower())
 		return
-	if player.global_position.distance_to(hauler.global_position) > 6.0:
-		hud.log_message("too far from the hauler")
+	if vehicles().is_empty():
+		hud.log_message("No vehicle yet - they are sold at the Store, and each spawns on its own pad")
 		return
-	player.enter_vehicle(hauler)
-	hauler.driver = player
-	if hauler.cargo_count() > 0:
-		hud.log_message("%d piece(s) in the bed - they ride loose, so mind the corners" % hauler.cargo_count())
+	var v := vehicle_at_hand(4.0)
+	if v == null:
+		hud.log_message("walk up to a vehicle to get in")
+		return
+	hauler = v
+	player.enter_vehicle(v)
+	v.driver = player
+	if v.cargo_count() > 0:
+		hud.log_message("%d piece(s) in the bed - they ride loose, so mind the corners" % v.cargo_count())

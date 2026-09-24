@@ -13,6 +13,8 @@ var machines: Dictionary = {}       ## StringName -> MachineDef
 var upgrade_tracks: Dictionary = {} ## StringName -> Array[Dictionary]
 var plot_expansions: Array = []
 var vehicle_def: Dictionary = {}
+## Every vehicle's spec, as read from vehicles.json: id -> Dictionary.
+var vehicles: Dictionary = {}
 var price_config: Dictionary = {}
 var quest_config: Dictionary = {}
 var store_config: Dictionary = {}
@@ -56,6 +58,10 @@ func load_all() -> void:
 		upgrade_tracks[StringName(track["id"])] = track
 	plot_expansions = u_data.get("plot_expansions", [])
 	vehicle_def = u_data.get("vehicle", {})
+
+	vehicles.clear()
+	for entry in _read("vehicles.json").get("vehicles", []):
+		vehicles[StringName(entry["id"])] = entry
 
 	price_config = _read("prices.json")
 	quest_config = _read("quests.json")
@@ -122,6 +128,8 @@ func _validate() -> void:
 	for b: BuildingDef in buildings.values():
 		if b.kind == &"machine" and not machines.has(b.machine):
 			load_errors.append("building '%s' references unknown machine '%s'" % [b.id, b.machine])
+		if b.kind == &"pad" and not vehicles.has(b.vehicle):
+			load_errors.append("pad '%s' spawns unknown vehicle '%s'" % [b.id, b.vehicle])
 	for e in load_errors:
 		push_error("GameData: %s" % e)
 
@@ -133,6 +141,9 @@ func item(id: StringName) -> ItemDef:
 func item_name(id: StringName) -> String:
 	var def: ItemDef = items.get(id)
 	return def.display_name if def != null else String(id)
+
+func vehicle(id: StringName) -> Dictionary:
+	return vehicles.get(id, {})
 
 func building(id: StringName) -> BuildingDef:
 	return buildings.get(id)

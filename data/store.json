@@ -55,6 +55,36 @@
       "box": "box_hauler",
       "kind": "unlock",
       "target": "vehicle_pad"
+    },
+    {
+      "box": "box_quad",
+      "kind": "unlock",
+      "target": "pad_quad"
+    },
+    {
+      "box": "box_pickup",
+      "kind": "unlock",
+      "target": "pad_pickup"
+    },
+    {
+      "box": "box_buggy",
+      "kind": "unlock",
+      "target": "pad_buggy"
+    },
+    {
+      "box": "box_log_truck",
+      "kind": "unlock",
+      "target": "pad_log_truck"
+    },
+    {
+      "box": "box_dump_truck",
+      "kind": "unlock",
+      "target": "pad_dump_truck"
+    },
+    {
+      "box": "box_crane_truck",
+      "kind": "unlock",
+      "target": "pad_crane_truck"
     }
   ]
 }

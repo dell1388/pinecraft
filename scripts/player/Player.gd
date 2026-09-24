@@ -316,7 +316,10 @@ func _update_chase_camera(_delta: float) -> void:
 		return
 	var pivot := focus.global_position + Vector3(0, chase_height, 0)
 	var basis := Basis.from_euler(Vector3(camera.rotation.x, rotation.y, 0.0))
-	camera.global_transform = Transform3D(basis, pivot + basis.z * chase_distance)
+	var distance: float = chase_distance
+	if focus == vehicle and vehicle.get("camera_distance") != null:
+		distance = float(vehicle.get("camera_distance"))
+	camera.global_transform = Transform3D(basis, pivot + basis.z * distance)
 
 ## Spec: while the crane holds something the player drives the object - WASD
 ## slides it, Shift and Control raise and lower it, R and T turn it.

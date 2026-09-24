@@ -28,6 +28,8 @@ signal crane_released(item: LooseItem)
 ## How fast the winch takes up line, and how fast the crane moves a load.
 @export var winch_speed: float = 3.2
 @export var crane_speed: float = 3.4
+## Where the winch fairlead or crane head sits, in the vehicle's frame.
+@export var head_offset: Vector3 = Vector3(0, 1.1, -1.2)
 
 var vehicle: RigidBody3D
 
@@ -55,8 +57,7 @@ func _ready() -> void:
 func head_point() -> Vector3:
 	if vehicle == null:
 		return global_position
-	return vehicle.global_position + vehicle.global_transform.basis.y * 1.1 \
-		- vehicle.global_transform.basis.z * 1.2
+	return vehicle.global_transform * head_offset
 
 # --- Winch -----------------------------------------------------------------
 
@@ -125,6 +126,8 @@ func reel(delta: float) -> void:
 func grab(item: LooseItem) -> String:
 	if held != null:
 		return "the crane is already holding something"
+	if crane_power_kg <= 0.0:
+		return "this vehicle has no crane"
 	if item == null or item.state != LooseItem.State.FREE:
 		return "nothing to lift"
 	if item.mass > crane_power_kg:
@@ -195,6 +198,8 @@ func status_line() -> String:
 			return "winch: %.0f kg is past its %.0f kg rating - nothing doing" % [
 				winch_load_kg(), winch_power_kg]
 		return "winch: hooked on  [G] reel in  [E] unhook"
+	if crane_power_kg <= 0.0:
+		return "winch %.0f kg, %.0f m of line" % [winch_power_kg, reach]
 	return "winch %.0f kg / crane %.0f kg, %.0f m reach" % [
 		winch_power_kg, crane_power_kg, reach]
 

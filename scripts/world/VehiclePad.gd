@@ -45,7 +45,7 @@ func has_vehicle() -> bool:
 func spawn() -> Node3D:
 	recall()
 	var truck := Hauler.new()
-	truck.setup(manager, plot_id)
+	truck.setup(manager, plot_id, def.vehicle if def != null else &"hauler")
 	truck.terrain = terrain
 	var target: Node3D = host if host != null else get_parent() as Node3D
 	if target == null:
@@ -53,7 +53,7 @@ func spawn() -> Node3D:
 	target.add_child(truck)
 	truck.global_transform = Transform3D(
 		Basis.from_euler(Vector3(0, global_rotation.y, 0)),
-		global_position + Vector3(0, 1.4, 0))
+		global_position + Vector3(0, truck.spawn_height(), 0))
 	vehicle = truck
 	vehicle_spawned.emit(self, truck)
 	return truck
@@ -71,8 +71,12 @@ func recall() -> bool:
 func status_line() -> String:
 	if has_vehicle():
 		var distance := global_position.distance_to((vehicle as Node3D).global_position)
-		return "%s: [E] recall and respawn (truck is %.0f m away)" % [def.display_name, distance]
-	return "%s: [E] spawn the hauler" % def.display_name
+		return "%s: [E] recall and respawn (it is %.0f m away)" % [def.display_name, distance]
+	return "%s: [E] spawn the %s" % [def.display_name, vehicle_name().to_lower()]
+
+func vehicle_name() -> String:
+	var spec := GameData.vehicle(def.vehicle if def != null else &"hauler")
+	return String(spec.get("display_name", "vehicle"))
 
 # --- Geometry --------------------------------------------------------------
 

@@ -78,6 +78,10 @@ func _run_all() -> void:
 	await _test(&"the hauler corners instead of sliding", test_hauler_grip)
 	await _test(&"a parked hauler stays put", test_hauler_parked)
 	await _test(&"a pad spawns one vehicle and replaces it", test_vehicle_pad)
+	await _test(&"every vehicle is for sale and has its own pad", test_vehicle_catalogue)
+	await _test(&"every vehicle settles, drives and carries", test_vehicle_fleet)
+	await _test(&"the dump truck tips its load out", test_dump_truck)
+	await _test(&"debug unlimited money", test_unlimited_money)
 	await _test(&"winch and crane respect their power ratings", test_vehicle_rig)
 	await _test(&"kill plane rescues fallen items", test_kill_plane)
 	await _test(&"per-plot cap is enforced", test_cap)
@@ -2302,7 +2306,9 @@ func test_hauler() -> void:
 	check_near(loose_volume(), loaded, 0.0001, "the load changed size on the way out")
 	var inverse := truck.global_transform.affine_inverse()
 	for item in returned:
-		check((inverse * item.global_position).z > Hauler.BED_BACK, "a piece came out somewhere other than the back")
+		# Out at the rear: behind the back axle, if not always clear of the
+		# overhang - a log dropped off a tailgate can roll back under it.
+		check((inverse * item.global_position).z > 1.7, "a piece came out somewhere other than the back (%s)" % str((inverse * item.global_position).snapped(Vector3(0.01, 0.01, 0.01))))
 		check(item.carrier == null, "an unloaded piece still thinks it is in the truck")
 	check(not truck._tailgate.disabled, "the tailgate did not close after unloading")
 
@@ -2485,6 +2491,117 @@ func test_vehicle_pad() -> void:
 	await step(10)
 	check(not pad.has_vehicle(), "the pad still has a truck after a recall")
 	check(_haulers_in(world) == 0, "a recall left %d trucks behind" % _haulers_in(world))
+	done()
+
+## Spec from play-testing: more vehicles. Each one is sold in the store as a
+## crated pad, and the pad spawns that vehicle and no other.
+func test_vehicle_catalogue() -> void:
+	_setup()
+	check(GameData.vehicles.size() >= 7, "only %d vehicles in the game" % GameData.vehicles.size())
+	plot.vehicle_host = world
+	var sold: Array = []
+	for entry in GameData.store_products():
+		sold.append(String(entry.get("target", "")))
+	var x := -12
+	for id in GameData.vehicles:
+		var pad_def: BuildingDef = null
+		for b: BuildingDef in GameData.buildings.values():
+			if b.kind == &"pad" and b.vehicle == id:
+				pad_def = b
+		check(pad_def != null, "no pad spawns the %s" % id)
+		if pad_def == null:
+			continue
+		check(sold.has(String(pad_def.id)), "the store does not sell the %s" % pad_def.display_name)
+		check(pad_def.unlock_cost > 0, "the %s is free" % id)
+		PlayerState.unlocked_buildings.append(pad_def.id)
+		var pad := plot.place(pad_def, Vector2i(x, -12), 0) as VehiclePad
+		x += 5
+		check(pad != null, "could not place the %s" % pad_def.display_name)
+		if pad == null:
+			continue
+		await step(2)
+		var v := pad.spawn() as Hauler
+		await step(2)
+		check(v != null and v.vehicle_id == id, "the %s pad spawned the wrong thing" % id)
+		if v != null:
+			pad.recall()
+	done()
+
+## Every vehicle sits on its wheels, drives off under throttle without
+## tipping over, and - if it has a bed - holds what is put in it.
+func test_vehicle_fleet() -> void:
+	for id in GameData.vehicles:
+		_setup(false)
+		var truck := Hauler.new()
+		truck.setup(manager, 0, id)
+		world.add_child(truck)
+		truck.global_position = Vector3(0, truck.spawn_height(), 0)
+		await step(90)
+		var up := truck.global_transform.basis.y.dot(Vector3.UP)
+		check(up > 0.95, "the %s does not sit level (up %.2f)" % [id, up])
+		var belly := truck.global_position.y - truck.body_size.y * 0.5
+		check(belly > 0.1, "the %s sits on its belly (%.2f m clear)" % [id, belly])
+		check(truck.parked() and truck.sleeping, "the parked %s did not settle" % id)
+		if truck.has_bed():
+			check(truck.load_item(&"lumber_pine"), "the %s would not take a plank" % id)
+			await step(40)
+			check_eq(truck.cargo_count(), 1, "the %s lost the plank from its bed" % id)
+		else:
+			check(not truck.can_accept(&"lumber_pine"), "the %s has no bed but takes cargo" % id)
+		var start := truck.global_position
+		truck.autopilot = true
+		truck.input_throttle = 1.0
+		await step(100)
+		var went := start.distance_to(truck.global_position)
+		check(went > 5.0, "the %s only moved %.1f m under full throttle" % [id, went])
+		check(truck.linear_velocity.length() <= truck.max_speed * 1.5, "the %s broke its speed cap" % id)
+		check(truck.global_transform.basis.y.dot(Vector3.UP) > 0.8, "the %s tipped over pulling away" % id)
+		if truck.has_bed():
+			check_eq(truck.cargo_count(), 1, "the %s dropped its plank pulling away" % id)
+		truck.queue_free()
+	done()
+
+## The dump truck's tub swings up on its hinge, the load slides out of the
+## back under gravity, and the tub comes back down empty.
+func test_dump_truck() -> void:
+	_setup(false)
+	var truck := Hauler.new()
+	truck.setup(manager, 0, &"dump_truck")
+	world.add_child(truck)
+	truck.global_position = Vector3(0, truck.spawn_height(), 0)
+	await step(60)
+	for i in 5:
+		check(truck.load_item(&"lumber_pine"), "the tub refused a plank")
+	await step(60)
+	check_eq(truck.cargo_count(), 5, "the tub did not hold its load")
+	check_eq(truck.unload(), 5, "unloading counted the wrong load")
+	var highest := 0.0
+	for i in 12:
+		await step(20)
+		highest = maxf(highest, truck.tub_angle())
+	check(highest > 0.8, "the tub only tipped to %.2f rad" % highest)
+	await step(300)
+	check_eq(truck.cargo_count(), 0, "the tub kept %d pieces" % truck.cargo_count())
+	check_near(truck.tub_angle(), 0.0, 0.001, "the tub did not come back down")
+	check(not truck._tailgate.disabled, "the tub's tailgate stayed open")
+	var inverse := truck.global_transform.affine_inverse()
+	for item in manager.free_items():
+		check((inverse * item.global_position).z > truck.bed_mid_z, "a plank came out somewhere other than the back")
+	done()
+
+## Debug setting: with unlimited money on, anything can be bought and nothing
+## is taken off you.
+func test_unlimited_money() -> void:
+	_setup()
+	Economy.from_dict({"money": 100, "day": 1})
+	check(not Economy.can_afford(1000000), "a fortune is affordable with $100")
+	Settings.set_value(&"unlimited_money", true, false)
+	check(Economy.can_afford(1000000), "unlimited money cannot afford things")
+	check(Economy.try_spend(1000000), "unlimited money would not spend")
+	check_eq(Economy.money, 100, "unlimited money still took the money")
+	check(PlayerState.try_unlock(&"pad_crane_truck"), "unlimited money could not unlock the crane truck")
+	Settings.set_value(&"unlimited_money", false, false)
+	check(not Economy.try_spend(1000000), "turning it off left money unlimited")
 	done()
 
 ## Spec: every machine has a set power, beyond which it has no effect. The crane

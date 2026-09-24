@@ -1,11 +1,13 @@
 class_name Hauler
 extends RigidBody3D
 
-## Flatbed hauler.
+## A drivable vehicle: quad bike, pickup, flatbed, log truck, dump truck...
+## They are all this one body, sized, weighted and dressed from vehicles.json.
+## The class keeps its old name because the flatbed hauler came first.
 ##
-## Deliberately not a VehicleBody3D: four raycast suspension springs plus drive
-## and steering forces behave identically on any backend, stay stable at high
-## speed, and cost four ray queries per frame.
+## Deliberately not a VehicleBody3D: raycast suspension springs plus drive and
+## steering forces behave identically on any backend, stay stable at high
+## speed, and cost one ray query per wheel per frame.
 ##
 ## The load is real. Whatever is in the bed is an ordinary physics body resting
 ## on the deck and held in by the sides, headboard and tailgate: it shifts when
@@ -36,30 +38,44 @@ var driver: Node3D = null
 ## The land under the truck, for road speed and for drowning the engine.
 var terrain: Terrain
 ## Drive inputs, filled from the keyboard while a driver is aboard. Exposed so
-## tests (and, later, any automation) can drive the hauler without a keyboard.
+## tests (and, later, any automation) can drive the vehicle without a keyboard.
 var input_throttle: float = 0.0
 var input_steer: float = 0.0
 var input_brake: bool = false
 var autopilot: bool = false
 
-const BODY_SIZE := Vector3(2.6, 0.7, 5.0)
-## The bed, inside the walls: from the headboard to the tailgate.
-const BED_FLOOR := 0.35
-const BED_FRONT := -0.72
-const BED_BACK := 2.26
-const BED_LENGTH := BED_BACK - BED_FRONT
-const BED_MID_Z := (BED_FRONT + BED_BACK) * 0.5
-const BED_HALF_WIDTH := 1.15
-const WALL_HEIGHT := 1.1
-const HEADBOARD_HEIGHT := 1.45
+## Which vehicle this is, and its row from vehicles.json.
+var vehicle_id: StringName = &"hauler"
+var display_name: String = "Flatbed Hauler"
+var spec: Dictionary = {}
+## Body style (truck, quad, buggy) and bed kind (sides, stakes, tub, rack, none).
+var style: StringName = &"truck"
+var bed_kind: StringName = &"sides"
+var paint: Color = Color(0.62, 0.20, 0.16)
+## How far back the chase camera sits.
+var camera_distance: float = 9.0
+
+## The hull and the bed, in the vehicle's own frame. The bed is the space
+## inside the walls: from the headboard to the tailgate.
+var body_size := Vector3(2.6, 0.7, 5.0)
+var bed_floor := 0.35
+var bed_front := -0.72
+var bed_back := 2.26
+var bed_length := 2.98
+var bed_mid_z := 0.77
+var bed_half_width := 1.15
+var wall_height := 1.1
+var headboard_height := 1.45
 const BED_FRICTION := 0.9
 ## Ray origins sit at the chassis underside: the springs, not the box, must
-## carry the hauler, or the chassis grinds along the ground and the drive force
-## fights friction instead of moving the truck.
-const WHEEL_OFFSETS := [
+## carry the vehicle, or the chassis grinds along the ground and the drive
+## force fights friction instead of moving it.
+var wheel_offsets: Array = [
 	Vector3(-1.1, -0.35, -1.7), Vector3(1.1, -0.35, -1.7),
 	Vector3(-1.1, -0.35, 1.7), Vector3(1.1, -0.35, 1.7),
 ]
+## The front axle's Z: those wheels steer.
+var _front_z: float = -1.7
 
 ## Pieces lying in the bed right now, refreshed by the bed poll.
 var _load: Array[LooseItem] = []
@@ -69,6 +85,15 @@ var _tailgate_mesh: Node3D
 ## and the pieces being walked out.
 var _tip_time: float = 0.0
 var _tipping: Array[LooseItem] = []
+## Dump tub: its colliders and mesh with their resting poses, and how far it
+## is tipped (radians about the rear hinge) and wants to be.
+var _tub_parts: Array = []
+var _tub_mesh: Node3D
+var _tub_angle: float = 0.0
+var _tub_target: float = 0.0
+var _tub_hold: float = 0.0
+const TUB_TIP := 0.95
+const TUB_SPEED := 0.45
 var _wheels: Array[MeshInstance3D] = []
 var _wheel_spin: float = 0.0
 var _cargo_area: Area3D
@@ -78,207 +103,226 @@ var rig: VehicleRig
 var _grounded: int = 0
 var _poll: float = 0.0
 
-func setup(p_manager: LooseItemManager, p_plot_id: int = 0) -> void:
+func setup(p_manager: LooseItemManager, p_plot_id: int = 0, p_vehicle: StringName = &"hauler") -> void:
 	manager = p_manager
 	plot_id = p_plot_id
+	vehicle_id = p_vehicle
+
+## Reads the vehicle's row. Called from _ready, so `vehicle_id` (or `spec`)
+## has to be set before the vehicle enters the tree.
+func _apply_spec() -> void:
+	if spec.is_empty():
+		spec = GameData.vehicle(vehicle_id)
+	if spec.is_empty():
+		spec = GameData.vehicle(&"hauler")
+	if spec.is_empty():
+		return
+	vehicle_id = StringName(spec.get("id", "hauler"))
+	display_name = String(spec.get("display_name", "Vehicle"))
+	style = StringName(spec.get("style", "truck"))
+	mass = float(spec.get("mass", 900))
+	engine_force_max = float(spec.get("engine", 16000))
+	max_speed = float(spec.get("max_speed", 22))
+	tyre_grip = float(spec.get("grip", 1.7))
+	max_steer_angle = float(spec.get("steer", 0.55))
+	body_size = _vec(spec.get("body", [2.6, 0.7, 5.0]))
+	wheel_radius = float(spec.get("wheel_radius", 0.45))
+	wheel_width = float(spec.get("wheel_width", 0.34))
+	suspension_rest = float(spec.get("suspension_rest", 0.75))
+	# Springs and dampers scale with weight, so every vehicle sits and rides
+	# the way the original 900 kg truck did.
+	suspension_strength = 87.0 * mass * 4.0 / float((spec.get("wheels", [0, 0, 0, 0]) as Array).size())
+	suspension_damping = 7.8 * mass * 4.0 / float((spec.get("wheels", [0, 0, 0, 0]) as Array).size())
+	cargo_capacity_m3 = float(spec.get("capacity", 8))
+	camera_distance = float(spec.get("camera", 9.0))
+	var c: Array = spec.get("paint", [0.62, 0.2, 0.16])
+	paint = Color(c[0], c[1], c[2])
+	wheel_offsets.clear()
+	_front_z = INF
+	for w in spec.get("wheels", []):
+		var v := _vec(w)
+		wheel_offsets.append(v)
+		_front_z = minf(_front_z, v.z)
+	var bed: Dictionary = spec.get("bed", {})
+	bed_kind = StringName(bed.get("kind", "none"))
+	bed_floor = body_size.y * 0.5
+	bed_front = float(bed.get("front", 0.0))
+	bed_back = float(bed.get("back", 0.0))
+	bed_half_width = float(bed.get("half_width", 0.0))
+	wall_height = float(bed.get("wall", 0.0))
+	headboard_height = float(bed.get("head", 0.0))
+	if bed_kind == &"tub":
+		bed_floor += 0.15       # the tub has its own floor plate on the chassis
+	bed_length = bed_back - bed_front
+	bed_mid_z = (bed_front + bed_back) * 0.5
+
+static func _vec(a: Variant) -> Vector3:
+	var arr: Array = a
+	return Vector3(float(arr[0]), float(arr[1]), float(arr[2]))
+
+func has_bed() -> bool:
+	return bed_kind != &"none" and cargo_capacity_m3 > 0.0
 
 func _ready() -> void:
-	mass = 900.0
+	_apply_spec()
 	collision_layer = Layers.VEHICLE
 	collision_mask = Layers.WORLD | Layers.LOOSE | Layers.MACHINE | Layers.TREE | Layers.PLAYER
 	can_sleep = true
-	continuous_cd = true          # a 900 kg box at 22 m/s must never tunnel
+	continuous_cd = true          # a heavy box at 20+ m/s must never tunnel
 	linear_damp_mode = RigidBody3D.DAMP_MODE_REPLACE
 	angular_damp_mode = RigidBody3D.DAMP_MODE_REPLACE
 	linear_damp = 0.25
 	angular_damp = 2.5
 	center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
-	center_of_mass = Vector3(0, -0.45, 0)   # low: makes rollovers very unlikely
+	# Low: makes rollovers very unlikely.
+	center_of_mass = Vector3(0, float(spec.get("com_y", -0.45)), 0)
 	_build()
 
 func _build() -> void:
 	var chassis := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	box.size = BODY_SIZE
+	box.size = body_size
 	chassis.shape = box
 	add_child(chassis)
+	# A cab is solid: loads fetch up against it and it keeps logs out of it.
+	var cab: Dictionary = spec.get("cab", {})
+	if not cab.is_empty():
+		var cab_size := _vec(cab.size)
+		_collider(cab_size, Vector3(0, body_size.y * 0.5 + cab_size.y * 0.5, float(cab.z)))
 
-
-	# The bed: tall sides, a headboard that guards the cab, and a tailgate.
-	# Thick, so a piece thrown at them at speed meets a wall rather than
-	# slipping through one.
-	for spec in [
-		[Vector3(-BED_HALF_WIDTH - 0.15, BED_FLOOR + WALL_HEIGHT * 0.5, BED_MID_Z), Vector3(0.3, WALL_HEIGHT, BED_LENGTH + 0.2)],
-		[Vector3(BED_HALF_WIDTH + 0.15, BED_FLOOR + WALL_HEIGHT * 0.5, BED_MID_Z), Vector3(0.3, WALL_HEIGHT, BED_LENGTH + 0.2)],
-		[Vector3(0, BED_FLOOR + HEADBOARD_HEIGHT * 0.5, BED_FRONT - 0.12), Vector3(BED_HALF_WIDTH * 2.0 + 0.6, HEADBOARD_HEIGHT, 0.24)],
-	]:
-		var cs := CollisionShape3D.new()
-		var b := BoxShape3D.new()
-		b.size = spec[1]
-		cs.shape = b
-		cs.position = spec[0]
-		add_child(cs)
-	_tailgate = CollisionShape3D.new()
-	var gate := BoxShape3D.new()
-	gate.size = Vector3(BED_HALF_WIDTH * 2.0 + 0.6, WALL_HEIGHT, 0.24)
-	_tailgate.shape = gate
-	_tailgate.position = Vector3(0, BED_FLOOR + WALL_HEIGHT * 0.5, BED_BACK + 0.12)
-	add_child(_tailgate)
 	# Boards and loads grip one another: a load slides when it is thrown about,
 	# not at every touch of the brakes.
 	var pm := PhysicsMaterial.new()
 	pm.friction = BED_FRICTION
 	physics_material_override = pm
 
-	_cargo_area = Area3D.new()
-	_cargo_area.collision_layer = Layers.TRIGGER
-	_cargo_area.collision_mask = Layers.LOOSE
-	var acs := CollisionShape3D.new()
-	var ab := BoxShape3D.new()
-	ab.size = Vector3(BED_HALF_WIDTH * 2.0, WALL_HEIGHT + 0.6, BED_LENGTH)
-	acs.shape = ab
-	acs.position = Vector3(0, BED_FLOOR + (WALL_HEIGHT + 0.6) * 0.5, BED_MID_Z)
-	_cargo_shape = acs
-	_cargo_area.add_child(acs)
-	add_child(_cargo_area)
+	match bed_kind:
+		&"sides", &"rack":
+			_build_walled_bed()
+		&"stakes":
+			_build_stake_bed()
+		&"tub":
+			_build_tub()
 
-	_build_dressing()
+	if has_bed():
+		_cargo_area = Area3D.new()
+		_cargo_area.collision_layer = Layers.TRIGGER
+		_cargo_area.collision_mask = Layers.LOOSE
+		var acs := CollisionShape3D.new()
+		var ab := BoxShape3D.new()
+		var tall := maxf(wall_height, 0.3) + 0.6
+		ab.size = Vector3(bed_half_width * 2.0, tall, bed_length)
+		acs.shape = ab
+		acs.position = Vector3(0, bed_floor + tall * 0.5, bed_mid_z)
+		_cargo_shape = acs
+		_cargo_area.add_child(acs)
+		add_child(_cargo_area)
 
-	# Spec: most vehicles carry a winch, many carry a crane. The hauler has both.
-	rig = VehicleRig.new()
-	rig.name = "Rig"
-	rig.setup(self)
-	add_child(rig)
+	VehicleModel.dress(self)
+
+	# Spec: most vehicles carry a winch, many carry a crane.
+	var gear: Variant = spec.get("rig", null)
+	if gear is Dictionary:
+		rig = VehicleRig.new()
+		rig.name = "Rig"
+		rig.winch_power_kg = float(gear.get("winch", 4000))
+		rig.crane_power_kg = float(gear.get("crane", 0))
+		rig.reach = float(gear.get("reach", 14))
+		rig.head_offset = _vec(gear.get("head", [0, 1.1, -1.2]))
+		rig.setup(self)
+		add_child(rig)
 
 	_seat = Node3D.new()
-	_seat.position = Vector3(0, 1.2, -1.9)
+	_seat.position = _vec(spec.get("seat", [0, 1.2, -1.9]))
 	add_child(_seat)
 
-## Cab, deck boards and wheels. All mesh, no collision: the hull box above is
-## the only thing the solver sees, and the "wheels" are the four suspension
-## rays in _apply_wheels.
-func _build_dressing() -> void:
-	var g := Greeble.new()
-	var paint := Color(0.62, 0.20, 0.16)
-	var dark := Color(0.14, 0.14, 0.15)
-	var steel := Color(0.60, 0.61, 0.64)
-	var glass := Color(0.22, 0.32, 0.40)
-	# Chassis and a steel sill down each side.
-	g.block(BODY_SIZE, Vector3.ZERO, paint)
-	for side in [-1.0, 1.0]:
-		g.block(Vector3(0.1, 0.18, BODY_SIZE.z - 0.4), Vector3(side * (BODY_SIZE.x * 0.5 + 0.03), -0.2, 0), dark)
-	# The cab: body, glass, roof, a light bar and a door line.
-	var cab := Vector3(0, 0.75, -1.55)
-	g.block(Vector3(2.3, 0.95, 1.5), cab, paint.darkened(0.08))
-	g.block(Vector3(2.36, 0.1, 1.56), cab + Vector3(0, 0.5, 0), paint.darkened(0.25))
-	g.block(Vector3(2.0, 0.5, 0.06), cab + Vector3(0, 0.22, -0.76), glass)
-	for side in [-1.0, 1.0]:
-		g.block(Vector3(0.06, 0.42, 1.1), cab + Vector3(side * 1.16, 0.22, 0.05), glass)
-		g.block(Vector3(0.05, 0.85, 0.04), cab + Vector3(side * 1.16, -0.05, 0.62), paint.darkened(0.35))
-		g.block(Vector3(0.12, 0.05, 0.05), cab + Vector3(side * 1.16, -0.1, 0.3), steel)
-		# Mirrors.
-		g.block(Vector3(0.3, 0.05, 0.05), cab + Vector3(side * 1.3, 0.2, -0.6), dark)
-		g.block(Vector3(0.06, 0.28, 0.18), cab + Vector3(side * 1.45, 0.2, -0.6), dark)
-	for i in 4:
-		g.box(Vector3(0.28, 0.1, 0.14), Transform3D(Basis(), cab + Vector3(-0.6 + float(i) * 0.4, 0.62, -0.5)), Color(1.0, 0.62, 0.15), true)
-	g.block(Vector3(1.8, 0.06, 0.2), cab + Vector3(0, 0.57, -0.5), dark)
-	# Front: grille, bumper, headlights. Back: tail lights and a step.
-	var nose := -BODY_SIZE.z * 0.5
-	g.vent(1.3, 0.42, Transform3D(Basis(Vector3.UP, PI), Vector3(0, 0.05, nose)), Color(0.35, 0.35, 0.37), 5)
-	g.block(Vector3(BODY_SIZE.x + 0.1, 0.22, 0.22), Vector3(0, -0.28, nose - 0.08), steel)
-	for side in [-1.0, 1.0]:
-		g.block(Vector3(0.32, 0.2, 0.08), Vector3(side * 0.95, 0.1, nose - 0.03), Color(1.0, 0.95, 0.75), true)
-		g.block(Vector3(0.24, 0.16, 0.06), Vector3(side * 1.05, 0.05, -nose + 0.03), Color(1.0, 0.15, 0.1), true)
-	g.block(Vector3(1.2, 0.08, 0.3), Vector3(0, -0.3, -nose + 0.1), steel)
-	# Exhaust stack behind the cab.
-	g.pipe(Vector3(1.05, 0.3, -0.72), Vector3(1.05, 1.9, -0.72), 0.08, steel.darkened(0.2), 6)
-	g.prism(6, 0.1, 0.1, 0.2, Transform3D(Basis(Vector3.FORWARD, 0.4), Vector3(1.05, 1.9, -0.72)), dark)
-	# Mudguards over the wheels.
-	for offset in WHEEL_OFFSETS:
-		var o: Vector3 = offset
-		var x: float = o.x + signf(o.x) * 0.12
-		g.box(Vector3(wheel_width + 0.16, 0.08, wheel_radius * 2.3), Transform3D(Basis(), Vector3(x, o.y + wheel_radius + 0.12, o.z)), dark)
-	# The bed: boards, slatted sides on stake posts, a cab guard, and a
-	# tailgate on hinges (its own mesh, so it can drop open).
-	var boards := 6
-	for i in boards:
-		var z := BED_FRONT + (float(i) + 0.5) * BED_LENGTH / float(boards)
-		g.block(Vector3(BED_HALF_WIDTH * 2.0, 0.05, BED_LENGTH / float(boards) - 0.04), Vector3(0, BED_FLOOR + 0.025, z), Color(0.46, 0.34, 0.22))
-	var wall_mid := BED_FLOOR + WALL_HEIGHT * 0.5
-	for side in [-1.0, 1.0]:
-		var x: float = side * (BED_HALF_WIDTH + 0.15)
-		for k in 3:
-			var y := BED_FLOOR + 0.2 + float(k) * 0.34
-			g.block(Vector3(0.3, 0.26, BED_LENGTH + 0.1), Vector3(x, y, BED_MID_Z), paint.darkened(0.15))
-		for k in 5:
-			var z := BED_FRONT + float(k) * BED_LENGTH / 4.0
-			g.block(Vector3(0.36, WALL_HEIGHT + 0.06, 0.12), Vector3(x, wall_mid + 0.03, z), dark)
-		g.block(Vector3(0.38, 0.08, BED_LENGTH + 0.3), Vector3(x, BED_FLOOR + WALL_HEIGHT + 0.02, BED_MID_Z), steel)
-		g.rivets(Vector3(x + side * 0.16, BED_FLOOR + WALL_HEIGHT - 0.12, BED_FRONT + 0.2),
-			Vector3(x + side * 0.16, BED_FLOOR + WALL_HEIGHT - 0.12, BED_BACK - 0.2), 10, steel, 0.04)
-	# Headboard: a solid lower panel and a steel grille over the cab.
-	var head_z := BED_FRONT - 0.12
-	g.block(Vector3(BED_HALF_WIDTH * 2.0 + 0.6, WALL_HEIGHT, 0.24), Vector3(0, wall_mid, head_z), paint.darkened(0.2))
-	var top := BED_FLOOR + HEADBOARD_HEIGHT
-	g.block(Vector3(BED_HALF_WIDTH * 2.0 + 0.6, 0.1, 0.26), Vector3(0, top - 0.05, head_z), steel)
-	for k in 7:
-		var x := -BED_HALF_WIDTH + float(k) * BED_HALF_WIDTH * 2.0 / 6.0
-		g.block(Vector3(0.05, HEADBOARD_HEIGHT - WALL_HEIGHT, 0.05), Vector3(x, BED_FLOOR + (WALL_HEIGHT + HEADBOARD_HEIGHT) * 0.5, head_z), steel.darkened(0.1))
-	for sx in [-1.0, 1.0]:
-		g.block(Vector3(0.14, HEADBOARD_HEIGHT, 0.26), Vector3(sx * (BED_HALF_WIDTH + 0.23), BED_FLOOR + HEADBOARD_HEIGHT * 0.5, head_z), dark)
-	add_child(g.instance("Body"))
+func _collider(size: Vector3, pos: Vector3) -> CollisionShape3D:
+	var cs := CollisionShape3D.new()
+	var b := BoxShape3D.new()
+	b.size = size
+	cs.shape = b
+	cs.position = pos
+	add_child(cs)
+	return cs
 
-	# The tailgate, hinged along its bottom edge.
-	var gate := Greeble.new()
-	var gate_w := BED_HALF_WIDTH * 2.0 + 0.6
-	gate.block(Vector3(gate_w, WALL_HEIGHT, 0.24), Vector3(0, WALL_HEIGHT * 0.5, 0), paint.darkened(0.15))
-	gate.block(Vector3(gate_w + 0.04, 0.08, 0.28), Vector3(0, WALL_HEIGHT - 0.04, 0), steel)
-	for k in 2:
-		gate.block(Vector3(gate_w - 0.4, 0.06, 0.04), Vector3(0, 0.3 + float(k) * 0.4, 0.13), paint.darkened(0.35))
-	for sx in [-1.0, 1.0]:
-		gate.block(Vector3(0.1, 0.16, 0.06), Vector3(sx * (gate_w * 0.5 - 0.3), WALL_HEIGHT * 0.6, 0.15), dark)
-		gate.block(Vector3(0.2, 0.14, 0.14), Vector3(sx * (gate_w * 0.5 - 0.3), 0.07, 0.0), dark)
-	_tailgate_mesh = gate.instance("Tailgate")
-	_tailgate_mesh.position = Vector3(0, BED_FLOOR, BED_BACK + 0.12)
-	add_child(_tailgate_mesh)
+## Tall sides, a headboard that guards the cab, and a tailgate. Thick, so a
+## piece thrown at them at speed meets a wall rather than slipping through.
+func _build_walled_bed() -> void:
+	var t := 0.3 if bed_kind == &"sides" else 0.12
+	for side in [-1.0, 1.0]:
+		_collider(Vector3(t, wall_height, bed_length + 0.2),
+			Vector3(side * (bed_half_width + t * 0.5), bed_floor + wall_height * 0.5, bed_mid_z))
+	_collider(Vector3(bed_half_width * 2.0 + t * 2.0, headboard_height, 0.24),
+		Vector3(0, bed_floor + headboard_height * 0.5, bed_front - 0.12))
+	_tailgate = _collider(Vector3(bed_half_width * 2.0 + t * 2.0, wall_height, 0.24),
+		Vector3(0, bed_floor + wall_height * 0.5, bed_back + 0.12))
 
-	var wheel_mesh := _wheel_mesh()
-	for offset in WHEEL_OFFSETS:
-		var wheel := MeshInstance3D.new()
-		wheel.mesh = wheel_mesh
-		wheel.position = Vector3(offset.x + signf(offset.x) * 0.12, offset.y, offset.z)
-		# The wheel mesh stands on Y; a wheel spins about X.
-		wheel.rotation = Vector3(0, 0, PI * 0.5)
-		add_child(wheel)
-		_wheels.append(wheel)
+## A log bed: a headboard and rows of tall stakes down each side, open at the
+## back so long trunks can hang over it.
+func _build_stake_bed() -> void:
+	_collider(Vector3(bed_half_width * 2.0 + 0.5, headboard_height, 0.3),
+		Vector3(0, bed_floor + headboard_height * 0.5, bed_front - 0.15))
+	for z in stake_positions():
+		for side in [-1.0, 1.0]:
+			_collider(Vector3(0.18, wall_height, 0.18),
+				Vector3(side * (bed_half_width + 0.09), bed_floor + wall_height * 0.5, z))
 
-## A tyre with a tread, a rim and lug nuts, so you can see it turn.
-func _wheel_mesh() -> ArrayMesh:
-	var g := Greeble.new()
-	var half := wheel_width * 0.5
-	var base := Transform3D(Basis(), Vector3(0, -half, 0))
-	g.prism(12, wheel_radius, wheel_radius, wheel_width, base, Color(0.10, 0.10, 0.11))
-	for i in 12:
-		var a := TAU * (float(i) + 0.5) / 12.0
-		g.box(Vector3(0.1, wheel_width * 0.9, 0.06), Transform3D(Basis(Vector3.UP, -a), Vector3(cos(a), 0, sin(a)) * (wheel_radius + 0.01)), Color(0.07, 0.07, 0.08))
-	for s in [-1.0, 1.0]:
-		g.prism(8, wheel_radius * 0.5, wheel_radius * 0.45, 0.04, Transform3D(Basis(), Vector3(0, s * half, 0)).rotated_local(Vector3.RIGHT, 0.0 if s > 0 else PI), Color(0.72, 0.72, 0.75))
-		for k in 5:
-			var a := TAU * float(k) / 5.0
-			g.block(Vector3(0.05, 0.05, 0.05), Vector3(cos(a) * wheel_radius * 0.3, s * (half + 0.05), sin(a) * wheel_radius * 0.3), Color(0.35, 0.35, 0.37))
-	return g.commit()
+func stake_positions() -> Array[float]:
+	var out: Array[float] = []
+	var n := maxi(2, int(bed_length / 1.4) + 1)
+	for i in n:
+		out.append(bed_front + 0.3 + (bed_length - 0.6) * float(i) / float(n - 1))
+	return out
 
-func _add_mesh(mesh: Mesh, size: Vector3, pos: Vector3, color: Color) -> void:
-	var mi := MeshInstance3D.new()
-	if mesh is BoxMesh:
-		(mesh as BoxMesh).size = size
-	mi.mesh = mesh
-	mi.position = pos
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = color
-	mat.roughness = 0.85
-	mi.material_override = mat
-	add_child(mi)
+## A steel tub on its own floor plate, hinged at the back: it tips up to
+## pour out whatever is in it. Its colliders are kept with their resting
+## poses so they can be swung about the hinge.
+func _build_tub() -> void:
+	var parts := [
+		[Vector3(bed_half_width * 2.0 + 0.4, 0.15, bed_length + 0.3), Vector3(0, bed_floor - 0.075, bed_mid_z)],
+		[Vector3(0.2, wall_height, bed_length + 0.3), Vector3(-bed_half_width - 0.1, bed_floor + wall_height * 0.5, bed_mid_z)],
+		[Vector3(0.2, wall_height, bed_length + 0.3), Vector3(bed_half_width + 0.1, bed_floor + wall_height * 0.5, bed_mid_z)],
+		[Vector3(bed_half_width * 2.0 + 0.4, headboard_height, 0.24), Vector3(0, bed_floor + headboard_height * 0.5, bed_front - 0.12)],
+	]
+	for p in parts:
+		var cs := _collider(p[0], p[1])
+		_tub_parts.append([cs, cs.transform])
+	_tailgate = _collider(Vector3(bed_half_width * 2.0 + 0.4, wall_height, 0.2),
+		Vector3(0, bed_floor + wall_height * 0.5, bed_back + 0.1))
+	_tub_parts.append([_tailgate, _tailgate.transform])
+
+func hinge() -> Vector3:
+	return Vector3(0, body_size.y * 0.5, bed_back + 0.1)
+
+## Swings the tub (and its tailgate) about the rear hinge.
+func _pose_tub(angle: float) -> void:
+	var h := hinge()
+	var swing := Transform3D(Basis(Vector3.RIGHT, angle), h) * Transform3D(Basis(), -h)
+	for part in _tub_parts:
+		(part[0] as CollisionShape3D).transform = swing * (part[1] as Transform3D)
+	if _tub_mesh != null:
+		_tub_mesh.transform = swing
+
+func tub_angle() -> float:
+	return _tub_angle
+
+func _update_tub(delta: float) -> void:
+	if _tub_parts.is_empty():
+		return
+	if _tub_hold > 0.0 and absf(_tub_angle - _tub_target) < 0.01:
+		_tub_hold -= delta
+		if _tub_hold <= 0.0:
+			_tub_target = 0.0
+			_set_floor_slick(false)
+	if absf(_tub_angle - _tub_target) < 0.0005:
+		return
+	_tub_angle = move_toward(_tub_angle, _tub_target, TUB_SPEED * delta)
+	_pose_tub(_tub_angle)
+	# Moving colliders do not wake what rests on them.
+	for item in _load:
+		item.sleeping = false
+	if _tub_angle == 0.0 and _tub_target == 0.0:
+		_set_tailgate(false)
 
 ## Wheels turn with the ground speed and the front pair follows the steering,
 ## which is what sells a vehicle as driven rather than slid.
@@ -288,15 +332,21 @@ func _animate_wheels(delta: float) -> void:
 	var forward := -global_transform.basis.z
 	var speed := linear_velocity.dot(forward)
 	_wheel_spin += speed / maxf(0.05, wheel_radius) * delta
-	var steer := clampf(input_steer, -1.0, 1.0) * 0.5
+	var steer := clampf(input_steer, -1.0, 1.0) * max_steer_angle
 	for i in _wheels.size():
 		var wheel: MeshInstance3D = _wheels[i]
-		var is_front: bool = WHEEL_OFFSETS[i].z < 0.0
-		wheel.rotation = Vector3(0, steer if is_front else 0.0, PI * 0.5)
+		wheel.rotation = Vector3(0, steer if _is_front(i) else 0.0, PI * 0.5)
 		wheel.rotate_object_local(Vector3.UP, -_wheel_spin)
+
+func _is_front(index: int) -> bool:
+	return absf((wheel_offsets[index] as Vector3).z - _front_z) < 0.1
 
 func seat_transform() -> Transform3D:
 	return _seat.global_transform
+
+## How high above a pad to put the vehicle so it drops onto its wheels.
+func spawn_height() -> float:
+	return suspension_rest + body_size.y * 0.5 + 0.3
 
 # --- Cargo -----------------------------------------------------------------
 
@@ -325,21 +375,21 @@ func cargo_full() -> bool:
 ## Item-sink protocol, so the player can deposit into the bed with [E] and a
 ## conveyor can load the hauler like any other sink.
 func can_accept(_item_id: StringName) -> bool:
-	return not cargo_full()
+	return has_bed() and not cargo_full()
 
 ## Puts a piece into the bed: set down on the lowest part of the load, lying
 ## the way it fits - short pieces across, long ones fore-and-aft - and moving
 ## with the truck. From there it is on its own.
 func accept_item(item: LooseItem) -> bool:
-	if cargo_full() or item == null or item.state == LooseItem.State.POOLED:
+	if not has_bed() or cargo_full() or item == null or item.state == LooseItem.State.POOLED:
 		return false
 	if item.state != LooseItem.State.FREE:
 		item.set_state(LooseItem.State.FREE)
-	var long := item.length() > BED_HALF_WIDTH * 2.0 - 0.2
+	var long := item.length() > bed_half_width * 2.0 - 0.2
 	var basis := LooseItem.lying_basis(0.0 if long else PI * 0.5)
 	var xs := [-0.55, 0.0, 0.55] if long else [0.0]
-	var zs := [BED_MID_Z] if long else [BED_FRONT + 0.5, BED_MID_Z, BED_BACK - 0.5]
-	var best := Vector3(0, INF, BED_MID_Z)
+	var zs := [bed_mid_z] if long else [bed_front + 0.5, bed_mid_z, bed_back - 0.5]
+	var best := Vector3(0, INF, bed_mid_z)
 	for x in xs:
 		for z in zs:
 			var y := _pile_height(Vector3(x, 0, z), item)
@@ -358,21 +408,21 @@ func accept_item(item: LooseItem) -> bool:
 ## Height of the load (or the boards) under a point in the bed, in local Y.
 func _pile_height(local: Vector3, ignore: LooseItem) -> float:
 	var space := get_world_3d().direct_space_state
-	var from := global_transform * Vector3(local.x, BED_FLOOR + WALL_HEIGHT + 2.0, local.z)
-	var to := global_transform * Vector3(local.x, BED_FLOOR - 0.2, local.z)
+	var from := global_transform * Vector3(local.x, bed_floor + wall_height + 2.0, local.z)
+	var to := global_transform * Vector3(local.x, bed_floor - 0.2, local.z)
 	var q := PhysicsRayQueryParameters3D.create(from, to, Layers.LOOSE | Layers.VEHICLE,
 		[ignore.get_rid()])
 	var hit := space.intersect_ray(q)
 	if hit.is_empty():
-		return BED_FLOOR
-	return maxf(BED_FLOOR, (global_transform.affine_inverse() * (hit.position as Vector3)).y)
+		return bed_floor
+	return maxf(bed_floor, (global_transform.affine_inverse() * (hit.position as Vector3)).y)
 
 ## Adds one piece to the load. There is no physics-free cargo any more, so
 ## this makes a real piece and puts it in the bed.
 func load_item(item_id: StringName, dims: Dictionary = {}) -> bool:
-	if cargo_full() or manager == null:
+	if not has_bed() or cargo_full() or manager == null:
 		return false
-	var item := manager.spawn(item_id, global_transform * Transform3D(Basis(), Vector3(0, 3, BED_MID_Z)),
+	var item := manager.spawn(item_id, global_transform * Transform3D(Basis(), Vector3(0, 3, bed_mid_z)),
 		plot_id, Vector3.ZERO, dims, true)
 	if item == null:
 		return false
@@ -387,6 +437,8 @@ func _take(item: LooseItem) -> void:
 
 ## Who is in the bed now. Run a few times a second.
 func _poll_bed() -> void:
+	if _cargo_area == null:
+		return
 	var inside: Array[LooseItem] = []
 	for body in Trigger.bodies_inside(_cargo_area, _cargo_shape, 0.05):
 		var item := body as LooseItem
@@ -425,6 +477,13 @@ func unload(_behind: bool = true) -> int:
 	var n := _load.size()
 	if n == 0:
 		return 0
+	if bed_kind == &"tub":
+		# Up goes the tub, and the load pours out over the tailgate.
+		_tub_target = TUB_TIP
+		_tub_hold = 3.0
+		_set_tailgate(true)
+		_set_floor_slick(true)
+		return n
 	_start_tipping(_load.duplicate(), 5.0)
 	return n
 
@@ -441,7 +500,7 @@ func unload_one() -> bool:
 	return true
 
 func unloading() -> bool:
-	return _tip_time > 0.0
+	return _tip_time > 0.0 or _tub_target > 0.0 or _tub_angle > 0.0
 
 func _start_tipping(items: Array, seconds: float) -> void:
 	_tipping.clear()
@@ -457,6 +516,8 @@ func _set_floor_slick(slick: bool) -> void:
 	(physics_material_override as PhysicsMaterial).friction = 0.1 if slick else BED_FRICTION
 
 func _set_tailgate(open: bool) -> void:
+	if _tailgate == null:
+		return
 	_tailgate.disabled = open
 	if _tailgate_mesh != null:
 		_tailgate_mesh.rotation.x = PI * 0.5 if open else 0.0
@@ -468,8 +529,8 @@ func _on_back(item: LooseItem) -> bool:
 		return false
 	var local := global_transform.affine_inverse() * item.global_position
 	var reach := item.extent_along(global_transform.basis.z)
-	return local.y > BED_FLOOR - 0.15 and local.z - reach < BODY_SIZE.z * 0.5 + 0.05 \
-		and absf(local.x) < BODY_SIZE.x * 0.5 + 0.3
+	return local.y > bed_floor - 0.15 and local.z - reach < body_size.z * 0.5 + 0.05 \
+		and absf(local.x) < body_size.x * 0.5 + 0.3
 
 func _update_unload(delta: float) -> void:
 	if _tip_time <= 0.0:
@@ -496,7 +557,7 @@ func _finish_tipping() -> void:
 	for item in _tipping + _load:
 		if not _on_back(item):
 			continue
-		if (inverse * item.global_position).z > BED_BACK - item.extent_along(global_transform.basis.z) + 0.08:
+		if (inverse * item.global_position).z > bed_back - item.extent_along(global_transform.basis.z) + 0.08:
 			_start_tipping([item], 1.0)
 			return
 	_tipping.clear()
@@ -522,6 +583,7 @@ func _physics_process(delta: float) -> void:
 		_poll = 0.1
 		_poll_bed()
 	_update_unload(delta)
+	_update_tub(delta)
 
 	_animate_wheels(delta)
 	if driver != null:
@@ -594,8 +656,8 @@ func _apply_wheels(delta: float) -> void:
 		throttle = maxf(throttle, 0.0)
 
 	var contacts: Array[Dictionary] = []
-	for i in WHEEL_OFFSETS.size():
-		var start: Vector3 = global_transform * (WHEEL_OFFSETS[i] as Vector3)
+	for i in wheel_offsets.size():
+		var start: Vector3 = global_transform * (wheel_offsets[i] as Vector3)
 		var q := PhysicsRayQueryParameters3D.create(start, start - up * suspension_rest,
 			Layers.WORLD | Layers.MACHINE, [get_rid()])
 		var hit := space.intersect_ray(q)
@@ -623,7 +685,7 @@ func _apply_wheels(delta: float) -> void:
 
 		# The front pair points where it is steered; the rear stays straight.
 		var wheel_forward := forward
-		if (WHEEL_OFFSETS[index] as Vector3).z < 0.0 and absf(steer_angle) > 0.001:
+		if _is_front(index) and absf(steer_angle) > 0.001:
 			wheel_forward = forward.rotated(up, steer_angle)
 		var wheel_side := wheel_forward.cross(up).normalized()
 
@@ -707,7 +769,8 @@ func to_dict() -> Dictionary:
 				t.basis.x.x, t.basis.x.y, t.basis.x.z,
 				t.basis.y.x, t.basis.y.y, t.basis.y.z,
 				t.basis.z.x, t.basis.z.y, t.basis.z.z]})
-	return {"position": [global_position.x, global_position.y, global_position.z],
+	return {"vehicle": String(vehicle_id),
+		"position": [global_position.x, global_position.y, global_position.z],
 		"yaw": global_rotation.y, "cargo": entries}
 
 func from_dict(d: Dictionary) -> void:

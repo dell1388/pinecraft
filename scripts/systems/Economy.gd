@@ -55,11 +55,19 @@ func add_money(amount: int) -> void:
 		total_earned += amount
 	money_changed.emit(money, amount)
 
+## Debug setting: everything is affordable and nothing is ever taken off
+## you. Earnings still count, so the rest of the game behaves as normal.
+func unlimited() -> bool:
+	return Settings.flag(&"unlimited_money")
+
 func can_afford(amount: int) -> bool:
-	return money >= amount
+	return unlimited() or money >= amount
 
 ## Spends `amount` if affordable; returns whether the purchase went through.
 func try_spend(amount: int) -> bool:
+	if unlimited():
+		money_changed.emit(money, 0)
+		return true
 	if amount > money:
 		return false
 	money -= amount

@@ -46,11 +46,11 @@ you play. The full list of keys is on the Controls page and in the journal
 | Tab / M / P / U / F1 | journal: orders / map / market / upgrades / controls |
 | H / F3 | hide the key hints / debug readout |
 | F5 / F9 / F8 | quick save / quick load / new game (asks first) |
-| V | get in and out of the hauler (third-person while driving) |
+| V | get in and out of the nearest vehicle (third-person while driving) |
 | E / G (driving) | hook and unhook the winch / reel it in |
 | F (driving) | crane: take hold of a piece, or let it go |
 | WASD / Shift / Ctrl / R / T (crane) | drive the load itself, and turn it |
-| X / Z / C (not in build mode) | unload all / drop one / flip the truck upright |
+| X / Z / C (not in build mode) | unload all (the dump truck tips its tub) / drop one / flip the vehicle upright |
 
 ## Interface
 
@@ -280,6 +280,29 @@ another:
 * Bucking, splitting, storing, loading and unloading all conserve volume too,
   and the test suite asserts it to four decimal places at every step.
 
+## Vehicles
+
+Seven, each sold at the store as a crated pad of its own. Place the pad and it
+spawns that vehicle; use it again to recall and respawn it. They are all one
+class driven by `data/vehicles.json` - hull, wheels, springs, engine, bed and
+rig - so a new one is a row of data.
+
+| vehicle | unlock | top speed | load | rig |
+| --- | --- | --- | --- | --- |
+| Quad Bike | $1,200 | 20 m/s | 0.6 m³ rack | - |
+| Pickup | $2,500 | 27 m/s | 2.5 m³ | winch 2.5 t |
+| Dune Buggy | $3,500 | 32 m/s | none | - |
+| Flatbed Hauler | $5,000 | 22 m/s | 8 m³ | winch 4 t, crane 1.2 t |
+| Log Truck | $12,000 | 19 m/s | 18 m³ stake bed, open back | winch 8 t, crane 2.5 t |
+| Dump Truck | $15,000 | 18 m/s | 14 m³ tub that tips | winch 6 t |
+| Crane Truck | $20,000 | 18 m/s | 10 m³ | winch 12 t, crane 6 t, 22 m reach |
+
+The big three run tandem rear axles. Springs and dampers scale with weight, so
+every vehicle rides like the original truck. The dump truck's tub is a set of
+colliders swung about a rear hinge, so the load really slides out under
+gravity. Settings > Game > Debug has an unlimited-money switch for trying
+them all.
+
 ## Models
 
 Still no asset files: every mesh is built in code from primitives, just more of
@@ -361,7 +384,7 @@ scripts/world/     Terrain, Decor, Cave, Outpost, SupplyCache, ResourceField,
 scripts/build/     Plot (grid, placement, persistence), BuildSystem (freecam
                    ghost), Schematic (shapes filled with material)
 scripts/player/    Player
-scripts/vehicle/   Hauler, VehicleRig (winch and crane)
+scripts/vehicle/   Hauler (every vehicle), VehicleModel (dressing), VehicleRig (winch and crane)
 scripts/ui/        UITheme, UIKit, GameHUD, Compass, Journal, MapView, KeyGuide,
                    MainMenu, PauseMenu, SettingsPanel, StressHUD
 assets/fonts/      Rubik, Lilita One (SIL OFL)
@@ -588,9 +611,7 @@ representation of the land than the one here. Build-mode gizmo handles and
 multi-select: the doc asks for cardinal handles on a selected object for finer
 translation, rotation and scale, and for selecting several objects and moving
 them as one; placement here is still grid-snapped, which is what keeps the
-occupancy grid exact. Outriggers, and vehicles beyond the one hauler - the
-non-linear vehicle progression the doc describes (fast and small, slow and
-strong, crane and no bed) needs more than one chassis to be a progression.
+occupancy grid exact. Working crane outriggers, and trailers.
 Belt curves and tees as distinct pieces, though filters and splitters already
 cover the sorting the doc lists beside them.
 

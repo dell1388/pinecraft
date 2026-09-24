@@ -592,6 +592,138 @@
       "volatility": 0.0,
       "sellable": false,
       "must_buy": true
+    },
+    {
+      "id": "box_quad",
+      "display_name": "Crated Quad Bike Pad",
+      "category": "package",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        1.1,
+        0.86,
+        0.94
+      ],
+      "density": 90,
+      "value_per_m3": 0,
+      "color": [
+        0.88,
+        0.52,
+        0.12
+      ],
+      "volatility": 0.0,
+      "sellable": false,
+      "must_buy": true
+    },
+    {
+      "id": "box_pickup",
+      "display_name": "Crated Pickup Pad",
+      "category": "package",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        1.1,
+        0.86,
+        0.94
+      ],
+      "density": 90,
+      "value_per_m3": 0,
+      "color": [
+        0.2,
+        0.42,
+        0.72
+      ],
+      "volatility": 0.0,
+      "sellable": false,
+      "must_buy": true
+    },
+    {
+      "id": "box_buggy",
+      "display_name": "Crated Buggy Pad",
+      "category": "package",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        1.1,
+        0.86,
+        0.94
+      ],
+      "density": 90,
+      "value_per_m3": 0,
+      "color": [
+        0.28,
+        0.62,
+        0.3
+      ],
+      "volatility": 0.0,
+      "sellable": false,
+      "must_buy": true
+    },
+    {
+      "id": "box_log_truck",
+      "display_name": "Crated Log Truck Pad",
+      "category": "package",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        1.1,
+        0.86,
+        0.94
+      ],
+      "density": 90,
+      "value_per_m3": 0,
+      "color": [
+        0.86,
+        0.7,
+        0.18
+      ],
+      "volatility": 0.0,
+      "sellable": false,
+      "must_buy": true
+    },
+    {
+      "id": "box_dump_truck",
+      "display_name": "Crated Dump Truck Pad",
+      "category": "package",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        1.1,
+        0.86,
+        0.94
+      ],
+      "density": 90,
+      "value_per_m3": 0,
+      "color": [
+        0.92,
+        0.6,
+        0.12
+      ],
+      "volatility": 0.0,
+      "sellable": false,
+      "must_buy": true
+    },
+    {
+      "id": "box_crane_truck",
+      "display_name": "Crated Crane Truck Pad",
+      "category": "package",
+      "shape": "box",
+      "variable": false,
+      "size": [
+        1.1,
+        0.86,
+        0.94
+      ],
+      "density": 90,
+      "value_per_m3": 0,
+      "color": [
+        0.86,
+        0.3,
+        0.1
+      ],
+      "volatility": 0.0,
+      "sellable": false,
+      "must_buy": true
     }
   ]
 }

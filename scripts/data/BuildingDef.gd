@@ -18,6 +18,8 @@ extends Resource
 ## borderless deck that things can be pushed on and off sideways.
 @export var rise: float = 0.0
 @export var railed: bool = true
+## Pads: which vehicle (an id in vehicles.json) this pad spawns.
+@export var vehicle: StringName = &""
 
 static func from_dict(d: Dictionary) -> BuildingDef:
 	var b := BuildingDef.new()
@@ -34,6 +36,7 @@ static func from_dict(d: Dictionary) -> BuildingDef:
 	b.unlock_cost = int(d.get("unlock_cost", 0))
 	b.rise = float(d.get("rise", 0.0))
 	b.railed = bool(d.get("railed", true))
+	b.vehicle = StringName(d.get("vehicle", "hauler" if b.kind == &"pad" else ""))
 	return b
 
 func footprint_world(cell_size: float) -> Vector3:

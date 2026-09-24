@@ -36,6 +36,8 @@ const DEFAULTS := {
 	&"show_fps": false,
 	# Game
 	&"autosave": true,
+	# Debug
+	&"unlimited_money": false,
 }
 
 ## Where the settings live. Tests point this somewhere disposable.

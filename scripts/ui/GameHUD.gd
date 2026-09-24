@@ -597,7 +597,11 @@ func _process(delta: float) -> void:
 	_flush_events()
 	# Money counts up to its value rather than jumping.
 	var target := float(Economy.money)
-	if _money_shown != target:
+	if Economy.unlimited():
+		if _money.text != "∞":
+			_money.text = "∞"
+			_money.tooltip_text = "Unlimited money is on (Settings > Game > Debug)"
+	elif _money_shown != target or _money.text == "∞":
 		_money_shown = lerpf(_money_shown, target, clampf(delta * 8.0, 0.0, 1.0))
 		if absf(_money_shown - target) < 1.0:
 			_money_shown = target
@@ -778,8 +782,12 @@ func _update_drive() -> void:
 		return
 	_speed.text = str(int(round(truck.linear_velocity.length() * 3.6)))
 	var cap := maxf(0.001, truck.cargo_capacity_m3)
-	_cargo.text = "%.1f / %.1f m³   ·   %d" % [truck.cargo_volume(), cap, truck.cargo_count()]
-	_cargo_bar.value = truck.cargo_volume() / cap
+	if truck.has_bed():
+		_cargo.text = "%s   ·   %.1f / %.1f m³   ·   %d" % [truck.display_name, truck.cargo_volume(), cap, truck.cargo_count()]
+		_cargo_bar.value = truck.cargo_volume() / cap
+	else:
+		_cargo.text = "%s   ·   no load space" % truck.display_name
+		_cargo_bar.value = 0.0
 	var bits: Array[String] = []
 	if truck.input_brake:
 		bits.append("braking")

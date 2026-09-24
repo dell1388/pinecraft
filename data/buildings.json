@@ -63,7 +63,7 @@
         7
       ],
       "machine": "sawmill",
-      "blurb": "Mills logs into lumber, which sells for more per m³."
+      "blurb": "Mills logs into lumber, which sells for more per m\u00b3."
     },
     {
       "id": "furnace",
@@ -191,7 +191,92 @@
         6
       ],
       "unlock_cost": 5000,
-      "blurb": "Spawns your hauler, and brings it back when it is lost."
+      "blurb": "Spawns your hauler, and brings it back when it is lost.",
+      "vehicle": "hauler"
+    },
+    {
+      "id": "pad_quad",
+      "display_name": "Quad Bike Pad",
+      "kind": "pad",
+      "vehicle": "quad",
+      "cost": 200,
+      "size": [
+        3,
+        1,
+        4
+      ],
+      "unlock_cost": 1200,
+      "blurb": "Spawns your quad bike. Brings it back when it is lost."
+    },
+    {
+      "id": "pad_pickup",
+      "display_name": "Pickup Pad",
+      "kind": "pad",
+      "vehicle": "pickup",
+      "cost": 200,
+      "size": [
+        4,
+        1,
+        6
+      ],
+      "unlock_cost": 2500,
+      "blurb": "Spawns your pickup. Brings it back when it is lost."
+    },
+    {
+      "id": "pad_buggy",
+      "display_name": "Buggy Pad",
+      "kind": "pad",
+      "vehicle": "buggy",
+      "cost": 200,
+      "size": [
+        4,
+        1,
+        5
+      ],
+      "unlock_cost": 3500,
+      "blurb": "Spawns your dune buggy. Brings it back when it is lost."
+    },
+    {
+      "id": "pad_log_truck",
+      "display_name": "Log Truck Pad",
+      "kind": "pad",
+      "vehicle": "log_truck",
+      "cost": 200,
+      "size": [
+        4,
+        1,
+        10
+      ],
+      "unlock_cost": 12000,
+      "blurb": "Spawns your log truck. Brings it back when it is lost."
+    },
+    {
+      "id": "pad_dump_truck",
+      "display_name": "Dump Truck Pad",
+      "kind": "pad",
+      "vehicle": "dump_truck",
+      "cost": 200,
+      "size": [
+        4,
+        1,
+        8
+      ],
+      "unlock_cost": 15000,
+      "blurb": "Spawns your dump truck. Brings it back when it is lost."
+    },
+    {
+      "id": "pad_crane_truck",
+      "display_name": "Crane Truck Pad",
+      "kind": "pad",
+      "vehicle": "crane_truck",
+      "cost": 200,
+      "size": [
+        4,
+        1,
+        9
+      ],
+      "unlock_cost": 20000,
+      "blurb": "Spawns your crane truck. Brings it back when it is lost."
     },
     {
       "id": "conveyor_ramp",

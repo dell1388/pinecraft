@@ -61,6 +61,9 @@ func show_page(i: int) -> void:
 			_toggle(&"show_fps", "Frame rate")
 		"Game":
 			_toggle(&"autosave", "Autosave every minute")
+			var debug := UIKit.label("Debug", "Subheader")
+			_body.add_child(debug)
+			_toggle(&"unlimited_money", "Unlimited money (buying costs nothing)")
 			var note := UIKit.label("Settings are kept separately from your save, so starting a new game keeps them.", "Small")
 			note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			_body.add_child(note)

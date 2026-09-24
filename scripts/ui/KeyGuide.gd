@@ -30,7 +30,7 @@ const GROUPS := [
 		[["Z", "X", "C"], "Rotate around each axis"],
 		[["Esc"], "Leave build mode"],
 	]},
-	{"title": "Hauler", "rows": [
+	{"title": "Vehicles", "rows": [
 		[["V"], "Get in or out"],
 		[["W", "S"], "Throttle and reverse"],
 		[["A", "D"], "Steer"],

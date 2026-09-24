@@ -60,9 +60,9 @@ func _draw() -> void:
 		else:
 			draw_circle(at, 9.0, Color(0, 0, 0, 0.55))
 			_text("?", at + Vector2(0, 6), 16, UITheme.INK, _bold)
-	var hauler: Node3D = world.get("hauler")
-	if hauler != null and is_instance_valid(hauler):
-		_marker(_to_map(hauler.global_position, rect), "Hauler", Color(1.0, 0.55, 0.40), 5.0)
+	for v in world.call("vehicles"):
+		var truck := v as Hauler
+		_marker(_to_map(truck.global_position, rect), truck.display_name, truck.paint.lightened(0.2), 5.0)
 
 	# You: an arrow pointing where you are looking.
 	var player: Node3D = world.get("player")
