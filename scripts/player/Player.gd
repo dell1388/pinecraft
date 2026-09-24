@@ -71,15 +71,23 @@ func _ready() -> void:
 	collision_layer = Layers.PLAYER
 	collision_mask = Layers.MASK_PLAYER
 	capture_mouse(true)
+	# The pivot is the hand: it rests and swings. The tool sits in it turned
+	# a quarter round, so the blade (or the hammer's face) leads the swing
+	# rather than going in edge-sideways.
+	_viewmodel_pivot = Node3D.new()
+	_viewmodel_pivot.name = "ViewmodelPivot"
+	camera.add_child(_viewmodel_pivot)
 	_viewmodel = MeshInstance3D.new()
 	_viewmodel.name = "Viewmodel"
 	_viewmodel.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	camera.add_child(_viewmodel)
+	_viewmodel.rotation = Vector3(0, PI * 0.5, 0)
+	_viewmodel_pivot.add_child(_viewmodel)
 	swung.connect(_swing_viewmodel)
 
 # --- The tool in hand --------------------------------------------------------
 
 var _viewmodel: MeshInstance3D
+var _viewmodel_pivot: Node3D
 var _viewmodel_tool: StringName = &"<none>"
 var _viewmodel_tween: Tween
 const VIEWMODEL_REST := Vector3(-0.45, 0.35, -0.35)
@@ -92,8 +100,8 @@ func _process(_delta: float) -> void:
 	_viewmodel.visible = tool != &""
 	if tool != &"":
 		_viewmodel.mesh = ToolModel.mesh(GameData.tool(tool))
-		_viewmodel.position = Vector3(0.42, -0.62, -0.95)
-		_viewmodel.rotation = VIEWMODEL_REST
+		_viewmodel_pivot.position = Vector3(0.42, -0.62, -0.95)
+		_viewmodel_pivot.rotation = VIEWMODEL_REST
 
 func _swing_viewmodel() -> void:
 	if not _viewmodel.visible:
@@ -101,10 +109,10 @@ func _swing_viewmodel() -> void:
 	if _viewmodel_tween != null:
 		_viewmodel_tween.kill()
 	var t := maxf(0.12, float(selected_tool_def().get("cooldown", 0.4)))
-	_viewmodel.rotation = VIEWMODEL_REST
+	_viewmodel_pivot.rotation = VIEWMODEL_REST
 	_viewmodel_tween = create_tween()
-	_viewmodel_tween.tween_property(_viewmodel, "rotation", VIEWMODEL_REST + Vector3(-1.2, 0.2, 0.3), t * 0.35).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	_viewmodel_tween.tween_property(_viewmodel, "rotation", VIEWMODEL_REST, t * 0.6).set_trans(Tween.TRANS_SINE)
+	_viewmodel_tween.tween_property(_viewmodel_pivot, "rotation", VIEWMODEL_REST + Vector3(-1.2, 0.2, 0.3), t * 0.35).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_viewmodel_tween.tween_property(_viewmodel_pivot, "rotation", VIEWMODEL_REST, t * 0.6).set_trans(Tween.TRANS_SINE)
 
 func capture_mouse(capture: bool) -> void:
 	_mouse_captured = capture
@@ -800,8 +808,8 @@ func _update_drag() -> void:
 	var wanted := to_target * DRAG_GAIN
 	if wanted.length() > carry_max_speed:
 		wanted = wanted.normalized() * carry_max_speed
-	# Hold it up against gravity as well as moving it.
-	var change := wanted - point_velocity + Vector3(0, 9.8 * dt, 0)
+	# No gravity to fight: a held thing weighs nothing (see LooseItem).
+	var change := wanted - point_velocity
 	# K maps an impulse at the point to the velocity change of the point.
 	var skew := Basis(Vector3(0, arm.z, -arm.y), Vector3(-arm.z, 0, arm.x), Vector3(arm.y, -arm.x, 0))
 	var m: Basis = skew * inv_inertia * skew

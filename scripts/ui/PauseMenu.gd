@@ -5,6 +5,7 @@ extends CanvasLayer
 ## function keys did is here as a button, with the keys still working.
 
 signal resume_requested
+signal home_requested
 signal save_requested
 signal load_requested
 signal main_menu_requested
@@ -60,6 +61,7 @@ func _show_main() -> void:
 	_content.add_child(_stats)
 	_content.add_child(UIKit.spacer(false, 8))
 	var first := _add("Resume", func(): resume_requested.emit())
+	_add("Return to base", func(): home_requested.emit())
 	_add("Settings", func(): _show_page("Settings", SettingsPanel.new()))
 	_add("Controls", func(): _show_page("Controls", KeyGuide.sheet()))
 	_add_row([["Save  [F5]", func(): save_requested.emit()],

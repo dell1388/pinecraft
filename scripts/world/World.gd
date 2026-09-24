@@ -283,8 +283,10 @@ func _build_environment() -> void:
 	sky.sky_top_color = Color(0.24, 0.45, 0.78)
 	sky.sky_horizon_color = Color(0.70, 0.80, 0.88)
 	sky.sky_curve = 0.12
-	sky.ground_bottom_color = Color(0.22, 0.38, 0.50)
-	sky.ground_horizon_color = Color(0.62, 0.74, 0.84)
+	# Below the horizon the sky is the haze, so past the far plane there is
+	# only haze.
+	sky.ground_bottom_color = Color(0.68, 0.78, 0.87)
+	sky.ground_horizon_color = Color(0.68, 0.78, 0.87)
 	sky.sun_angle_max = 24.0
 	sky.sun_curve = 0.08
 	env.sky.sky_material = sky
@@ -307,7 +309,9 @@ func _build_environment() -> void:
 	env.fog_enabled = true
 	env.fog_light_color = Color(0.68, 0.78, 0.87)
 	env.fog_sun_scatter = 0.18
-	env.fog_density = 0.0028
+	env.fog_mode = Environment.FOG_MODE_DEPTH
+	env.fog_depth_curve = 1.6
+	env.fog_density = 1.0
 	env.fog_aerial_perspective = 0.35
 	env.fog_sky_affect = 0.0
 	env_node.environment = env
@@ -1198,6 +1202,9 @@ func _build_menus() -> void:
 
 	pause_menu = PauseMenu.new()
 	pause_menu.resume_requested.connect(resume_play)
+	pause_menu.home_requested.connect(func():
+		return_to_base()
+		resume_play())
 	pause_menu.save_requested.connect(func():
 		quick_save()
 		resume_play())
@@ -1327,8 +1334,10 @@ func _apply_all_settings() -> void:
 	cam.fov = float(Settings.value(&"fov"))
 	var reach := float(Settings.value(&"view_distance"))
 	cam.far = reach
-	# Fog thick enough that the far plane is lost in haze, never a hard edge.
-	environment.fog_density = clampf(1.1 / reach, 0.0016, 0.0075)
+	# Clear air most of the way out, then haze thick enough that the far
+	# plane is lost in it, never a hard edge.
+	environment.fog_depth_begin = reach * 0.6
+	environment.fog_depth_end = reach * 0.98
 	var shadows := int(Settings.value(&"shadows"))
 	sun.shadow_enabled = shadows > 0
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS if shadows >= 2 \
@@ -1398,7 +1407,24 @@ func _update_underground(delta: float) -> void:
 		_plates_shown = plates_on
 		get_tree().call_group(Nameplate.LANDMARK_GROUP, "set_visible", plates_on)
 
+## Below every cave: anyone down here has fallen out of the world.
+const FELL_OUT_Y := -160.0
+
+## Back to where the game starts, by the plot: for when you are stuck out
+## somewhere, or have fallen through the world. The truck stays where it is.
+func return_to_base() -> void:
+	if player.driving():
+		player.exit_vehicle()
+	var spot := Vector3(0, 0, 12.0)
+	spot.y = terrain.height_at(spot.x, spot.z) + 1.0
+	player.global_position = spot
+	player.velocity = Vector3.ZERO
+	player.rotation.y = PI
+	hud.toast("Back at base", UITheme.GOOD)
+
 func _physics_process(delta: float) -> void:
+	if player != null and player.global_position.y < FELL_OUT_Y:
+		return_to_base()
 	var riding := player.vehicle as Hauler if player != null and player.driving() else null
 	if riding != null and is_instance_valid(riding):
 		# The player rides the seat; the camera is a child of the player, so

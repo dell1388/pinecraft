@@ -196,6 +196,9 @@ func set_state(next: State) -> void:
 			sleeping = false
 			# Held by one point it swings, but settles rather than spinning.
 			angular_damp = 2.5
+			# Whatever holds it takes its weight: it goes where it is steered
+			# and stays there, rather than sagging out of the hand.
+			gravity_scale = 0.0
 		State.HELD, State.CAPTURED:
 			# Owned by the player's rack or a machine: kinematic, so it still
 			# pushes loose items aside but costs the solver nothing.
@@ -207,6 +210,7 @@ func set_state(next: State) -> void:
 			carrier = null
 	quiet_time = 0.0
 	if next != State.CARRIED:
+		gravity_scale = 1.0
 		angular_damp = 0.9 if dims.get("shape", Solid.BOX) == Solid.CYLINDER else 0.4
 	state_changed.emit(self, prev, next)
 

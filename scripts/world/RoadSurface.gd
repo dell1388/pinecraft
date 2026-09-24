@@ -7,8 +7,8 @@ extends Node3D
 ## and marker posts with red reflectors every forty metres. Dirt spurs get a
 ## rutted track instead, and no paint.
 ##
-## Visual only - the ground under it is already graded flat, so vehicles drive
-## on the terrain and the surface simply shows where the road is.
+## Solid: the surface carries its own collision, so what you stand on is
+## the road you see.
 
 const HALF := 4.8                   ## half the carriageway
 const VERGE := 1.5                  ## gravel each side of that
@@ -18,6 +18,7 @@ const PIECE := 360.0                ## metres of road per mesh, for culling
 const POST_EVERY := 40.0
 
 var terrain: Terrain
+var _body: StaticBody3D
 static var _materials: Dictionary = {}
 ## Plain roads: just a band of a different colour on the land, no paint, no
 ## verges, no posts - the look of a block-built world.
@@ -153,6 +154,22 @@ func _flush(verts: PackedVector3Array, uvs: PackedVector2Array, colors: PackedCo
 	mi.material_override = Textures.material("road", 6.0) if plain else material(dirt)
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)
+	# Solid: what you drive and walk on is the road you see, not the ground a
+	# hand's width under it.
+	if _body == null:
+		_body = StaticBody3D.new()
+		_body.name = "RoadBody"
+		_body.collision_layer = Layers.WORLD
+		_body.collision_mask = 0
+		var pm := PhysicsMaterial.new()
+		pm.friction = 1.0
+		_body.physics_material_override = pm
+		add_child(_body)
+	var cs := CollisionShape3D.new()
+	var shape := ConcavePolygonShape3D.new()
+	shape.set_faces(verts)
+	cs.shape = shape
+	_body.add_child(cs)
 
 ## Asphalt with white edge lines and a dashed yellow centre, or a dirt track
 ## with two ruts; drawn once and shared.

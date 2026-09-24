@@ -26,7 +26,7 @@ const DEFAULTS := {
 	&"shadows": 2,            ## 0 off, 1 low, 2 high
 	&"ambient_occlusion": true,
 	&"bloom": true,
-	&"view_distance": 400.0,
+	&"view_distance": 600.0,
 	&"moving_sun": true,
 	# Interface
 	&"ui_scale": 1.0,

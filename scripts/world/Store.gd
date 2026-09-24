@@ -119,17 +119,9 @@ func available(slot: Dictionary) -> bool:
 			return not PlayerState.is_unlocked(target) or PlayerState.level(target) < tier
 	return not PlayerState.is_unlocked(target)
 
-## Why a box cannot be bought yet, or "" if it can.
-func blocked(slot: Dictionary) -> String:
-	if slot.kind != &"tier" or int(slot.tier) <= 1:
-		return ""
-	var target: StringName = slot.target
-	var tier: int = int(slot.tier)
-	var name := GameData.building(target).display_name
-	if not PlayerState.is_unlocked(target):
-		return "%s T%d needs the %s itself first" % [name, tier, name]
-	if PlayerState.level(target) < tier - 1:
-		return "%s T%d needs T%d first" % [name, tier, tier - 1]
+## Why a box cannot be bought yet, or "" if it can. Nothing is: buy in any
+## order you like - a higher tier bought first brings the machine with it.
+func blocked(_slot: Dictionary) -> String:
 	return ""
 
 ## Puts a box back on every shelf slot that should have one.

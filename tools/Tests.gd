@@ -1140,41 +1140,71 @@ func test_regions() -> void:
 	check(float(woods[1]) - float(woods[0]) > 12.0, "the woods are flat (%.1f m of relief)" % (float(woods[1]) - float(woods[0])))
 	# The ground itself rises; the peaks are the stacks on it.
 	check(peak > 40.0, "the mountain ground tops out at %.0f m" % peak)
-	# Mountains are stacks: sheer-sided levels, each smaller and higher, a ramp
-	# up to each from the one below. Mesas in red, all of it solid, standing
-	# where it can be walked on, and none of it on a road.
+	# The land is shelves: mostly flat ground, a step apart, with rock cliffs
+	# between them and grass ramps where the cliffs break.
+	var flat := 0
+	var cliffs := 0
+	var ramps := 0
+	var sampled := 0
+	for iz in range(2, land._cells - 2, 3):
+		for ix in range(2, land._cells - 2, 3):
+			var i: int = land._index(ix, iz)
+			if land._heights[i] < Terrain.SHELF_BASE:
+				continue
+			sampled += 1
+			var j: int = land._index(ix + 1, iz)
+			var rise: float = absf(land._heights[j] - land._heights[i])
+			if rise < 1.0:
+				flat += 1
+			if floori(land._levelq[i]) != floori(land._levelq[j]) and land._cliff[i] > 0 and land._cliff[j] > 0:
+				if (float(land._cliff[i]) + float(land._cliff[j])) * 0.5 > 150.0:
+					cliffs += 1
+				elif (float(land._cliff[i]) + float(land._cliff[j])) * 0.5 < 40.0:
+					ramps += 1
+	check(float(flat) / float(sampled) > 0.6, "the land is not mostly flat shelves (%d of %d)" % [flat, sampled])
+	check(cliffs > 50, "only %d cliff crossings" % cliffs)
+	check(ramps > 10, "only %d grass ramps" % ramps)
+	# Standing on a shelf by a cliff, you stand on the shelf, not half way up.
+	var space := world.get_world_3d().direct_space_state
+	var probed := 0
+	for iz in range(40, land._cells - 40, 7):
+		for ix in range(40, land._cells - 40, 7):
+			var i2: int = land._index(ix, iz)
+			var j2: int = land._index(ix + 1, iz)
+			if floori(land._levelq[i2]) == floori(land._levelq[j2]) or land._cliff[i2] < 200 or land._cliff[j2] < 200:
+				continue
+			for fx in [0.1, 0.9]:
+				var px: float = -land.half_extent + (float(ix) + fx) * Terrain.CELL
+				var pz: float = -land.half_extent + (float(iz) + 0.5) * Terrain.CELL
+				var ray := PhysicsRayQueryParameters3D.create(Vector3(px, 400, pz), Vector3(px, -50, pz))
+				var hit := space.intersect_ray(ray)
+				if hit.is_empty():
+					continue
+				probed += 1
+				# Never over the ground (things would float); under it only
+				# where the rock of the cliff bulges out over the shelf.
+				var ground_y: float = hit.position.y
+				var said: float = land.height_at(px, pz)
+				check(said < ground_y + 1.5, "height_at is %.1f over ground at %.1f" % [said, ground_y])
+				check(said > ground_y - 1.5 or (hit.normal as Vector3).y < 0.97,
+					"height_at is %.1f under open ground at %.1f" % [said, ground_y])
+			if probed > 40:
+				break
+		if probed > 40:
+			break
+	check(probed > 10, "found no cliffs to stand by")
+	# Rock outcrops, solid, off the roads.
 	var marks := Landmarks.new()
 	marks.setup(land, 5)
 	world.add_child(marks)
 	await step(2)
-	check(marks.stacks > 5, "only %d stacks" % marks.stacks)
-	check(marks.levels.size() > marks.stacks, "the stacks are one level each")
-	check(marks.ramps.size() > marks.stacks, "only %d ramps" % marks.ramps.size())
-	var high := 0.0
-	var reds := 0
-	for lv in marks.levels:
-		high = maxf(high, float(lv.top))
-		if Landmarks.REDS.has(lv.wall_color):
-			reds += 1
-		for p: Vector2 in lv.poly:
-			check(not land.is_road(p.x, p.y), "a stack corner stands on a road")
-	check(high > 100.0, "the highest level is %.0f m up" % high)
-	check(reds > 0, "the desert has no mesas")
-	for r in marks.ramps:
-		var a: Vector3 = r.a
-		var b: Vector3 = r.b
-		var grade := (b.y - a.y) / Vector2(b.x - a.x, b.z - a.z).length()
-		check(grade < Landmarks.RAMP_GRADE + 0.02, "a ramp is %.0f%% steep" % (grade * 100.0))
-	var space := world.get_world_3d().direct_space_state
-	var lv0: Dictionary = marks.levels[0]
-	var c := Vector2.ZERO
-	for p: Vector2 in lv0.poly:
-		c += p
-	c /= float((lv0.poly as PackedVector2Array).size())
-	var q := PhysicsRayQueryParameters3D.create(Vector3(c.x, 400, c.y), Vector3(c.x, -400, c.y))
-	var hit := space.intersect_ray(q)
-	check(not hit.is_empty() and float(hit.position.y) > float(lv0.top) - 0.5, "a stack top is not solid")
-	check(not land.top_at(c.x, c.y).is_empty(), "the terrain does not know about a stack top")
+	check(marks.rocks.size() > 30, "only %d outcrops" % marks.rocks.size())
+	for r in marks.rocks:
+		var p: Vector3 = r.pos
+		check(not land.is_road(p.x, p.z), "an outcrop stands on a road")
+	var r0: Vector3 = marks.rocks[0].pos + Vector3(0, (marks.rocks[0].size as Vector3).y * 0.4, 0)
+	var q2 := PhysicsRayQueryParameters3D.create(r0 + Vector3(0, 60, 0), r0)
+	check(not space.intersect_ray(q2).is_empty(), "an outcrop is not solid")
 	done()
 
 ## Spec: roads that wind round hills and switch back up mountains, laid on the
@@ -2394,8 +2424,8 @@ func test_store() -> void:
 	shop.restock()
 	check(axe_slot.item == null, "a tool you own is still on the shelf")
 
-	# Machine tiers: T2 cannot be bought before the machine itself, and
-	# opening T2 raises the machine's tier.
+	# Machine tiers can be bought in any order: T2 first brings the machine
+	# with it, at T2, and the T1 box then leaves the shelf.
 	var t1: Dictionary = {}
 	var t2: Dictionary = {}
 	for slot in shop.slots:
@@ -2405,21 +2435,15 @@ func test_store() -> void:
 			elif slot.tier == 2:
 				t2 = slot
 	check(not t1.is_empty() and not t2.is_empty(), "the crusher tiers are not stocked")
-	check(shop.blocked(t2) != "", "crusher T2 could be bought without a crusher")
+	check_eq(shop.blocked(t2), "", "crusher T2 is held back until the crusher is bought")
 	var t2_box: LooseItem = t2.item
-	t2_box.teleport(Transform3D(Basis(), shop.till_position() + Vector3(0, 0.6, 0)))
-	var refused := shop.buy()
-	check_eq(int(refused.bought), 0, "crusher T2 sold before the crusher")
-	var t1_box: LooseItem = t1.item
-	var receipt2 := shop.buy([t1_box] as Array[LooseItem])
-	check(t1_box.owned, "crusher T1 was not bought")
-	shop.open_box(t1_box)
-	check(PlayerState.is_unlocked(&"crusher"), "crusher T1 did not unlock the crusher")
-	await step(2)
 	shop.buy([t2_box] as Array[LooseItem])
-	check(t2_box.owned, "crusher T2 was refused once the crusher was owned")
+	check(t2_box.owned, "crusher T2 was refused before the crusher")
 	shop.open_box(t2_box)
+	check(PlayerState.is_unlocked(&"crusher"), "crusher T2 did not bring the crusher")
 	check_eq(PlayerState.level(&"crusher"), 2, "crusher T2 did not raise the tier")
+	await step(2)
+	check(not shop.available(t1), "crusher T1 is still for sale over T2")
 
 	# An unpaid box will not open, and carried out it goes back on the shelf.
 	var pad_slot: Dictionary = {}
@@ -2534,7 +2558,8 @@ func test_handling_limits() -> void:
 	done()
 
 ## Play-test: things are dragged by the point you grab them at. A log taken
-## by one end comes along by that end, and hangs from it.
+## by one end comes along by that end - and, weightless while held, stays
+## level rather than drooping from it.
 func test_drag_at_point() -> void:
 	_setup(false)
 	var player := _make_player()
@@ -2551,7 +2576,7 @@ func test_drag_at_point() -> void:
 	var point := player.drag_point()
 	var target := player.drag_target()
 	check(point.distance_to(target) < 0.6, "the grabbed end is %.2f m from the hand" % point.distance_to(target))
-	check(log_piece.global_position.y < point.y - 0.3, "the log does not hang from the end it was grabbed by")
+	check(log_piece.global_position.y > point.y - 0.3, "a held log sagged %.2f m from the end it was grabbed by" % (point.y - log_piece.global_position.y))
 	check(log_piece.global_position.distance_to(target) > 0.6, "the log was pulled by its middle, not the point grabbed")
 	player._release_dragged()
 	check_eq(log_piece.state, LooseItem.State.FREE, "letting go did not free the log")
