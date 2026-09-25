@@ -309,8 +309,12 @@ static func size_limits(def: BuildingDef) -> Array:
 	var b: Vector3i = base.size if base != null else def.size
 	match def.kind:
 		&"conveyor":
-			if def.rise > 0.0:
+			# Straight belts and ramps stretch and widen; so does the aligning
+			# belt, along its run. Bends and mergers are what they are.
+			if def.belt == &"bend" or def.belt == &"merge":
 				return []
+			if def.belt == &"align":
+				return [Vector3i(1, b.y, 2), Vector3i(1, b.y, 16)]
 			return [Vector3i(1, b.y, 2), Vector3i(3, b.y, 16)]
 		&"schematic":
 			return [Vector3i(1, 1, 1), Vector3i(8, 8, 8)]
@@ -329,6 +333,13 @@ static func resized(def: BuildingDef, size: Vector3i) -> BuildingDef:
 	out.tier = def.tier
 	out.display_name = def.display_name
 	var ratio := float(size.x * size.y * size.z) / float(maxi(1, base.size.x * base.size.y * base.size.z))
+	if base.kind == &"conveyor":
+		# A belt is priced by its deck: length times width.
+		ratio = float(size.x * size.z) / float(maxi(1, base.size.x * base.size.z))
+		if base.rise > 0.0:
+			# A ramp keeps its slope: longer, it climbs higher, and stands taller.
+			out.rise = base.rise * float(size.z) / float(base.size.z)
+			out.size.y = maxi(base.size.y, int(ceil(out.rise)) + 1)
 	out.cost = int(round(float(base.cost) * ratio))
 	return out
 
@@ -390,9 +401,22 @@ func _instantiate(def: BuildingDef) -> Node3D:
 			im.sink_finder = find_sink_near
 			return im
 		&"conveyor":
-			var c := Conveyor.new()
+			var c: Conveyor
+			match def.belt:
+				&"bend":
+					var bend := ConveyorBend.new()
+					bend.turn = def.turn
+					c = bend
+				&"merge":
+					c = ConveyorMerge.new()
+				&"align":
+					c = ConveyorAlign.new()
+				_:
+					c = Conveyor.new()
 			c.length = float(def.size.z) * CELL
 			c.width = float(def.size.x) * CELL * 0.9
+			if def.belt == &"bend":
+				c.width = 0.9
 			c.speed = def.speed
 			c.rise = def.rise
 			c.railed = def.railed
@@ -401,6 +425,9 @@ func _instantiate(def: BuildingDef) -> Node3D:
 		&"splitter":
 			var s := Splitter.new()
 			s.setup(def)
+			# The T: left and right in turn, never straight on.
+			if def.id == &"splitter_t":
+				s.enabled_outputs = [true, false, true]
 			s.sink_finder = find_sink_near
 			return s
 		&"filter":

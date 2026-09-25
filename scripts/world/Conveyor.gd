@@ -9,9 +9,10 @@ extends Node3D
 ## down a ramp, jam against a wall or wedge across the rails - and a belt that
 ## is stopped is just a rubber deck things sit on.
 ##
-## The one concession: a piece that reaches the far lip and is right in front
-## of a machine, bin or chute is handed to it, the same as dropping it into a
-## hopper, so a line does not need pixel-perfect alignment to work.
+## Nothing is handed on either: whatever reaches the far end rides off it and
+## falls - onto the next belt, into a machine's mouth, a bin's hopper, a
+## truck's bed, or the ground. Loading a truck is running a ramp up over its
+## side.
 
 @export var length: float = 12.0
 @export var width: float = 1.4
@@ -23,8 +24,7 @@ extends Node3D
 ## Spec: retractable. A stopped belt is a still deck: what is on it stays put.
 @export var running: bool = true
 
-## Set by the plot: given a world point, returns the machine/bin/sell zone that
-## should receive items leaving this belt, or null.
+## Kept for the plot, which still sets it; belts no longer hand anything on.
 var sink_finder: Callable = Callable()
 
 const DECK_THICKNESS := 0.16
@@ -193,9 +193,7 @@ func belt_velocity() -> Vector3:
 	return along.normalized() * speed
 
 func _physics_process(_delta: float) -> void:
-	# The engine drags anything touching the deck toward this velocity. Set
-	# every frame, so a belt that is moved or stopped is right at once.
-	_deck.constant_linear_velocity = belt_velocity()
+	_drive()
 	_poll_counter += 1
 	if _poll_counter < 3:
 		return
@@ -209,8 +207,7 @@ func _physics_process(_delta: float) -> void:
 		if inside.has(item):
 			continue
 		_riding.erase(item)
-		if is_instance_valid(item) and item.get_parent() != null \
-				and _local(item).z < -length * 0.5 + LIP:
+		if is_instance_valid(item) and item.get_parent() != null and _off_far_end(item):
 			total_delivered += 1
 	for item in inside:
 		if not _riding.has(item):
@@ -219,19 +216,21 @@ func _physics_process(_delta: float) -> void:
 		# A belt that is running is a cause to move: nothing sleeps on it.
 		if running and item.sleeping:
 			item.sleeping = false
-		if _local(item).z < -length * 0.5 + LIP:
-			_offer(item)
+	_aboard(inside)
+
+## The engine drags anything touching a deck toward its surface velocity. Set
+## every frame, so a belt that is moved or stopped is right at once. Belts
+## with more than one deck (a bend) set each of theirs.
+func _drive() -> void:
+	_deck.constant_linear_velocity = belt_velocity()
+
+## Did a piece that has just left go off the far end (rather than the side)?
+func _off_far_end(item: LooseItem) -> bool:
+	return _local(item).z < -length * 0.5 + LIP
+
+## Every few frames, with what is aboard: for belts that do something to it.
+func _aboard(_inside: Dictionary) -> void:
+	pass
 
 func _local(item: LooseItem) -> Vector3:
 	return global_transform.affine_inverse() * item.global_position
-
-## At the far lip: whatever the belt runs into can take the piece.
-func _offer(item: LooseItem) -> void:
-	if not running or not sink_finder.is_valid():
-		return
-	var sink: Object = sink_finder.call(output_transform().origin)
-	if sink == null or not sink.has_method("can_accept") or not sink.can_accept(item.item_id):
-		return
-	if sink.accept_item(item):
-		_riding.erase(item)
-		total_delivered += 1

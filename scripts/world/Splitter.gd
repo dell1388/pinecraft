@@ -146,22 +146,3 @@ func _poll() -> void:
 			if index < 0:
 				continue
 			_dirs[item] = index
-		_hand_on(item)
-
-## A piece at the edge of the plate, headed for a machine or bin right there,
-## is dropped into it.
-func _hand_on(item: LooseItem) -> void:
-	if not sink_finder.is_valid():
-		return
-	var index: int = _dirs[item]
-	var dir: Vector3 = OUTPUT_DIRS[index]
-	var local: Vector3 = global_transform.affine_inverse() * item.global_position
-	var reach: float = absf(dir.x) * _half.x + absf(dir.z) * _half.y
-	if local.dot(dir) < reach - 0.3:
-		return
-	var world_dir: Vector3 = (global_transform.basis * dir).normalized()
-	var sink: Object = sink_finder.call(global_position + world_dir * (OUTPUT_DISTANCE + 0.6))
-	if sink != null and sink.has_method("can_accept") \
-			and sink.can_accept(item.item_id) and sink.accept_item(item):
-		_dirs.erase(item)
-		total_routed += 1

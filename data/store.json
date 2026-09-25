@@ -76,41 +76,6 @@
           ]
         },
         {
-          "title": "CONVEYORS",
-          "color": [
-            0.9,
-            0.55,
-            0.25
-          ],
-          "box": [
-            1.5,
-            0.65,
-            1.0
-          ],
-          "products": [
-            {
-              "kind": "unlock",
-              "target": "conveyor_ramp"
-            },
-            {
-              "kind": "unlock",
-              "target": "conveyor_long"
-            },
-            {
-              "kind": "unlock",
-              "target": "conveyor_wide"
-            },
-            {
-              "kind": "unlock",
-              "target": "conveyor_fast"
-            },
-            {
-              "kind": "unlock",
-              "target": "filter"
-            }
-          ]
-        },
-        {
           "title": "MACHINERY",
           "color": [
             0.9,

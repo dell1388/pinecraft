@@ -17,6 +17,10 @@ extends Resource
 ## borderless deck that things can be pushed on and off sideways.
 @export var rise: float = 0.0
 @export var railed: bool = true
+## What kind of belt: straight (the default; a ramp when it rises), bend,
+## merge or align. `turn` is a bend's way round: -1 left, +1 right.
+@export var belt: StringName = &"straight"
+@export var turn: float = -1.0
 ## Pads: which vehicle (an id in vehicles.json) this pad spawns.
 @export var vehicle: StringName = &""
 ## Which tier this copy is. Every copy of a machine is bought on its own, at
@@ -39,6 +43,8 @@ static func from_dict(d: Dictionary) -> BuildingDef:
 	b.capacity = float(d.get("capacity", 6.0))
 	b.rise = float(d.get("rise", 0.0))
 	b.railed = bool(d.get("railed", true))
+	b.belt = StringName(d.get("belt", "straight"))
+	b.turn = float(d.get("turn", -1.0))
 	b.hidden = bool(d.get("hidden", false))
 	b.vehicle = StringName(d.get("vehicle", "hauler" if b.kind == &"pad" else ""))
 	return b

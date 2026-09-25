@@ -56,6 +56,12 @@ func _run_all() -> void:
 	await _test(&"a tunnel mouth is a real opening", test_tunnel_mouth)
 	await _test(&"logs never stick inside a tunnel", test_tunnel_flow)
 	await _test(&"a machine takes a trunk with its branches if it fits", test_machine_takes_branches)
+	await _test(&"belts dump off their end - no hand-offs", test_belt_dumps_off_end)
+	await _test(&"a stretched ramp loads a truck", test_ramp_loads_truck)
+	await _test(&"bends carry pieces round", test_belt_bend)
+	await _test(&"the merger takes three ways in to one out", test_belt_merge)
+	await _test(&"the aligning belt sets pieces straight", test_belt_align)
+	await _test(&"the T splitter sends left and right", test_splitter_t)
 	await _test(&"a lone machine dumps on the ground until it is full", test_machine_dumps_on_ground)
 	await _test(&"workbench assembles from volumes", test_workbench)
 	await _test(&"the yard buys what the player owns in it", test_sell_yard)
@@ -1885,6 +1891,135 @@ func test_conveyor_physics() -> void:
 	await step(150)
 	check(piece.global_position.z < -5.0, "the jam did not clear when the wall went")
 	check(belt.total_delivered >= 1, "the piece going off the end was not counted")
+	done()
+
+## Spec: belts carry by friction and nothing else. Whatever reaches the end
+## rides off it and falls - it is never handed to what is beside it.
+func test_belt_dumps_off_end() -> void:
+	_setup()
+	var belt := Conveyor.new()
+	belt.length = 4.0
+	belt.width = 0.9
+	world.add_child(belt)
+	var bin := StorageBin.new()
+	bin.setup(manager, GameData.building(&"storage"), 0)
+	# Within the old hand-off reach (1.2 m) of the end, clear of where it falls.
+	bin.position = Vector3(0, 0, -3.9)
+	world.add_child(bin)
+	await step(3)
+	var piece := spawn(&"lumber_pine", Vector3(0, 0.5, 1.2))
+	await step(240)
+	check_eq(bin.count(), 0, "the belt handed its piece into the bin beside its end")
+	check(is_instance_valid(piece) and piece.state == LooseItem.State.FREE, "the piece is not a loose body")
+	check(piece.global_position.y < 1.2, "the piece did not fall off the end (y %.2f)" % piece.global_position.y)
+	check(belt.total_delivered >= 1, "going off the end was not counted")
+	done()
+
+## Spec: a ramp stretched long enough climbs over a truck's side, and what
+## rides off the top drops into the bed - that is how a belt loads a truck.
+func test_ramp_loads_truck() -> void:
+	_setup(false)
+	var truck := Hauler.new()
+	truck.setup(manager, 0)
+	world.add_child(truck)
+	truck.global_position = Vector3(0, truck.spawn_height(), 0)
+	await step(60)
+	var tail: Vector3 = truck.global_transform * Vector3(0, truck.bed_floor + truck.wall_height, truck.bed_back)
+	# Half a metre up for every metre along, as the ramp piece climbs.
+	var length := float(2 * int(ceil(tail.y / 0.5 + 3.0)))
+	var ramp := Conveyor.new()
+	ramp.length = length
+	ramp.width = 0.9
+	ramp.rise = length * 0.5
+	var top_end := tail.z - 0.7
+	ramp.position = Vector3(0, 0, top_end + length * 0.5)
+	world.add_child(ramp)
+	await step(3)
+	for i in 3:
+		spawn(&"lumber_pine", ramp.global_position + Vector3(0, 0.6, length * 0.5 - 0.8))
+		await step(50)
+	await step(60 * 8)
+	check(truck.cargo_count() >= 3, "the ramp loaded %d of 3 pieces into the truck" % truck.cargo_count())
+	done()
+
+## A bend carries a piece round the corner by friction alone.
+func test_belt_bend() -> void:
+	for turn in [-1.0, 1.0]:
+		_setup()
+		var bend := ConveyorBend.new()
+		bend.turn = turn
+		bend.length = 2.0
+		bend.width = 0.9
+		world.add_child(bend)
+		await step(3)
+		var piece := spawn(&"ingot_iron", Vector3(0, 0.5, 0.85), Solid.box(Vector3(0.2, 0.4, 0.1)))
+		await step(150)
+		check(piece.global_position.x * turn > 1.0, "a %s bend did not carry the piece round (at %s)" % [
+			"left" if turn < 0 else "right", str(piece.global_position)])
+		check(absf(piece.global_position.z) < 0.9, "the piece left the %s bend the wrong way (at %s)" % [
+			"left" if turn < 0 else "right", str(piece.global_position)])
+	done()
+
+## Three ways in, one way out.
+func test_belt_merge() -> void:
+	_setup()
+	var merge := ConveyorMerge.new()
+	merge.length = 3.0
+	merge.width = 3.0 * 0.9
+	world.add_child(merge)
+	await step(3)
+	var from_back := spawn(&"ingot_iron", Vector3(0, 0.5, 1.2), Solid.box(Vector3(0.2, 0.3, 0.1)))
+	var from_left := spawn(&"ingot_iron", Vector3(-1.25, 0.5, 0.3), Solid.box(Vector3(0.2, 0.3, 0.1)))
+	from_left.linear_velocity = Vector3(2.5, 0, 0)
+	var from_right := spawn(&"ingot_iron", Vector3(1.25, 0.5, 0.6), Solid.box(Vector3(0.2, 0.3, 0.1)))
+	from_right.linear_velocity = Vector3(-2.5, 0, 0)
+	await step(240)
+	for piece: LooseItem in [from_back, from_left, from_right]:
+		var p := piece.global_position
+		check(p.z < -1.5, "a piece did not come out of the merger's front (at %s)" % str(p))
+		check(absf(p.x) < 0.9, "a piece left the merger beside its mouth (at %s)" % str(p))
+	done()
+
+## The aligning belt sets a crooked piece in the middle, lying along the run.
+func test_belt_align() -> void:
+	_setup()
+	var belt := ConveyorAlign.new()
+	belt.length = 4.0
+	belt.width = 0.9
+	world.add_child(belt)
+	await step(3)
+	var plank := manager.spawn(&"lumber_pine", Transform3D(Basis(Vector3.UP, 0.8) * Basis(Vector3.RIGHT, PI * 0.5),
+		Vector3(0.25, 0.4, 1.3)), 0, Vector3.ZERO, Solid.box(Vector3(0.3, 1.0, 0.06)))
+	await step(20)
+	check(belt.total_aligned >= 1, "the aligning belt set nothing straight")
+	var local := belt.to_local(plank.global_position)
+	check(absf(local.x) < 0.05, "the piece is not in the middle of the belt (x %.2f)" % local.x)
+	var along := belt.global_transform.basis.inverse() * plank.global_transform.basis.y
+	check(absf(along.z) > 0.98, "the piece is not lying along the belt (%s)" % str(along))
+	done()
+
+## The T: left and right in turn, never straight on.
+func test_splitter_t() -> void:
+	_setup()
+	var t := Splitter.new()
+	t.setup(GameData.building(&"splitter_t"))
+	t.enabled_outputs = [true, false, true]
+	t.position = Vector3(0, 0.6, 0)
+	world.add_child(t)
+	await step(2)
+	for i in 4:
+		spawn(&"lumber_pine", Vector3(0, 1.1, 0))
+		await step(40)
+	await step(60)
+	var left := 0
+	var right := 0
+	for item in manager.free_items():
+		if item.global_position.x < -0.8:
+			left += 1
+		elif item.global_position.x > 0.8:
+			right += 1
+	check(left >= 1 and right >= 1, "the T did not send pieces both ways (left %d, right %d)" % [left, right])
+	check_eq(left + right, 4, "a piece went straight through the T")
 	done()
 
 func test_splitter() -> void:
