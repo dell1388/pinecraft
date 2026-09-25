@@ -2,9 +2,10 @@ class_name InlineMachine
 extends Conveyor
 
 ## A processing machine you run material *through*: a belt with a tunnel over
-## the middle of it, like a curing oven on a production line. Pieces ride in
-## one mouth on the belt, are changed as they pass the middle of the tunnel,
-## and ride out of the other mouth on the same belt.
+## the middle of it, like a curing oven on a production line. A piece rides
+## into one mouth and is taken in; the machine changes it and sets it back
+## down on the belt outside the other mouth, one piece at a time, whenever
+## there is room there.
 ##
 ##   Planker   a log becomes one plank as long as the log and as wide as it
 ##             allows - not a heap of little boards
@@ -16,9 +17,8 @@ extends Conveyor
 ## The tunnel mouths are real openings in real walls: a piece too big for the
 ## mouth hits the bulkhead and jams there, which is what the tier upgrades
 ## (wider mouths, faster belts) are for. Anything the machine does not work on
-## rides straight through, so machines chain on one line. The change itself is
-## hidden inside the tunnel, behind strip curtains and the machine's own
-## smoke, sparks or sawdust.
+## comes out as it went in, so machines chain on one line. A piece still on
+## its branches is not taken: limb it first.
 
 signal processed(machine: InlineMachine, item: LooseItem)
 
@@ -37,7 +37,6 @@ const LIP_LENGTH := 0.7
 
 var _canopy: StaticBody3D
 var _canopy_nodes: Array[Node] = []
-var _last_z: Dictionary = {}          ## LooseItem -> local z last frame
 var _burst: CPUParticles3D
 var _ambient: Array[CPUParticles3D] = []
 var _lamp_material: StandardMaterial3D
@@ -301,117 +300,169 @@ func _particles(color: Color, glowing: bool, amount: int) -> CPUParticles3D:
 
 # --- Working -------------------------------------------------------------------
 
+## What the machine does with what goes in: a piece that gets through the
+## in-feed mouth is taken off the belt altogether and becomes an entry in the
+## queue - already changed into whatever it comes out as - and each entry is
+## set down on the out-feed lip once its time in the tunnel is up and there
+## is room for it there. Nothing rides through the inside, so nothing can
+## jam in there; a busy out-feed just holds the queue up.
+
+const MOUTH_DEPTH := 0.1          ## how far into the mouth a piece has to get
+
+## Entries waiting inside: {id, dims, owned, plot, changed, ready}.
+var queue: Array[Dictionary] = []
+## Pieces that have come out of the far end, and the last one.
+var total_out: int = 0
+var last_out: LooseItem = null
+var _clock: float = 0.0
+
+signal emerged(machine: InlineMachine, item: LooseItem)
+
+func captured_count() -> int:
+	return _riding.size() + queue.size()
+
 func _physics_process(delta: float) -> void:
 	super(delta)
-	var inverse := global_transform.affine_inverse()
-	for item in _riding.keys():
-		if not is_instance_valid(item) or item.state != LooseItem.State.FREE:
-			_last_z.erase(item)
-			continue
-		var z: float = (inverse * item.global_position).z
-		var was: float = _last_z.get(item, z)
-		_last_z[item] = z
-		# The belt runs toward -Z: the change happens as a piece crosses the
-		# middle of the tunnel, out of sight.
-		if was > 0.0 and z <= 0.0:
-			work_on(item)
-	for item in _last_z.keys():
-		if not _riding.has(item):
-			_last_z.erase(item)
+	_clock += delta
+	if running:
+		for item in _riding.keys():
+			if is_instance_valid(item) and item.state == LooseItem.State.FREE and _in_mouth(item):
+				take(item)
+		_release()
+	var busy := running and not queue.is_empty()
 	for p in _ambient:
-		p.emitting = running and captured_count() > 0
+		p.emitting = busy
 	if _glow != null:
 		_glow.light_energy = 1.6 if running else 0.3
 	_refresh_lamp()
 
-## Does this machine's job to one piece, if it is a piece it works on.
-## Returns true when it changed something.
-func work_on(item: LooseItem) -> bool:
-	if manager == null or item == null or not GameData.machine_accepts(machine_def.id, item.item_id):
+## Has the front of this piece got into the in-feed mouth? A piece too big
+## for the mouth never does: it is stopped at the bulkhead.
+func _in_mouth(item: LooseItem) -> bool:
+	if not item.limbs.is_empty():
 		return false
-	var before := item.volume()
-	var changed := false
-	match machine_def.mode:
-		MachineDef.MODE_PLANK:
-			changed = _plank(item)
-		MachineDef.MODE_SAND:
-			# Stone is polished rather than sanded: same belt, finer grit.
-			var stone := item.category == &"gem" or item.category == &"jewel"
-			changed = _finish(item, &"polished" if stone else &"sanded")
-		MachineDef.MODE_CUT:
-			changed = _cut(item)
-		MachineDef.MODE_REFINE:
-			changed = _finish(item, &"refined")
-		MachineDef.MODE_SMELT:
-			changed = _smelt(item)
-		MachineDef.MODE_CRUSH:
-			changed = _crush(item)
-	if not changed:
+	var inverse := global_transform.affine_inverse()
+	var local := inverse * item.global_position
+	# Only what is coming in: what the machine has set down is on the far side.
+	if local.z < 0.0:
 		return false
-	volume_in += before
-	volume_out += item.volume()
-	total_processed += 1
-	item.owned = true
+	var axis := inverse.basis * item.global_transform.basis.y.normalized()
+	var reach := absf(axis.normalized().z) * item.length() * 0.5
+	var b := Solid.bounds(item.dims)
+	reach += maxf(b.x, b.z) * 0.5 * sqrt(maxf(0.0, 1.0 - axis.normalized().z * axis.normalized().z))
+	return local.z - reach < canopy_length() * 0.5 - MOUTH_DEPTH and absf(local.x) < hole.x * 0.5 + 0.2
+
+## Takes a piece off the belt into the machine. Returns true if it went in.
+func take(item: LooseItem) -> bool:
+	if manager == null or item == null or item.state != LooseItem.State.FREE:
+		return false
+	var entry := {"id": item.item_id, "dims": item.dims.duplicate(true), "owned": true,
+		"plot": item.plot_id, "changed": false,
+		"ready": _clock + canopy_length() / maxf(0.5, speed)}
+	_riding.erase(item)
+	manager.despawn(item)
+	var outs := work(entry)
+	if bool(outs[0].changed):
+		var before := Solid.volume(entry.dims)
+		var after := 0.0
+		for o: Dictionary in outs:
+			after += Solid.volume(o.dims)
+		volume_in += before
+		volume_out += after
+		total_processed += 1
+	queue.append_array(outs)
 	if _burst != null:
 		_burst.restart()
-	processed.emit(self, item)
 	return true
 
-## Swaps what a piece is while keeping it the same physics body: same place,
-## same speed, new shape and material.
-func _become(item: LooseItem, new_id: StringName, dims: Dictionary) -> void:
-	var def_out := GameData.item(new_id)
-	var velocity := item.linear_velocity
-	var owned := item.owned
-	item.configure(def_out, dims)
-	item.owned = owned
-	item.linear_velocity = velocity
-
-## A log becomes one plank: as long as the log, as wide as the log allows
-## (1.8 radii) and thick (0.8 radii). The slabs and sawdust are the waste.
-func _plank(item: LooseItem) -> bool:
-	if item.category != &"wood" or item.dims.get("shape", Solid.BOX) != Solid.CYLINDER:
-		return false
-	var out := machine_def.output_for(item.item_id)
-	if out == &"":
-		return false
-	var r := (float(item.dims.r0) + float(item.dims.r1)) * 0.5
-	var plank := Solid.keep_finish(item.dims, Solid.box(Vector3(r * 1.8, item.length(), r * 0.8)))
-	# Lay it flat along the log's run, broad face up.
-	var up := global_transform.basis.y.normalized()
-	var along := item.global_transform.basis.y.normalized()
-	along = (along - up * along.dot(up)).normalized()
-	if along.length() < 0.5:
-		along = -global_transform.basis.z.normalized()
-	var basis := Basis(along.cross(up).normalized(), along, up)
-	var pos := item.global_position
-	_become(item, out, plank)
-	item.teleport(Transform3D(basis, pos))
+## Sets the next finished entry down on the out-feed lip, if there is room.
+func _release() -> void:
+	if queue.is_empty() or float(queue[0].ready) > _clock:
+		return
+	var entry: Dictionary = queue[0]
+	var xform := exit_transform(entry.dims)
+	if not exit_clear(entry.dims, xform):
+		return
+	queue.pop_front()
+	var item := manager.spawn(entry.id, xform, int(entry.plot), Vector3.ZERO, entry.dims, bool(entry.owned))
+	if item == null:
+		return
 	item.linear_velocity = belt_velocity()
-	return true
+	total_out += 1
+	last_out = item
+	emerged.emit(self, item)
+	if bool(entry.changed):
+		processed.emit(self, item)
 
-func _finish(item: LooseItem, finish: StringName) -> bool:
-	if Solid.has_finish(item.dims, finish):
-		return false
-	_become(item, item.item_id, Solid.with_finish(item.dims, finish))
-	return true
+## Where a piece of this shape comes out: lying down the belt, broad face
+## up, its back end just clear of the out-feed bulkhead.
+func exit_transform(dims: Dictionary) -> Transform3D:
+	var b := Solid.bounds(dims)
+	var local := Vector3(0, DECK_THICKNESS + b.z * 0.5 + 0.03, -canopy_length() * 0.5 - b.y * 0.5 - 0.05)
+	return Transform3D(_along_belt(), global_transform * local)
 
-## Ore becomes a bar, keeping `yield_share` of its volume.
-func _smelt(item: LooseItem) -> bool:
-	var out := machine_def.output_for(item.item_id)
-	if out == &"":
-		return false
-	var v := item.volume() * machine_def.yield_share
-	var t := pow(v / 6.4, 1.0 / 3.0)
-	var pos := item.global_position
-	_become(item, out, Solid.box(Vector3(t * 1.6, t * 4.0, t)))
-	# Laid flat along the belt, broad face down. Left in whatever way the lump
-	# happened to be lying, a bar could come out standing on end and jam in
-	# the next machine's mouth.
-	item.teleport(Transform3D(_along_belt(), pos + global_transform.basis.y.normalized() * (t * 0.5)))
-	item.linear_velocity = belt_velocity()
-	item.angular_velocity = Vector3.ZERO
-	return true
+## Is there room at the exit for it? Anything loose in the way holds it back.
+func exit_clear(dims: Dictionary, xform: Transform3D) -> bool:
+	var box := BoxShape3D.new()
+	box.size = Solid.bounds(dims) + Vector3.ONE * 0.06
+	var q := PhysicsShapeQueryParameters3D.new()
+	q.shape = box
+	q.transform = xform
+	q.collision_mask = Layers.LOOSE | Layers.PLAYER | Layers.VEHICLE
+	return get_world_3d().direct_space_state.intersect_shape(q, 1).is_empty()
+
+## Does this machine's job to one entry. Returns what comes out - one entry,
+## or several for the crusher - each marked `changed` if the machine did
+## anything to it.
+func work(entry: Dictionary) -> Array[Dictionary]:
+	var out: Array[Dictionary] = [entry]
+	if not GameData.machine_accepts(machine_def.id, entry.id):
+		return out
+	var def_in := GameData.item(entry.id)
+	var category: StringName = def_in.category if def_in != null else &""
+	var dims: Dictionary = entry.dims
+	match machine_def.mode:
+		MachineDef.MODE_PLANK:
+			var to := machine_def.output_for(entry.id)
+			if category == &"wood" and dims.get("shape", Solid.BOX) == Solid.CYLINDER and to != &"":
+				var r := (float(dims.r0) + float(dims.r1)) * 0.5
+				_change(entry, to, Solid.keep_finish(dims, Solid.box(Vector3(r * 1.8, Solid.length_of(dims), r * 0.8))))
+		MachineDef.MODE_SAND:
+			# Stone is polished rather than sanded: same belt, finer grit.
+			var finish := &"polished" if category == &"gem" or category == &"jewel" else &"sanded"
+			if not Solid.has_finish(dims, finish):
+				_change(entry, entry.id, Solid.with_finish(dims, finish))
+		MachineDef.MODE_REFINE:
+			if not Solid.has_finish(dims, &"refined"):
+				_change(entry, entry.id, Solid.with_finish(dims, &"refined"))
+		MachineDef.MODE_CUT:
+			var to := machine_def.output_for(entry.id)
+			if to != &"":
+				# Volume of a frustum r0 -> r0/2 over 0.9 r0 is 1.649 r0^3.
+				var r0 := pow(Solid.volume(dims) * machine_def.yield_share / 1.649, 1.0 / 3.0)
+				_change(entry, to, Solid.keep_finish(dims, Solid.cylinder(r0, r0 * 0.5, r0 * 0.9)))
+		MachineDef.MODE_SMELT:
+			var to := machine_def.output_for(entry.id)
+			if to != &"":
+				var t := pow(Solid.volume(dims) * machine_def.yield_share / 6.4, 1.0 / 3.0)
+				_change(entry, to, Solid.box(Vector3(t * 1.6, t * 4.0, t)))
+		MachineDef.MODE_CRUSH:
+			var b := Solid.bounds(dims)
+			if maxf(b.x, maxf(b.y, b.z)) > machine_def.max_piece + 0.001:
+				var v := Solid.volume(dims)
+				var count := clampi(int(ceil(v / pow(machine_def.max_piece * 0.9, 3.0))), 2, 64)
+				var lump := Solid.cube(v / float(count))
+				_change(entry, entry.id, lump)
+				for i in range(1, count):
+					var more := entry.duplicate(true)
+					more.ready = float(entry.ready) + 0.05 * float(i)
+					out.append(more)
+	return out
+
+func _change(entry: Dictionary, id: StringName, dims: Dictionary) -> void:
+	entry.id = id
+	entry.dims = dims
+	entry.changed = true
 
 ## A basis with the piece's long axis (+Y) down the belt and its broad face up.
 func _along_belt() -> Basis:
@@ -419,66 +470,21 @@ func _along_belt() -> Basis:
 	var along := -global_transform.basis.z.normalized()
 	return Basis(along.cross(up).normalized(), along, up).orthonormalized()
 
-## A rough stone becomes one faceted jewel - a squat, eight-sided crown -
-## keeping `yield_share` of its volume. The polish, if it had one, stays.
-func _cut(item: LooseItem) -> bool:
-	var out := machine_def.output_for(item.item_id)
-	if out == &"":
-		return false
-	var v := item.volume() * machine_def.yield_share
-	# Volume of a frustum r0 -> r0/2 over 0.9 r0 is 1.649 r0^3.
-	var r0 := pow(v / 1.649, 1.0 / 3.0)
-	var jewel := Solid.keep_finish(item.dims, Solid.cylinder(r0, r0 * 0.5, r0 * 0.9))
-	_become(item, out, jewel)
-	return true
-
-## A chunk bigger than `max_piece` comes out as several lumps that are not.
-func _crush(item: LooseItem) -> bool:
-	var b := Solid.bounds(item.dims)
-	if maxf(b.x, maxf(b.y, b.z)) <= machine_def.max_piece + 0.001:
-		return false
-	var v := item.volume()
-	var count := int(ceil(v / pow(machine_def.max_piece * 0.9, 3.0)))
-	count = clampi(count, 2, 64)
-	var lump := Solid.cube(v / float(count))
-	var id := item.item_id
-	var velocity := belt_velocity()
-	_become(item, id, lump)
-	# The lumps come out one layer deep in two staggered lanes, spread down
-	# the whole tunnel, so they leave in a zip rather than a heap. Laid out
-	# three abreast behind the chunk - which is what this used to do - they
-	# wedged against the walls and each other; stacked, they are taller than
-	# the next machine's mouth.
-	var side_len := Solid.bounds(lump).x
-	var run := maxf(0.0, canopy_length() * 0.5 - side_len * 0.6)
-	var lanes := 2 if count > 3 and side_len * 2.1 < hole.x else 1
-	var lane_x := minf(hole.x * 0.5 - side_len * 0.5 - 0.02, side_len * 0.55)
-	var spacing := side_len * (0.6 if lanes == 2 else 1.1)
-	var span := spacing * float(count - 1)
-	var start := minf(run, span * 0.5)
-	var spots: Array[Vector3] = []
-	for i in count:
-		var along := start - spacing * float(i)
-		if span > run * 2.0:
-			along = run - run * 2.0 * float(i) / float(maxi(1, count - 1))
-		var x := 0.0 if lanes == 1 else lane_x * (1.0 if i % 2 == 0 else -1.0)
-		spots.append(Vector3(x, 0.03 + side_len * 0.5, along))
-	item.teleport(Transform3D(global_transform.basis, global_transform * spots[0]))
-	item.linear_velocity = velocity
-	for i in range(1, count):
-		var piece := manager.spawn(id, Transform3D(global_transform.basis, global_transform * spots[i]),
-			plot_id, Vector3.ZERO, lump, true)
-		if piece != null:
-			piece.linear_velocity = velocity
-	return true
-
 func status_line() -> String:
 	return "%s (%s): %s, %d through  [E] %s" % [def.display_name, tier_label(),
 		"running" if running else "stopped", total_processed, "stop" if running else "start"]
 
 func to_dict() -> Dictionary:
-	return {"running": running, "total_processed": total_processed}
+	var held: Array = []
+	for e in queue:
+		held.append({"id": String(e.id), "dims": Solid.to_dict(e.dims), "owned": e.owned,
+			"plot": e.plot, "changed": e.changed})
+	return {"running": running, "total_processed": total_processed, "queue": held}
 
 func from_dict(d: Dictionary) -> void:
 	running = bool(d.get("running", true))
 	total_processed = int(d.get("total_processed", 0))
+	queue.clear()
+	for e in d.get("queue", []):
+		queue.append({"id": StringName(e.id), "dims": Solid.from_dict(e.dims), "owned": bool(e.get("owned", true)),
+			"plot": int(e.get("plot", plot_id)), "changed": bool(e.get("changed", false)), "ready": 0.0})

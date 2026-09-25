@@ -906,14 +906,15 @@ func _feed(m: InlineMachine, id: StringName, dims: Dictionary = {}) -> LooseItem
 	return manager.spawn(id, Transform3D(m.global_transform.basis * LooseItem.lying_basis(0.0), at),
 		0, Vector3.ZERO, dims, true)
 
-func _through(m: InlineMachine, item: LooseItem, frames: int = 600) -> bool:
+## Waits for the next piece out of the machine's far end and returns it (a
+## piece going in is taken off the belt; what comes out is a new body).
+func _through(m: InlineMachine, _item: LooseItem, frames: int = 600) -> LooseItem:
+	var before := m.total_out
 	for i in frames:
 		await step(1)
-		if not is_instance_valid(item) or item.state == LooseItem.State.POOLED:
-			return false
-		if (m.global_transform.affine_inverse() * item.global_position).z < -m.canopy_length() * 0.5 - 0.1:
-			return true
-	return false
+		if m.total_out > before:
+			return m.last_out
+	return null
 
 ## Spec from play-testing: machines are tunnels on a belt. A log rides in and
 ## comes out as ONE big plank, as long as the log - not a heap of little ones.
@@ -924,8 +925,11 @@ func test_planker() -> void:
 	check(m.canopy_length() > 2.0, "the planker has no tunnel")
 	var log_piece := _feed(m, &"wood_pine", Solid.cylinder(0.26, 0.22, 3.0))
 	var log_volume := log_piece.volume()
-	var out: bool = await _through(m, log_piece)
-	check(out, "the log never came out of the far end")
+	log_piece = await _through(m, log_piece)
+	check(log_piece != null, "the log never came out of the far end")
+	if log_piece == null:
+		done()
+		return
 	check_eq(m.total_processed, 1, "the planker processed %d pieces" % m.total_processed)
 	check_eq(log_piece.item_id, &"lumber_pine", "the log came out as %s" % log_piece.item_id)
 	check_eq(manager.active_count(), 1, "one log made %d pieces" % manager.active_count())
@@ -948,12 +952,14 @@ func test_sander() -> void:
 	var dims := Solid.cylinder(0.2, 0.18, 2.0)
 	var raw_price := Economy.price_of(&"wood_oak", dims)
 	var log_piece := _feed(m, &"wood_oak", dims)
-	check(await _through(m, log_piece), "the log never came through the sander")
+	log_piece = await _through(m, log_piece)
+	check(log_piece != null, "the log never came through the sander")
 	check(Solid.has_finish(log_piece.dims, &"sanded"), "the log came out unsanded")
 	check(Economy.price_of(log_piece.item_id, log_piece.dims) > raw_price, "sanding added no value")
 	check(log_piece.display_name().begins_with("Sanded"), "a sanded log is not called sanded")
 	var ore := _feed(m, &"ore_iron")
-	check(await _through(m, ore), "the sander stopped ore riding through")
+	ore = await _through(m, ore)
+	check(ore != null, "the sander stopped ore riding through")
 	check_eq(ore.item_id, &"ore_iron", "the sander changed ore")
 	check(not Solid.has_finish(ore.dims, &"sanded"), "the sander sanded ore")
 	check_eq(m.total_processed, 1, "the sander counted work it did not do")
@@ -962,7 +968,8 @@ func test_sander() -> void:
 	var planker := _inline(&"sawmill", Vector3(6, 0, 0))
 	await step(3)
 	var again := _feed(planker, log_piece.item_id, log_piece.dims)
-	check(await _through(planker, again), "the sanded log did not get through the planker")
+	again = await _through(planker, again)
+	check(again != null, "the sanded log did not get through the planker")
 	check(Solid.has_finish(again.dims, &"sanded"), "planking lost the sanding")
 	var round_trip := Solid.from_dict(JSON.parse_string(JSON.stringify(Solid.to_dict(again.dims))))
 	check(Solid.has_finish(round_trip, &"sanded"), "the finish does not survive a save")
@@ -1038,14 +1045,16 @@ func test_gem_line() -> void:
 	var stone := _feed(sander, &"gem_emerald", Solid.cube(0.12))
 	var volume := stone.volume()
 	var raw_price := Economy.price_of(stone.item_id, stone.dims)
-	check(await _through(sander, stone), "the stone never came through the sander")
+	stone = await _through(sander, stone)
+	check(stone != null, "the stone never came through the sander")
 	check(Solid.has_finish(stone.dims, &"polished"), "the sander did not polish the stone")
 	check(not Solid.has_finish(stone.dims, &"sanded"), "the stone was sanded like wood")
 	check(stone.display_name().begins_with("Polished"), "a polished stone is called %s" % stone.display_name())
 	var polished_price := Economy.price_of(stone.item_id, stone.dims)
 	check(polished_price >= raw_price, "polishing an emerald lost value")
 	var again := _feed(cutter, stone.item_id, stone.dims)
-	check(await _through(cutter, again), "the stone never came through the gem cutter")
+	again = await _through(cutter, again)
+	check(again != null, "the stone never came through the gem cutter")
 	check_eq(again.item_id, &"jewel_emerald", "the cutter made %s" % again.item_id)
 	check_eq(again.dims.get("shape"), Solid.CYLINDER, "a jewel is not faceted round")
 	check_near(again.volume(), volume * cutter.machine_def.yield_share, 0.0001, "the jewel is the wrong size")
@@ -1053,7 +1062,8 @@ func test_gem_line() -> void:
 	check(Economy.price_of(again.item_id, again.dims) > polished_price * 2.0, "a cut emerald is not worth the cutting")
 	# The gem cutter leaves ore alone; the crusher leaves stones alone.
 	var ore := _feed(cutter, &"ore_iron", Solid.cube(0.2))
-	check(await _through(cutter, ore), "ore did not ride through the cutter")
+	ore = await _through(cutter, ore)
+	check(ore != null, "ore did not ride through the cutter")
 	check_eq(ore.item_id, &"ore_iron", "the cutter changed ore")
 	done()
 
@@ -1399,7 +1409,13 @@ func test_ore_line() -> void:
 	await step(3)
 	var chunk := _feed(crusher, &"ore_iron", Solid.cube(0.9))
 	var chunk_volume := chunk.volume()
-	check(await _through(crusher, chunk), "the chunk never came out of the crusher")
+	chunk = await _through(crusher, chunk)
+	check(chunk != null, "the chunk never came out of the crusher")
+	for i in 900:
+		if crusher.queue.is_empty():
+			break
+		await step(1)
+	check(crusher.queue.is_empty(), "the crusher never let all its lumps out")
 	var lumps := manager.free_items()
 	check(lumps.size() > 1, "the crusher made %d piece(s) from a big chunk" % lumps.size())
 	var total := 0.0
@@ -1416,7 +1432,8 @@ func test_ore_line() -> void:
 	var ore := _feed(smelter, &"ore_iron", Solid.cube(0.3))
 	var ore_price := Economy.price_of(&"ore_iron", ore.dims)
 	var ore_volume := ore.volume()
-	check(await _through(smelter, ore), "the ore never came out of the smelter")
+	ore = await _through(smelter, ore)
+	check(ore != null, "the ore never came out of the smelter")
 	check_eq(ore.item_id, &"ingot_iron", "the smelter made %s" % ore.item_id)
 	check_near(ore.volume(), ore_volume * smelter.machine_def.yield_share, 0.0001, "the bar is the wrong size")
 	var size: Vector3 = ore.dims.size
@@ -1424,7 +1441,8 @@ func test_ore_line() -> void:
 	var bar_price := Economy.price_of(ore.item_id, ore.dims)
 	check(bar_price > ore_price, "smelting lost value")
 	var bar := _feed(refiner, ore.item_id, ore.dims)
-	check(await _through(refiner, bar), "the bar never came out of the refiner")
+	bar = await _through(refiner, bar)
+	check(bar != null, "the bar never came out of the refiner")
 	check(Solid.has_finish(bar.dims, &"refined"), "the refiner did not refine the bar")
 	check(Economy.price_of(bar.item_id, bar.dims) > bar_price, "refining added no value")
 	done()
@@ -1460,7 +1478,8 @@ func test_tunnel_mouth() -> void:
 	check_eq(m.level, 3, "the T3 sawmill is not tier 3")
 	check(m.hole.x > small_mouth.x and m.hole.y > small_mouth.y, "the top tier did not widen the mouth")
 	check(m.speed > GameData.machine(&"sawmill").belt_speed, "the top tier did not speed the belt")
-	check(await _through(m, trunk, 900), "the wider mouth still would not take the trunk")
+	trunk = await _through(m, trunk, 900)
+	check(trunk != null, "the wider mouth still would not take the trunk")
 	check_eq(trunk.item_id, &"lumber_pine", "the trunk was not planked once it got in")
 	done()
 
@@ -1488,15 +1507,8 @@ func test_tunnel_flow() -> void:
 			pieces.append(piece)
 			await step(50)
 		await step(60 * 20)
-		var out := 0
-		var stuck: Array[String] = []
-		for piece in pieces:
-			var z := (m.global_transform.affine_inverse() * piece.global_position).z
-			if z < -m.canopy_length() * 0.5:
-				out += 1
-			else:
-				stuck.append("z=%.2f %s" % [z, str(Solid.bounds(piece.dims))])
-		check_eq(out, pieces.size(), "%s: pieces stuck: %s" % [machine, ", ".join(stuck)])
+		check_eq(m.total_out, pieces.size(), "%s: only %d of %d pieces came out (%d still queued)" % [
+			machine, m.total_out, pieces.size(), m.queue.size()])
 	done()
 
 ## A plain belt runs straight into a machine and the machine takes it from there.
@@ -1512,7 +1524,8 @@ func test_conveyor_to_machine() -> void:
 	await step(3)
 	var log_piece := manager.spawn(&"wood_pine", Transform3D(LooseItem.lying_basis(0.0),
 		belt.global_position + Vector3(0, 0.6, 1.2)), 0, Vector3.ZERO, Solid.cylinder(0.2, 0.18, 2.0))
-	check(await _through(m, log_piece, 900), "the belt did not carry the log through the planker")
+	log_piece = await _through(m, log_piece, 900)
+	check(log_piece != null, "the belt did not carry the log through the planker")
 	check_eq(log_piece.item_id, &"lumber_pine", "the log was not planked")
 	done()
 
@@ -2809,7 +2822,7 @@ func test_ownership() -> void:
 	var wild_log := manager.spawn(&"wood_pine", Transform3D(LooseItem.lying_basis(0.0),
 		Vector3(0, 0.6, -12 + mill.length * 0.5 - 0.35)), 0, Vector3.ZERO, Solid.cylinder(0.2, 0.2, 1.0))
 	check(not wild_log.owned, "a log dropped on the belt should start unowned")
-	await _through(mill, wild_log)
+	wild_log = await _through(mill, wild_log)
 	check(mill.total_processed > 0, "the planker produced nothing")
 	var milled := 0
 	for item in manager.free_items():
