@@ -814,11 +814,12 @@ func _build() -> void:
 				_outriggers.append(leg)
 	if not has_crane():
 		return
-	_column = _box_part(paint)
-	_boom = _box_part(paint)
-	_stick = _box_part(paint)
-	_tele = _box_part(_mat(CRANE_YELLOW.lightened(0.25), 0.4))
+	_column = _box_part(paint, "CraneColumn")
+	_boom = _box_part(paint, "CraneBoom")
+	_stick = _box_part(paint, "CraneStick")
+	_tele = _box_part(_mat(CRANE_YELLOW.lightened(0.25), 0.4), "CraneTelescope")
 	_link = _line_mesh(CRANE_DARK)
+	_link.name = "CraneLink"
 	_build_grapple()
 	_build_aids()
 
@@ -829,8 +830,9 @@ func _mat(color: Color, metal: float) -> StandardMaterial3D:
 	m.roughness = 0.5
 	return m
 
-func _box_part(mat: Material) -> MeshInstance3D:
+func _box_part(mat: Material, part: String) -> MeshInstance3D:
 	var m := MeshInstance3D.new()
+	m.name = part
 	var bm := BoxMesh.new()
 	m.mesh = bm
 	m.material_override = mat
@@ -975,7 +977,9 @@ func _draw() -> void:
 	_span(_column, base - up * 0.5, base + up * 0.25, 0.26)
 	_span(_boom, base, elbow, 0.16)
 	_span(_stick, elbow, sleeve, 0.12)
-	_span(_tele, sleeve.lerp(elbow, 0.05), tip, 0.09)
+	# A little past the stick's end even run right in, so the two never share
+	# an end face.
+	_span(_tele, sleeve.lerp(elbow, 0.05), tip + (tip - elbow).normalized() * 0.04, 0.09)
 	# The grapple hangs from the tip; holding a log it is wherever the log is.
 	var yaw := float(pose.yaw)
 	var grip: Vector3 = held.global_position if held != null else frame * Vector3(pose.jaw)

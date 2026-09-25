@@ -90,14 +90,14 @@
         },
         {
           "level": 2,
-          "cost": 900,
+          "cost": 1000,
           "hole_scale": 1.35,
           "rate_scale": 1.4,
           "label": "Mill Planker"
         },
         {
           "level": 3,
-          "cost": 4200,
+          "cost": 2300,
           "hole_scale": 1.7,
           "rate_scale": 1.85,
           "label": "Headrig Planker"
@@ -117,14 +117,14 @@
         },
         {
           "level": 2,
-          "cost": 700,
+          "cost": 1300,
           "hole_scale": 1.35,
           "rate_scale": 1.4,
           "label": "Wide-Belt Sander"
         },
         {
           "level": 3,
-          "cost": 3200,
+          "cost": 3000,
           "hole_scale": 1.7,
           "rate_scale": 1.85,
           "label": "Twin-Head Sander"
@@ -144,14 +144,14 @@
         },
         {
           "level": 2,
-          "cost": 1100,
+          "cost": 1900,
           "hole_scale": 1.35,
           "rate_scale": 1.4,
           "label": "Cone Crusher"
         },
         {
           "level": 3,
-          "cost": 5200,
+          "cost": 4300,
           "hole_scale": 1.7,
           "rate_scale": 1.85,
           "label": "Gyratory Crusher"
@@ -171,7 +171,7 @@
         },
         {
           "level": 2,
-          "cost": 1400,
+          "cost": 2600,
           "hole_scale": 1.35,
           "rate_scale": 1.4,
           "label": "Cupola"
@@ -198,14 +198,14 @@
         },
         {
           "level": 2,
-          "cost": 2500,
+          "cost": 6500,
           "hole_scale": 1.35,
           "rate_scale": 1.4,
           "label": "Electrolytic Refiner"
         },
         {
           "level": 3,
-          "cost": 9000,
+          "cost": 15000,
           "hole_scale": 1.7,
           "rate_scale": 1.85,
           "label": "Zone Refiner"
@@ -225,14 +225,14 @@
         },
         {
           "level": 2,
-          "cost": 3000,
+          "cost": 7500,
           "hole_scale": 1.45,
           "rate_scale": 1.4,
           "label": "Power Bench"
         },
         {
           "level": 3,
-          "cost": 12000,
+          "cost": 17500,
           "hole_scale": 2.0,
           "rate_scale": 1.9,
           "label": "Assembly Line"
@@ -252,14 +252,14 @@
         },
         {
           "level": 2,
-          "cost": 2400,
+          "cost": 4400,
           "hole_scale": 1.35,
           "rate_scale": 1.4,
           "label": "Faceting Rig"
         },
         {
           "level": 3,
-          "cost": 9000,
+          "cost": 10000,
           "hole_scale": 1.7,
           "rate_scale": 1.85,
           "label": "Laser Cutter"

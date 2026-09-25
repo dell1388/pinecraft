@@ -85,8 +85,8 @@ func role_at(point: Vector3) -> StringName:
 # --- Stock -----------------------------------------------------------------
 
 ## What this box costs. Nothing is priced in two places: tools cost what
-## tools.json says, unlocks cost the building's unlock price, a machine tier
-## costs that level of its track, gear costs its next level.
+## tools.json says, a building costs its unit price (a machine above its
+## first tier, that level of its track), gear costs its next level.
 func price_of(slot: Dictionary) -> int:
 	var target: StringName = slot.target
 	match slot.kind:
@@ -98,10 +98,10 @@ func price_of(slot: Dictionary) -> int:
 			var tier: int = int(slot.tier)
 			if tier <= 1:
 				var def := GameData.building(target)
-				return def.unlock_cost if def != null else -1
+				return def.cost if def != null else -1
 			return int(GameData.upgrade_level(target, tier).get("cost", -1))
 	var b := GameData.building(target)
-	return b.unlock_cost if b != null else -1
+	return b.cost if b != null else -1
 
 ## Whether the shop still has a reason to stock this: a tool you have or a
 ## maxed track is gone. Buildings are always on the shelf - each box is one

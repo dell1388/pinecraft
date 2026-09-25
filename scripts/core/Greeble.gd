@@ -20,6 +20,16 @@ var _solid: SurfaceTool
 var _glow: SurfaceTool
 var _solid_count: int = 0
 var _glow_count: int = 0
+## Set above zero, each box is grown by a few of these steps more than the
+## last, round a small cycle: two boxes built flush - a panel on a body, a
+## stripe on a panel - then never share a face exactly, which flickers
+## (z-fights). The later part sits a hair proud of the one it was laid on.
+var layer_step: float = 0.0
+## Added to every box's growth: a separately built part (a tailgate on its
+## hinge) given a half step can never land on the body's planes.
+var layer_base: float = 0.0
+var _parts: int = 0
+var _planes: Dictionary = {}
 
 static var _solid_material: StandardMaterial3D
 static var _glow_material: ShaderMaterial
@@ -96,6 +106,33 @@ func tri(a: Vector3, b: Vector3, c: Vector3, outward: Vector3, color: Color, glo
 
 ## A box of `size` centred on `xform`'s origin.
 func box(size: Vector3, xform: Transform3D, color: Color, glow: bool = false) -> void:
+	if layer_step > 0.0:
+		# Grown in the box's own frame, whatever it is scaled by - by the
+		# first step that puts none of its faces on a plane some earlier box
+		# already has a face on.
+		var scale := xform.basis.get_scale()
+		var grow := layer_step
+		var keys: Array[String] = []
+		for attempt in 32:
+			grow = layer_base + layer_step * float(1 + (_parts + attempt) % 32)
+			keys = _face_keys(size, xform, grow)
+			var clash := false
+			for k in keys:
+				if _planes.has(k):
+					clash = true
+					break
+				# And the plane either side: a hair apart is as bad.
+				var parts := k.rsplit(",", true, 1)
+				var d := int(parts[1])
+				if _planes.has("%s,%d" % [parts[0], d - 1]) or _planes.has("%s,%d" % [parts[0], d + 1]):
+					clash = true
+					break
+			if not clash:
+				break
+		for k in keys:
+			_planes[k] = true
+		size += Vector3(grow / maxf(scale.x, 0.0001), grow / maxf(scale.y, 0.0001), grow / maxf(scale.z, 0.0001))
+		_parts += 1
 	var h := size * 0.5
 	var corners: Array[Vector3] = []
 	for i in 8:
@@ -118,6 +155,21 @@ func box(size: Vector3, xform: Transform3D, color: Color, glow: bool = false) ->
 		elif n.normalized().dot(xform.basis.y.normalized()) < -0.7:
 			shade = color.darkened(0.12)
 		quad(a, b, c, d, n, shade, glow)
+
+## The planes a box's six faces would lie on, grown by `grow`, as keys fine
+## enough (0.2 mm) to tell flush faces from ones already apart.
+func _face_keys(size: Vector3, xform: Transform3D, grow: float) -> Array[String]:
+	var out: Array[String] = []
+	for axis in 3:
+		var along: Vector3 = xform.basis[axis]
+		var n := along.normalized()
+		var half := size[axis] * along.length() * 0.5 + grow * 0.5
+		var centre := n.dot(xform.origin)
+		for side in [-1.0, 1.0]:
+			var nn: Vector3 = n * side
+			var d: float = centre * side + half
+			out.append("%d,%d,%d,%d" % [roundi(nn.x * 200), roundi(nn.y * 200), roundi(nn.z * 200), roundi(d * 5000)])
+	return out
 
 ## Shorthand: a box at a position, unrotated.
 func block(size: Vector3, pos: Vector3, color: Color, glow: bool = false) -> void:

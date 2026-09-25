@@ -46,8 +46,11 @@ func reset() -> void:
 	hotbar.fill(&"")
 	for id in GameData.start_tools:
 		give_tool(id, false)
+	# Everything has a unit price and no unlock: what the store sells is
+	# bought a copy at a time there, and everything else is built from the
+	# start at its price.
 	for def: BuildingDef in GameData.buildings.values():
-		if def.unlock_cost <= 0:
+		if not GameData.sold_copy(def.id, 1):
 			unlocked_buildings.append(def.id)
 
 func level(track: StringName) -> int:
@@ -99,7 +102,7 @@ func try_unlock(building_id: StringName) -> bool:
 	var copy := GameData.sold_copy(building_id, 1)
 	if is_unlocked(building_id) and not copy:
 		return false
-	if not Economy.try_spend(def.unlock_cost):
+	if not Economy.try_spend(def.cost):
 		return false
 	if copy:
 		add_copy(building_id, 1)
@@ -182,7 +185,7 @@ func owns_vehicle() -> bool:
 
 func vehicle_cost() -> int:
 	var def := GameData.building(VEHICLE_PAD)
-	return def.unlock_cost if def != null else 5000
+	return def.cost if def != null else 5000
 
 func try_buy_vehicle() -> bool:
 	if not try_unlock(VEHICLE_PAD):
@@ -268,7 +271,7 @@ func from_dict(d: Dictionary) -> void:
 		# Saves from before copies were counted: each store-bought building
 		# already unlocked comes back as one copy, at the tier it had.
 		for b in unlocked_buildings:
-			if GameData.sold_copy(b, 1) and GameData.building(b).unlock_cost > 0:
+			if GameData.sold_copy(b, 1) and GameData.building(b).cost > 0:
 				var t := level(b)
 				add_copy(b, t if GameData.sold_copy(b, t) else 1)
 	for step in d.get("tutorial", []):

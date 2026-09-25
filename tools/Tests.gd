@@ -3260,7 +3260,7 @@ func test_vehicle_catalogue() -> void:
 		if pad_def == null:
 			continue
 		check(sold.has(String(pad_def.id)), "the store does not sell the %s" % pad_def.display_name)
-		check(pad_def.unlock_cost > 0, "the %s is free" % id)
+		check(pad_def.cost > 0, "the %s is free" % id)
 		PlayerState.add_copy(pad_def.id)
 		var pad := plot.place(pad_def, Vector2i(x, -12), 0) as VehiclePad
 		x += 5

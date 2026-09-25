@@ -4,7 +4,7 @@
       "id": "conveyor",
       "display_name": "Conveyor",
       "kind": "conveyor",
-      "cost": 60,
+      "cost": 200,
       "size": [
         1,
         1,
@@ -17,21 +17,20 @@
       "id": "conveyor_fast",
       "display_name": "Fast Conveyor",
       "kind": "conveyor",
-      "cost": 180,
+      "cost": 700,
       "size": [
         1,
         1,
         4
       ],
       "speed": 6.0,
-      "unlock_cost": 1200,
       "blurb": "A belt at twice the speed."
     },
     {
       "id": "splitter",
       "display_name": "Splitter",
       "kind": "splitter",
-      "cost": 140,
+      "cost": 450,
       "size": [
         2,
         1,
@@ -43,13 +42,12 @@
       "id": "filter",
       "display_name": "Filter",
       "kind": "filter",
-      "cost": 260,
+      "cost": 1000,
       "size": [
         2,
         1,
         2
       ],
-      "unlock_cost": 800,
       "blurb": "Sends one kind of item one way and the rest the other. [E] to set it."
     },
     {
@@ -69,47 +67,18 @@
       "id": "sander",
       "display_name": "Sander",
       "kind": "inline",
-      "cost": 500,
+      "cost": 600,
       "size": [
         2,
         3,
         5
       ],
       "machine": "sander",
-      "unlock_cost": 250,
       "blurb": "Sands the bark and rough off wood. Sanded logs and planks sell for more."
     },
     {
       "id": "furnace",
       "display_name": "Smelter",
-      "kind": "inline",
-      "cost": 900,
-      "size": [
-        2,
-        3,
-        5
-      ],
-      "machine": "furnace",
-      "unlock_cost": 600,
-      "blurb": "A furnace tunnel on a belt: ore goes in, a metal bar comes out."
-    },
-    {
-      "id": "refiner",
-      "display_name": "Refiner",
-      "kind": "inline",
-      "cost": 1600,
-      "size": [
-        2,
-        3,
-        5
-      ],
-      "machine": "refiner",
-      "unlock_cost": 3500,
-      "blurb": "Polishes and purifies metal bars. Refined metal sells for more."
-    },
-    {
-      "id": "gem_cutter",
-      "display_name": "Gem Cutter",
       "kind": "inline",
       "cost": 1200,
       "size": [
@@ -117,29 +86,53 @@
         3,
         5
       ],
+      "machine": "furnace",
+      "blurb": "A furnace tunnel on a belt: ore goes in, a metal bar comes out."
+    },
+    {
+      "id": "refiner",
+      "display_name": "Refiner",
+      "kind": "inline",
+      "cost": 3000,
+      "size": [
+        2,
+        3,
+        5
+      ],
+      "machine": "refiner",
+      "blurb": "Polishes and purifies metal bars. Refined metal sells for more."
+    },
+    {
+      "id": "gem_cutter",
+      "display_name": "Gem Cutter",
+      "kind": "inline",
+      "cost": 2000,
+      "size": [
+        2,
+        3,
+        5
+      ],
       "machine": "gem_cutter",
-      "unlock_cost": 1800,
       "blurb": "Facets rough stones into jewels. Polish them in the sander first for the best price."
     },
     {
       "id": "workbench",
       "display_name": "Workbench",
       "kind": "machine",
-      "cost": 2200,
+      "cost": 3500,
       "size": [
         4,
         3,
         4
       ],
       "machine": "workbench",
-      "unlock_cost": 2500,
       "blurb": "Builds crates and toolkits from lumber and billets."
     },
     {
       "id": "storage",
       "display_name": "Storage Bin",
       "kind": "storage",
-      "cost": 220,
+      "cost": 400,
       "size": [
         2,
         2,
@@ -152,14 +145,13 @@
       "id": "crusher",
       "display_name": "Crusher",
       "kind": "inline",
-      "cost": 700,
+      "cost": 850,
       "size": [
         2,
         3,
         4
       ],
       "machine": "crusher",
-      "unlock_cost": 400,
       "blurb": "Breaks big ore chunks into lumps a smelter will take."
     },
     {
@@ -214,13 +206,12 @@
       "id": "vehicle_pad",
       "display_name": "Hauler Pad",
       "kind": "pad",
-      "cost": 200,
+      "cost": 5000,
       "size": [
         4,
         1,
         6
       ],
-      "unlock_cost": 5000,
       "blurb": "Spawns your hauler, and brings it back when it is lost.",
       "vehicle": "hauler"
     },
@@ -229,13 +220,12 @@
       "display_name": "Quad Bike Pad",
       "kind": "pad",
       "vehicle": "quad",
-      "cost": 200,
+      "cost": 1200,
       "size": [
         3,
         1,
         4
       ],
-      "unlock_cost": 1200,
       "blurb": "Spawns your quad bike. Brings it back when it is lost."
     },
     {
@@ -243,13 +233,12 @@
       "display_name": "Pickup Pad",
       "kind": "pad",
       "vehicle": "pickup",
-      "cost": 200,
+      "cost": 2500,
       "size": [
         4,
         1,
         6
       ],
-      "unlock_cost": 2500,
       "blurb": "Spawns your pickup. Brings it back when it is lost."
     },
     {
@@ -257,13 +246,12 @@
       "display_name": "Buggy Pad",
       "kind": "pad",
       "vehicle": "buggy",
-      "cost": 200,
+      "cost": 3500,
       "size": [
         4,
         1,
         5
       ],
-      "unlock_cost": 3500,
       "blurb": "Spawns your dune buggy. Brings it back when it is lost."
     },
     {
@@ -271,13 +259,12 @@
       "display_name": "Log Truck Pad",
       "kind": "pad",
       "vehicle": "log_truck",
-      "cost": 200,
+      "cost": 12000,
       "size": [
         4,
         1,
         10
       ],
-      "unlock_cost": 12000,
       "blurb": "Spawns your log truck. Brings it back when it is lost."
     },
     {
@@ -285,13 +272,12 @@
       "display_name": "Dump Truck Pad",
       "kind": "pad",
       "vehicle": "dump_truck",
-      "cost": 200,
+      "cost": 15000,
       "size": [
         4,
         1,
         8
       ],
-      "unlock_cost": 15000,
       "blurb": "Spawns your dump truck. Brings it back when it is lost."
     },
     {
@@ -299,20 +285,19 @@
       "display_name": "Crane Truck Pad",
       "kind": "pad",
       "vehicle": "crane_truck",
-      "cost": 200,
+      "cost": 20000,
       "size": [
         4,
         1,
         9
       ],
-      "unlock_cost": 20000,
       "blurb": "Spawns your crane truck. Brings it back when it is lost."
     },
     {
       "id": "conveyor_ramp",
       "display_name": "Belt Ramp",
       "kind": "conveyor",
-      "cost": 110,
+      "cost": 350,
       "size": [
         1,
         3,
@@ -320,14 +305,13 @@
       ],
       "speed": 3.0,
       "rise": 2.0,
-      "blurb": "A belt that climbs as it goes.",
-      "unlock_cost": 300
+      "blurb": "A belt that climbs as it goes."
     },
     {
       "id": "conveyor_open",
       "display_name": "Borderless Belt",
       "kind": "conveyor",
-      "cost": 45,
+      "cost": 160,
       "size": [
         1,
         1,
@@ -341,210 +325,194 @@
       "id": "conveyor_long",
       "display_name": "Long Belt",
       "kind": "conveyor",
-      "cost": 110,
+      "cost": 400,
       "size": [
         1,
         1,
         8
       ],
       "speed": 3.0,
-      "unlock_cost": 400,
       "blurb": "Twice the run of a standard belt in one piece."
     },
     {
       "id": "conveyor_wide",
       "display_name": "Wide Belt",
       "kind": "conveyor",
-      "cost": 150,
+      "cost": 500,
       "size": [
         2,
         1,
         4
       ],
       "speed": 3.0,
-      "unlock_cost": 650,
       "blurb": "Two cells wide, for trunks lying across it."
     },
     {
       "id": "fence",
       "display_name": "Picket Fence",
       "kind": "doodad",
-      "cost": 15,
+      "cost": 20,
       "size": [
         1,
         1,
         2
       ],
-      "unlock_cost": 150,
       "blurb": "A length of white picket fence."
     },
     {
       "id": "lamp_post",
       "display_name": "Lamp Post",
       "kind": "doodad",
-      "cost": 40,
+      "cost": 60,
       "size": [
         1,
         3,
         1
       ],
-      "unlock_cost": 300,
       "blurb": "A tall lamp that lights up the yard at dusk."
     },
     {
       "id": "bench",
       "display_name": "Park Bench",
       "kind": "doodad",
-      "cost": 30,
+      "cost": 50,
       "size": [
         1,
         1,
         2
       ],
-      "unlock_cost": 200,
       "blurb": "Somewhere to sit and watch the belts run."
     },
     {
       "id": "planter",
       "display_name": "Flower Planter",
       "kind": "doodad",
-      "cost": 20,
+      "cost": 30,
       "size": [
         1,
         1,
         1
       ],
-      "unlock_cost": 180,
       "blurb": "A box of flowers."
     },
     {
       "id": "barrel",
       "display_name": "Barrel",
       "kind": "doodad",
-      "cost": 15,
+      "cost": 20,
       "size": [
         1,
         1,
         1
       ],
-      "unlock_cost": 120,
       "blurb": "An oak barrel. Probably empty."
     },
     {
       "id": "crate_stack",
       "display_name": "Crate Stack",
       "kind": "doodad",
-      "cost": 25,
+      "cost": 30,
       "size": [
         1,
         2,
         1
       ],
-      "unlock_cost": 160,
       "blurb": "A few crates, stacked for show."
     },
     {
       "id": "flag_pole",
       "display_name": "Flag Pole",
       "kind": "doodad",
-      "cost": 60,
+      "cost": 120,
       "size": [
         1,
         5,
         1
       ],
-      "unlock_cost": 450,
       "blurb": "Fly your colours over the plot."
     },
     {
       "id": "signpost",
       "display_name": "Signpost",
       "kind": "doodad",
-      "cost": 20,
+      "cost": 30,
       "size": [
         1,
         2,
         1
       ],
-      "unlock_cost": 140,
       "blurb": "Point the way. To the sell yard, mostly."
     },
     {
       "id": "hay_bale",
       "display_name": "Hay Bales",
       "kind": "doodad",
-      "cost": 15,
+      "cost": 20,
       "size": [
         1,
         1,
         2
       ],
-      "unlock_cost": 120,
       "blurb": "Rustic. Smells of summer."
     },
     {
       "id": "garden_gnome",
       "display_name": "Garden Gnome",
       "kind": "doodad",
-      "cost": 35,
+      "cost": 150,
       "size": [
         1,
         1,
         1
       ],
-      "unlock_cost": 500,
       "blurb": "He watches over the sawmill."
     },
     {
       "id": "statue",
       "display_name": "Lumberjack Statue",
       "kind": "doodad",
-      "cost": 600,
+      "cost": 3000,
       "size": [
         2,
         4,
         2
       ],
-      "unlock_cost": 8000,
       "blurb": "A golden lumberjack, axe raised."
     },
     {
       "id": "fountain",
       "display_name": "Fountain",
       "kind": "doodad",
-      "cost": 400,
+      "cost": 2500,
       "size": [
         3,
         2,
         3
       ],
-      "unlock_cost": 6000,
       "blurb": "A stone fountain with running water."
     },
     {
       "id": "beacon",
       "display_name": "Crystal Beacon",
       "kind": "doodad",
-      "cost": 250,
+      "cost": 1500,
       "size": [
         1,
         3,
         1
       ],
-      "unlock_cost": 4500,
       "blurb": "A glowing crystal pylon."
     },
     {
       "id": "topiary",
       "display_name": "Topiary Bush",
       "kind": "doodad",
-      "cost": 120,
+      "cost": 600,
       "size": [
         1,
         2,
         1
       ],
-      "unlock_cost": 2500,
       "blurb": "A hedge clipped into a perfect spiral."
     }
   ],

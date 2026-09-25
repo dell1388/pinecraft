@@ -1,6 +1,9 @@
 class_name VehicleModel
 extends RefCounted
 
+## Each part a millimetre proud of the last, so flush parts never z-fight.
+const LAYER := 0.001
+
 ## Dresses a vehicle from its spec: cab, bed, wheels and all the little parts.
 ## Mesh only - the colliders are the vehicle's own, built from the same
 ## numbers, so the dressing and the physics cannot disagree about where a wall
@@ -17,6 +20,7 @@ const TAIL := Color(1.0, 0.15, 0.1)
 
 static func dress(v: Hauler) -> void:
 	var g := Greeble.new()
+	g.layer_step = LAYER
 	match v.style:
 		&"quad":
 			_quad(v, g)
@@ -127,8 +131,10 @@ static func _buggy(v: Hauler, g: Greeble) -> void:
 		g.pipe(Vector3(x, top, front - 0.2), Vector3(x * 0.85, top + cage, front + 0.1), 0.05, c, 6)
 		g.pipe(Vector3(x, top, back), Vector3(x * 0.85, top + cage, back), 0.05, c, 6)
 		g.pipe(Vector3(x * 0.85, top + cage, front + 0.1), Vector3(x * 0.85, top + cage, back), 0.05, c, 6)
-	g.pipe(Vector3(-hw * 0.85, top + cage, front + 0.1), Vector3(hw * 0.85, top + cage, front + 0.1), 0.05, c, 6)
-	g.pipe(Vector3(-hw * 0.85, top + cage, back), Vector3(hw * 0.85, top + cage, back), 0.05, c, 6)
+	# The hoops a hair thinner than the uprights, so where they meet the two
+	# never share a face.
+	g.pipe(Vector3(-hw * 0.85, top + cage, front + 0.1), Vector3(hw * 0.85, top + cage, front + 0.1), 0.046, c, 6)
+	g.pipe(Vector3(-hw * 0.85, top + cage, back), Vector3(hw * 0.85, top + cage, back), 0.046, c, 6)
 	g.pipe(Vector3(-hw * 0.85, top + cage, back), Vector3(hw * 0.85, top + 0.2, back), 0.04, c, 6)
 	for i in 4:
 		g.box(Vector3(0.2, 0.1, 0.1), Transform3D(Basis(), Vector3(-0.45 + float(i) * 0.3, top + cage + 0.08, front + 0.1)), AMBER, true)
@@ -191,6 +197,8 @@ static func _walled_bed(v: Hauler, g: Greeble) -> void:
 
 	# The tailgate, hinged along its bottom edge.
 	var gate := Greeble.new()
+	gate.layer_step = LAYER
+	gate.layer_base = LAYER * 0.5
 	gate.block(Vector3(across, v.wall_height, 0.24 if not rack else 0.08), Vector3(0, v.wall_height * 0.5, 0), DARK if rack else paint.darkened(0.15))
 	if not rack:
 		gate.block(Vector3(across + 0.04, 0.08, 0.28), Vector3(0, v.wall_height - 0.04, 0), STEEL)
@@ -227,6 +235,8 @@ static func _stake_bed(v: Hauler, g: Greeble) -> void:
 ## The dump tub: its own node, so it swings up on its hinge with the colliders.
 static func _tub(v: Hauler) -> void:
 	var g := Greeble.new()
+	g.layer_step = LAYER
+	g.layer_base = LAYER * 0.5
 	var paint := v.paint
 	var across := v.bed_half_width * 2.0 + 0.4
 	var run := v.bed_length + 0.3
@@ -280,6 +290,7 @@ static func _wheels(v: Hauler) -> void:
 ## A tyre with a tread, a rim and lug nuts, so you can see it turn.
 static func wheel_mesh(radius: float, width: float) -> ArrayMesh:
 	var g := Greeble.new()
+	g.layer_step = LAYER
 	var half := width * 0.5
 	var base := Transform3D(Basis(), Vector3(0, -half, 0))
 	g.prism(12, radius, radius, width, base, Color(0.10, 0.10, 0.11))
