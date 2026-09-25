@@ -531,8 +531,9 @@ func _update_vehicle_controls(delta: float) -> void:
 	work_winch(r, delta)
 	if not r.operating:
 		return
-	# W takes the log toward the tail, S toward the cab.
-	var move := Vector3(Input.get_axis("move_left", "move_right"), Input.get_axis("lower", "sprint"),
+	# W takes the log toward the tail, S toward the cab; A to the truck's
+	# right, D to its left.
+	var move := Vector3(Input.get_axis("move_right", "move_left"), Input.get_axis("lower", "sprint"),
 		Input.get_axis("move_back", "move_forward"))
 	var turn := (1.0 if Input.is_physical_key_pressed(KEY_Q) else 0.0) \
 		- (1.0 if Input.is_physical_key_pressed(KEY_E) else 0.0)
