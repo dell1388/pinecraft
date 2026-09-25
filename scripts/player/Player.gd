@@ -463,25 +463,63 @@ func _physics_process(delta: float) -> void:
 ## crane it orbits the log (or the empty grapple) - the mouse turns it, the
 ## wheel zooms - and pulls back far enough to keep the truck's bed in view.
 ## Turning it never changes which way the keys move the log.
-func _update_chase_camera(_delta: float) -> void:
+func _update_chase_camera(delta: float) -> void:
 	if vehicle == null or not is_instance_valid(vehicle):
 		return
 	var basis := Basis.from_euler(Vector3(camera.rotation.x, rotation.y, 0.0))
 	var r := rig()
+	var pivot: Vector3
+	var distance: float
+	var skip: Array[RID] = []
 	if r != null and r.operating:
 		var focus := r.focus_point()
 		var bed: Vector3 = vehicle.global_transform * Vector3(0, float(vehicle.get("bed_floor")), float(vehicle.get("bed_mid_z"))) \
 			if vehicle.get("bed_mid_z") != null else vehicle.global_position
 		var frame := clampf(focus.distance_to(bed) * 1.1 + 3.0, 5.0, 26.0)
-		var distance := maxf(crane_zoom, frame)
-		camera.global_transform = Transform3D(basis, focus + Vector3(0, 0.6, 0) + basis.z * distance)
-		return
-	var pivot := vehicle.global_position + Vector3(0, chase_height, 0)
-	var distance: float = chase_distance
-	if vehicle.get("camera_distance") != null:
-		distance = float(vehicle.get("camera_distance"))
-	camera.global_transform = Transform3D(basis, pivot + basis.z * distance)
+		distance = maxf(crane_zoom, frame)
+		pivot = focus + Vector3(0, 0.6, 0)
+		# The log being looked at does not push the camera in.
+		if r.held != null and is_instance_valid(r.held):
+			skip.append(r.held.get_rid())
+	else:
+		pivot = vehicle.global_position + Vector3(0, chase_height, 0)
+		distance = chase_distance
+		if vehicle.get("camera_distance") != null:
+			distance = float(vehicle.get("camera_distance"))
+	var clear := _camera_clearance(pivot, basis.z, distance, skip)
+	# In at once when something is in the way; back out gently once clear.
+	_cam_distance = clear if clear < _cam_distance else move_toward(_cam_distance, clear, 12.0 * delta)
+	camera.global_transform = Transform3D(basis, pivot + basis.z * _cam_distance)
 
+var _cam_distance: float = 9.0
+## How far the camera sits off the land and anything solid.
+const CAMERA_RADIUS := 0.35
+
+## How far back from `pivot` along `back` the camera can sit, up to `most`,
+## without being inside terrain, a vehicle, a building, a tree or a log: a
+## small sphere swept out from the pivot, stopped short of what it meets. If
+## the pivot itself is inside something (the truck's own roof, say), that one
+## thing is ignored rather than the camera jammed on the pivot.
+func _camera_clearance(pivot: Vector3, back: Vector3, most: float, skip: Array[RID]) -> float:
+	var space := get_world_3d().direct_space_state
+	var sphere := SphereShape3D.new()
+	sphere.radius = CAMERA_RADIUS
+	var q := PhysicsShapeQueryParameters3D.new()
+	q.shape = sphere
+	q.collision_mask = Layers.WORLD | Layers.VEHICLE | Layers.MACHINE | Layers.TREE | Layers.LOOSE | Layers.KERB
+	var excluded: Array[RID] = [get_rid()]
+	excluded.append_array(skip)
+	for attempt in 3:
+		q.exclude = excluded
+		q.transform = Transform3D(Basis(), pivot)
+		var inside := space.get_rest_info(q)
+		if not inside.is_empty():
+			excluded.append(inside.rid)
+			continue
+		q.motion = back * most
+		var f: float = space.cast_motion(q)[0]
+		return maxf(0.5, most * f - 0.1)
+	return most
 ## The winch (reel in, let out) whenever there is one, and in crane operator
 ## mode the log itself, in the truck's frame: W/S along the truck (W toward
 ## the tail, S toward the cab), A/D across it, Shift/Ctrl up and down, Q/E turn it. Holding the
