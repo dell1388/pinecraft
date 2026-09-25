@@ -266,12 +266,10 @@ static func _mast(v: Hauler, g: Greeble, head: Vector3) -> void:
 	g.prism(8, 0.55, 0.5, 0.35, Transform3D(Basis(), base), STEEL.darkened(0.3))
 	g.block(Vector3(0.6, head.y - base.y, 0.6), base + Vector3(0, (head.y - base.y) * 0.5 + 0.35, 0), Color(0.95, 0.78, 0.15))
 	g.block(Vector3(0.5, 0.5, 0.5), head + Vector3(0, 0.2, 0), DARK)
-	g.pipe(base + Vector3(0, 0.8, 0.1), head + Vector3(0, -0.1, 0.9), 0.1, STEEL, 6)
 	for side in [-1.0, 1.0]:
 		# Outriggers folded against the chassis.
 		g.block(Vector3(0.3, 0.3, 0.9), Vector3(side * (v.body_size.x * 0.5 + 0.15), 0.0, head.z), DARK)
 		g.block(Vector3(0.3, 0.06, 0.3), Vector3(side * (v.body_size.x * 0.5 + 0.15), -0.35, head.z + 0.3), STEEL)
-	g.block(Vector3(0.8, 0.9, 0.3), Vector3(0, v.bed_floor + 1.0, v.bed_back - 0.2), DARK)
 
 # --- Wheels ----------------------------------------------------------------
 
