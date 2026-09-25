@@ -3480,125 +3480,152 @@ func test_vehicle_rig() -> void:
 	check(rig.attach_winch(post, rig.fairlead() + ahead * 40.0) != "", "the winch hooked on 40 m away")
 	await step(60)
 
-	# The crane: outriggers down, hook lowered onto a log, latched, hoisted.
+	# The crane: the player moves the log, and the crane solves its joints to
+	# follow.
 	rig.crane_power_kg = 1200.0
 	rig.set_operating(true)
 	check(truck.freeze, "working the crane did not plant the truck")
-	# Swung out to the side, clear of the truck.
-	var slew_from := rig.slew
-	for i in 200:
-		rig.work(1.0, 0, 0.6, 0, 1.0 / 60.0)
-		await step(1)
-		if absf(angle_difference(rig.slew, PI * 0.5)) < 0.05:
-			break
-	check(absf(rig.slew - slew_from) > 0.5, "the boom would not swing")
-	await step(30)
-	var tip := rig.tip_point()
-	var load_piece := spawn(&"wood_pine", Vector3(tip.x, 0.35, tip.z), Solid.cylinder(0.25, 0.25, 1.6))
-	await step(30)
-	for i in 400:
-		rig.work(0, 0, 0, -1.0, 1.0 / 60.0)
-		await step(1)
-		if rig.hook.global_position.distance_to(load_piece.global_position) < 0.7:
-			break
-	check_eq(rig.latch(), "", "the hook would not latch the log beneath it")
-	check(rig.holding(), "the crane does not think it has the log")
-	var low := load_piece.global_position.y
-	for i in 180:
-		rig.work(0, 0, 0, 1.0, 1.0 / 60.0)
-		await step(1)
-	check(load_piece.global_position.y > low + 1.0, "hoisting lifted the log %.2f m (hook y %.2f, tip y %.2f, rope %.2f, tension %.0f, log frozen %s state %d mass %.0f)" % [load_piece.global_position.y - low, rig.hook.global_position.y, rig.tip_point().y, rig.hoist_length, rig.hoist_tension, str(load_piece.freeze), load_piece.state, load_piece.mass])
-	# Swinging the boom carries the load round with it.
-	var was := Vector2(load_piece.global_position.x, load_piece.global_position.z)
-	for i in 120:
-		rig.work(1.0, 0, 0, 0, 1.0 / 60.0)
-		await step(1)
-	await step(60)
-	var moved := Vector2(load_piece.global_position.x, load_piece.global_position.z).distance_to(was)
-	check(moved > 1.0, "slewing moved the load %.2f m" % moved)
-	rig.drop()
-	check(not rig.holding(), "letting go left the crane holding on")
-	await step(90)
-	check(load_piece.global_position.y < 1.0, "a released load did not fall")
+	var dt := 1.0 / 60.0
+	for spot: Vector3 in [Vector3(3.5, -0.5, 2.0), Vector3(-4.0, 0.5, 1.0), Vector3(0.0, 1.5, 5.0)]:
+		rig.target = rig.clamp_target(spot)
+		for i in 600:
+			await step(1)
+			if rig._settled(rig.solve(rig.target, rig.target_yaw), 0.003):
+				break
+		await step(90)
+		var jaw: Vector3 = rig.fk().jaw
+		check(jaw.distance_to(rig.target) < 0.1, "the crane did not put its jaws on the target (%.2f m off at %s, sway %s)" % [
+			jaw.distance_to(rig.target), str(rig.target), str(rig._sway)])
+	# Keys move the target in straight lines in the truck's frame.
+	rig.target = rig.clamp_target(Vector3(3.0, 0.0, 2.0))
+	var from_spot := rig.target
+	for i in 60:
+		rig.drive(Vector3(0, 0, -1), 0.0, false, dt)
+	check(from_spot.z - rig.target.z > 1.0, "W did not move the log toward the cab")
+	check(absf(rig.target.x - from_spot.x) < 0.05 and absf(rig.target.y - from_spot.y) < 0.05,
+		"moving along the truck drifted across it or up")
+	# Pushed at the cab or out past the reach, the target stops at the edge
+	# and slides along it.
+	for i in 900:
+		rig.drive(Vector3(-0.4, 0, -1), 0.0, false, dt)
+	check(not rig.cab_box.grow(0.3).has_point(rig.target), "the target went into the cab")
+	check(rig.at_limit, "pushing at the edge did not show the limit")
+	var reach_rel := rig.target + Vector3.UP * VehicleRig.HANG - rig.head_offset
+	check(absf(atan2(reach_rel.x, reach_rel.z)) <= VehicleRig.SLEW_ARC + 0.01, "the crane swung through the cab")
+	for i in 900:
+		rig.drive(Vector3(1, 0, 0.3), 0.0, false, dt)
+	reach_rel = rig.target + Vector3.UP * VehicleRig.HANG - rig.head_offset
+	check(Vector2(reach_rel.x, reach_rel.z).length() <= rig.max_reach() + 0.01, "the target went past the crane's reach")
+	# Q and E turn it.
+	var yaw_was := rig.target_yaw
+	for i in 30:
+		rig.drive(Vector3.ZERO, 1.0, false, dt)
+	check(rig.target_yaw - yaw_was > 0.2, "Q did not turn the log")
 
-	# Past its rating the hoist stalls and the load stays down.
-	rig.crane_power_kg = 150.0
-	tip = rig.tip_point()
-	var big := spawn(&"wood_ironwood", Vector3(tip.x, 0.5, tip.z), Solid.cylinder(0.4, 0.4, 2.0))
+	# A log beside the truck: grapple on, lift, over the bed, set down.
+	var truck_frame := truck.global_transform
+	var beside: Vector3 = truck_frame * Vector3(3.4, 0.0, 1.2)
+	var grabbed := spawn(&"wood_pine", Vector3(beside.x, 0.3, beside.z), Solid.cylinder(0.22, 0.2, 2.4))
 	await step(40)
-	for i in 400:
-		rig.work(0, 0, 0, -1.0, 1.0 / 60.0)
+	rig.target = rig.clamp_target(truck_frame.affine_inverse() * grabbed.global_position)
+	for i in 600:
 		await step(1)
-		if rig.hook.global_position.distance_to(big.global_position) < 0.8:
+		if rig.jaw_world().distance_to(grabbed.global_position) < 0.15:
 			break
-	check_eq(rig.latch(), "", "the hook would not latch the heavy log")
-	var big_low := big.global_position.y
-	for i in 180:
-		rig.work(0, 0, 0, 1.0, 1.0 / 60.0)
+	check_eq(rig.latch(), "", "the grapple would not close on the log between its jaws")
+	check(rig.holding() and grabbed.state == LooseItem.State.CAPTURED, "the crane does not have the log")
+	var lift_from := grabbed.global_position.y
+	for i in 90:
+		rig.drive(Vector3(0, 1, 0), 0.0, false, dt)
 		await step(1)
-	check(big.global_position.y < big_low + 0.3, "a %.0f kg crane lifted %.0f kg" % [rig.crane_power_kg, big.mass])
+	await step(30)
+	check(grabbed.global_position.y > lift_from + 1.0, "lifting raised the log %.2f m" % (grabbed.global_position.y - lift_from))
+	rig.target = rig.clamp_target(Vector3(0, truck.bed_floor + truck.wall_height + 1.2, truck.bed_mid_z))
+	rig.target_yaw = 0.0
+	for i in 600:
+		await step(1)
+		if rig._settled(rig.solve(rig.target, rig.target_yaw), 0.003):
+			break
+	await step(30)
+	for i in 240:
+		rig.drive(Vector3(0, -1, 0), 0.0, false, dt)
+		await step(1)
+	var in_truck := truck.global_transform.affine_inverse() * grabbed.global_position
+	check(in_truck.y > truck.bed_floor, "the log was lowered through the bed (y %.2f, floor %.2f)" % [in_truck.y, truck.bed_floor])
+	check(in_truck.y < truck.bed_floor + 0.7, "lowering onto the bed stopped %.2f m above it" % (in_truck.y - truck.bed_floor))
+	check(absf(in_truck.x) < truck.bed_half_width and in_truck.z > truck.bed_front and in_truck.z < truck.bed_back,
+		"the log is not over the bed: %s" % str(in_truck))
 	rig.drop()
+	check(not rig.holding() and grabbed.state == LooseItem.State.FREE, "letting go left the log held")
+	await step(90)
+	in_truck = truck.global_transform.affine_inverse() * grabbed.global_position
+	check(absf(in_truck.x) < truck.bed_half_width and in_truck.z > truck.bed_front and in_truck.z < truck.bed_back
+		and in_truck.y > truck.bed_floor - 0.05, "the log set down did not stay in the bed: %s" % str(in_truck))
+	var squared := truck.global_transform.basis.inverse() * grabbed.global_transform.basis.y
+	check(absf(squared.x) < 0.1, "a log set down near square was not squared up (%s)" % str(squared))
 
-	# Ore still in the ground: the hook latches on, and hoisting pulls the
-	# chunk out once the pull reaches what it takes - if the crane can.
+	# Too heavy for the crane: the grapple will not take it.
+	rig.target = rig.clamp_target(Vector3(-3.4, -0.2, 1.5))
+	for i in 600:
+		await step(1)
+		if rig._settled(rig.solve(rig.target, rig.target_yaw), 0.003):
+			break
+	var jaw_at := rig.jaw_world()
+	rig.crane_power_kg = 150.0
+	var too_big := spawn(&"wood_ironwood", Vector3(jaw_at.x, 0.5, jaw_at.z), Solid.cylinder(0.4, 0.4, 2.0))
+	await step(40)
+	rig.target = rig.clamp_target(truck_frame.affine_inverse() * too_big.global_position)
+	for i in 400:
+		await step(1)
+		if rig.jaw_world().distance_to(too_big.global_position) < 0.2:
+			break
+	check(rig.latch() != "", "a %.0f kg crane took a %.0f kg log" % [rig.crane_power_kg, too_big.mass])
+	check(not rig.holding(), "a refused log is in the grapple")
+
+	# Ore still in the ground: the grapple pulls it out if the crane can.
 	rig.crane_power_kg = 1200.0
-	# Swung round to clear ground, away from the logs already dropped.
-	for i in 90:
-		rig.work(1.0, 0, 0, 1.0, 1.0 / 60.0)
-		await step(1)
-	await step(60)
-	tip = rig.tip_point()
-	var rock := OreRock.new()
-	rock.manager = manager
-	rock.ore_item = &"ore_iron"
-	rock.embed = 0.4
-	rock.volume = 0.05
-	rock.position = Vector3(tip.x, 0.0, tip.z)
-	world.add_child(rock)
+	var ore_at: Vector3 = truck_frame * Vector3(3.0, 0.0, 4.0)
+	var seam_rock := OreRock.new()
+	seam_rock.manager = manager
+	seam_rock.ore_item = &"ore_iron"
+	seam_rock.embed = 0.4
+	seam_rock.volume = 0.05
+	seam_rock.position = Vector3(ore_at.x, 0.0, ore_at.z)
+	world.add_child(seam_rock)
 	await step(4)
-	check(rock.pull_required() < rig.crane_power_kg, "the test chunk needs %.0f kg" % rock.pull_required())
+	check(seam_rock.pull_required() < rig.crane_power_kg, "the test chunk needs %.0f kg" % seam_rock.pull_required())
+	rig.target = rig.clamp_target(truck_frame.affine_inverse() * (seam_rock.global_position + Vector3(0, 0.3, 0)))
 	for i in 600:
-		rig.work(0, 0, 0, -1.0, 1.0 / 60.0)
 		await step(1)
-		if rig._touching_hook() == rock:
+		if rig._settled(rig.solve(rig.target, rig.target_yaw), 0.003):
 			break
-	check_eq(rig.latch(), "", "the hook would not latch ore in the ground")
-	check(rig.held_rock == rock, "the crane is not hooked on the ore")
-	for i in 240:
-		rig.work(0, 0, 0, 1.0, 1.0 / 60.0)
-		await step(1)
-	check(rock.consumed(), "hoisting did not pull the ore out of the ground")
-	check(rig.held != null and rig.held.item_id == &"ore_iron", "the freed ore is not on the hook")
-	if rig.held != null:
-		check(rig.held.global_position.y > 0.5, "the freed ore was not lifted")
+	check_eq(rig.latch(), "", "the grapple would not take ore in the ground")
+	check(seam_rock.consumed(), "the grapple did not pull the ore out of the ground")
+	check(rig.held != null and rig.held.item_id == &"ore_iron", "the freed ore is not in the grapple")
 	rig.drop()
-	# Too much for the crane: it stays in the ground.
 	rig.crane_power_kg = 50.0
-	for i in 90:
-		rig.work(1.0, 0, 0, 1.0, 1.0 / 60.0)
-		await step(1)
-	await step(60)
-	tip = rig.tip_point()
-	var stuck := OreRock.new()
-	stuck.manager = manager
-	stuck.ore_item = &"ore_iron"
-	stuck.embed = 0.5
-	stuck.volume = 0.4
-	stuck.position = Vector3(tip.x, 0.0, tip.z)
-	world.add_child(stuck)
+	var deep_rock := OreRock.new()
+	deep_rock.manager = manager
+	deep_rock.ore_item = &"ore_iron"
+	deep_rock.embed = 0.5
+	deep_rock.volume = 0.4
+	var stuck_at: Vector3 = truck_frame * Vector3(-3.0, 0.0, 4.0)
+	deep_rock.position = Vector3(stuck_at.x, 0.0, stuck_at.z)
+	world.add_child(deep_rock)
 	await step(4)
+	rig.target = rig.clamp_target(truck_frame.affine_inverse() * (deep_rock.global_position + Vector3(0, 0.3, 0)))
 	for i in 600:
-		rig.work(0, 0, 0, -1.0, 1.0 / 60.0)
 		await step(1)
-		if rig._touching_hook() == stuck:
+		if rig._settled(rig.solve(rig.target, rig.target_yaw), 0.003):
 			break
-	check_eq(rig.latch(), "", "the hook would not latch the big chunk")
-	for i in 240:
-		rig.work(0, 0, 0, 1.0, 1.0 / 60.0)
-		await step(1)
-	check(not stuck.consumed(), "a %.0f kg crane pulled out ore needing %.0f kg" % [rig.crane_power_kg, stuck.pull_required()])
-	rig.drop()
+	check(rig.latch() != "", "a %.0f kg crane pulled out ore needing %.0f kg" % [rig.crane_power_kg, deep_rock.pull_required()])
+	check(not deep_rock.consumed(), "ore past the crane came out anyway")
 	rig.set_operating(false)
+	for i in 900:
+		await step(1)
+		if not rig.folding:
+			break
+	check(not rig.folding and rig._settled(VehicleRig.REST, 0.06), "the crane did not fold away")
 	check(not truck.freeze, "stowing the crane left the truck planted")
 	await step(60)
 

@@ -1,23 +1,27 @@
 class_name VehicleRig
 extends Node3D
 
-## The gear bolted to a vehicle: a winch and, on some, a crane. Both are real
-## machines working through a real line.
+## The gear bolted to a vehicle: a winch and, on some, a loader crane.
 ##
-## A line is a rope: slack until it is drawn tight, then it pulls both ends
-## together as hard as it has to - up to what the machine on it is rated for.
+## The winch line is a rope: slack until it is drawn tight, then it pulls both
+## ends together as hard as it has to - up to what the winch is rated for.
 ## Past that the drum stalls when you reel in, and slips when something drags
-## on it. Nothing is snapped to anything and nothing is made weightless.
+## on it. It runs from the fairlead on the front of the truck to whatever it
+## is hooked to: a log, a tree, a rock face, another truck. Use it from the
+## seat or standing near the truck.
 ##
-## The winch line runs from the fairlead on the front of the truck to whatever
-## it is hooked to: a log, a tree, a rock face, another truck. Reel in and the
-## lighter end comes: a log is dragged to the truck, the truck is dragged to a
-## tree. Use it from the seat or standing near the truck.
-##
-## The crane is a boom on a turntable - slew it round, luff it up and down,
-## run it out and in - with a hook hanging from its tip on the hoist rope.
-## Latch the hook to a load and hoist: the load comes up on the rope and
-## swings under the boom. While it works the truck stands on its outriggers.
+## The crane is a knuckle-boom loader with a grapple, worked the easy way: the
+## player moves the LOG, not the crane. Input slides a target about in the
+## truck's own frame - along it, across it, up and down, and turns it - and
+## the crane solves its joints to follow: the turntable slews, the boom and
+## stick fold to put the grapple where the target is, the telescope runs out
+## when that is not far enough, and the rotator keeps the log turned the way
+## it was asked. Each joint moves at a hydraulic's pace, so the crane lags the
+## target a little and the ghost shows where it is going. The target stays
+## inside what the crane can reach, sliding along the edge rather than
+## stopping dead; the log itself is swept so it never goes through the bed,
+## the stakes or the truck. While it works the truck stands on its
+## outriggers.
 
 signal winch_attached(anchor: Vector3)
 signal winch_released()
@@ -26,23 +30,57 @@ signal crane_released(item: LooseItem)
 
 ## What the winch can pull, in kilograms. Past this it stalls.
 @export var winch_power_kg: float = 4000.0
-## What the crane can hoist, in kilograms.
+## What the crane can lift, in kilograms.
 @export var crane_power_kg: float = 1200.0
-## Line on the winch drum, and the crane's longest boom.
+## Line on the winch drum; the crane's reach is scaled from it.
 @export var reach: float = 14.0
-## How fast the winch takes up line, and the hoist its rope, in m/s.
+## How fast the winch takes up line, in m/s.
 @export var winch_speed: float = 1.8
-@export var hoist_speed: float = 1.6
 ## Where the crane's turntable sits (or, with no crane, the winch fairlead),
 ## in the vehicle's frame.
 @export var head_offset: Vector3 = Vector3(0, 1.1, -1.2)
 
 const SHORTEST_LINE := 1.2
-const BOOM_MIN := 3.0
-const LUFF_MIN := 0.05
-const LUFF_MAX := 1.25
-const HOOK_MASS := 50.0
-const HOOK_RADIUS := 0.3
+
+# --- Crane tuning ------------------------------------------------------------------
+
+## How fast the log goes where it is steered, and gets there.
+const MOVE_SPEED := 2.4           ## m/s
+const MOVE_ACCEL := 5.0           ## m/s^2
+const TURN_SPEED := 1.1           ## rad/s
+const TURN_ACCEL := 4.0
+## Held right mouse: the fine-control speed for setting a log down.
+const FINE := 0.25
+## The crane's envelope, from its turntable. The slew arc is either side of
+## straight back over the bed: it does not swing through the cab.
+const REACH_MIN := 1.6
+const SLEW_ARC := deg_to_rad(155.0)
+const HEIGHT_ABOVE := 0.75        ## of the boom's length, above the turntable
+const DEPTH_BELOW := 3.0          ## m below the turntable
+## Joint speeds and accelerations: rad/s (m/s for the telescope).
+const JOINT_SPEED := {"slew": 0.9, "boom": 0.8, "stick": 1.0, "tele": 1.8, "rot": 1.6}
+const JOINT_ACCEL := {"slew": 2.2, "boom": 2.0, "stick": 2.6, "tele": 4.0, "rot": 4.0}
+## From the stick's tip down to the middle of the grapple's jaws.
+const HANG := 1.0
+## Sway of the grapple on its link when the crane starts and stops.
+const SWAY_GAIN := 0.012
+const SWAY_SPRING := 22.0
+const SWAY_DAMP := 8.0
+const SWAY_MOST := 0.12
+## How close a log has to be to the jaws for them to close on it.
+const GRAB_RADIUS := 0.7
+## A log let go this close above the bed and this near square to it is set
+## down square.
+const SETTLE_HEIGHT := 0.6
+const SETTLE_YAW := deg_to_rad(14.0)
+## Heavier loads shorten the reach and slow the crane, down to these at its
+## rating.
+const LOAD_REACH := 0.65
+const LOAD_SPEED := 0.5
+## The folded, travelling pose.
+const REST := {"slew": 0.0, "boom": 1.3, "stick": -1.75, "tele": 0.0, "rot": 0.0}
+## What the log may not pass through while it is being moved.
+const SWEEP_MASK := Layers.WORLD | Layers.VEHICLE | Layers.MACHINE | Layers.TREE | Layers.KERB
 
 var vehicle: RigidBody3D
 
@@ -59,42 +97,73 @@ var line_length: float = 0.0
 var winch_tension: float = 0.0
 ## The winch hooked on an ore chunk still in the ground.
 var anchor_rock: OreRock = null
-## Frames since the winch was last reeling in.
 var _reeling: int = 0
 
-# --- Crane state ---------------------------------------------------------------
+# --- Crane state -----------------------------------------------------------------
 
+## In operator mode: the truck on its outriggers, the controls on the log.
 var operating: bool = false
-var slew: float = 0.0
-var luff: float = 0.6
-var boom_length: float = 5.0
-var hoist_length: float = 2.0
-var hoist_tension: float = 0.0
-var hook: RigidBody3D
+## Folding back to the travelling pose after operator mode.
+var folding: bool = false
+## Link lengths, from the reach.
+var boom_len: float = 4.8
+var stick_len: float = 4.2
+var tele_max: float = 2.4
+## The joints, where they are and how fast they are moving.
+var joints := {"slew": 0.0, "boom": 1.3, "stick": -1.75, "tele": 0.0, "rot": 0.0}
+var _joint_vel := {"slew": 0.0, "boom": 0.0, "stick": 0.0, "tele": 0.0, "rot": 0.0}
+## The target: the jaws' point and the log's yaw, in the truck's frame.
+var target: Vector3 = Vector3.ZERO
+var target_yaw: float = 0.0
+var _target_vel: Vector3 = Vector3.ZERO
+var _yaw_vel: float = 0.0
+## True while the target is pressed against the edge of the envelope.
+var at_limit: bool = false
+## The log in the grapple.
 var held: LooseItem = null
-## An ore chunk still in the ground, hooked: hoist on it and it comes out
-## when the pull reaches what it takes to free it.
-var held_rock: OreRock = null
-var _hoisting: int = 0
-var _held_spin_damp: float = 0.4
-var _latch: Joint3D
+## The cab, in the truck's frame: the log is kept out of it.
+var cab_box: AABB = AABB()
+var _sway: Vector3 = Vector3.ZERO
+var _sway_vel: Vector3 = Vector3.ZERO
+var _last_tip: Vector3 = Vector3.ZERO
+var _last_tip_vel: Vector3 = Vector3.ZERO
+var _grab_blend: float = 1.0
+var _held_basis_from: Basis = Basis()
+var _held_vel: Vector3 = Vector3.ZERO
+
+# --- Visuals ---------------------------------------------------------------------
 
 var _cable: MeshInstance3D
+var _column: MeshInstance3D
 var _boom: MeshInstance3D
-var _rope: MeshInstance3D
+var _stick: MeshInstance3D
+var _tele: MeshInstance3D
+var _link: MeshInstance3D
+var _grapple: Node3D
+var _claws: Array[Node3D] = []
 var _outriggers: Array[MeshInstance3D] = []
+var _aids: Node3D
+var _ghost: MeshInstance3D
+var _ghost_mat: StandardMaterial3D
+var _drop_line: MeshInstance3D
+var _footprint: MeshInstance3D
+var _gizmo: Node3D
 
 func setup(p_vehicle: RigidBody3D) -> void:
 	vehicle = p_vehicle
 
-## Where the boom lies when stowed: folded back over the bed.
-const REST_SLEW := PI
-const REST_LUFF := 0.06
-
 func _ready() -> void:
-	slew = REST_SLEW
-	luff = REST_LUFF
-	boom_length = BOOM_MIN
+	boom_len = reach * 0.34
+	stick_len = reach * 0.3
+	tele_max = reach * 0.17
+	joints = REST.duplicate()
+	if vehicle != null and vehicle.get("spec") is Dictionary:
+		var cab: Dictionary = (vehicle.get("spec") as Dictionary).get("cab", {})
+		var body: Vector3 = vehicle.get("body_size")
+		if not cab.is_empty():
+			var size := Hauler._vec(cab.size)
+			var centre := Vector3(0, body.y * 0.5 + size.y * 0.5, float(cab.z))
+			cab_box = AABB(centre - size * 0.5, size)
 	_build()
 	set_physics_process(true)
 
@@ -266,32 +335,398 @@ func _work_winch() -> void:
 		release_winch()
 	_reeling = maxi(0, _reeling - 1)
 
-# --- Crane ---------------------------------------------------------------------
+# --- Crane: operator mode ------------------------------------------------------------
 
-## Where the boom's tip is.
-func tip_point() -> Vector3:
-	var b := vehicle.global_transform.basis if vehicle != null else Basis()
-	var dir := b * (Basis(Vector3.UP, slew) * Basis(Vector3.RIGHT, luff) * Vector3(0, 0, -1))
-	return head_point() + dir * boom_length
-
-## Crane mode: the truck stands on its outriggers and the controls work the
-## crane. Off, the hook is stowed against the boom tip.
+## Operator mode on: outriggers down, the crane unfolds and the controls move
+## the log. Off: whatever is in the grapple is let go, and the crane folds
+## back to its travelling pose - the truck stays on its outriggers until it
+## has.
 func set_operating(on: bool) -> void:
 	if not has_crane() or operating == on:
 		return
 	operating = on
-	_apply_plant()
 	if on:
-		# Up off the bed, ready to work.
-		if luff < 0.3:
-			luff = 0.6
-		hook.freeze = false
-		hook.collision_layer = Layers.VEHICLE
-		hook.collision_mask = Layers.WORLD | Layers.LOOSE | Layers.MACHINE | Layers.TREE
-		hook.sleeping = false
-		hoist_length = maxf(1.0, hoist_length)
-	elif held == null:
-		_stow_hook()
+		folding = false
+		# A working spot behind the turntable, over the bed.
+		target = clamp_target(head_offset + Vector3(0, 0.3, boom_len * 0.8))
+		target_yaw = 0.0
+		_target_vel = Vector3.ZERO
+		_yaw_vel = 0.0
+	else:
+		drop()
+		folding = true
+	_apply_plant()
+
+## Moves the target: `move` in the truck's frame (x across, y up, z along,
+## each -1..1), `turn` the log's yaw (-1..1). `fine` is the slow speed for
+## setting down.
+func drive(move: Vector3, turn: float, fine: bool, delta: float) -> void:
+	if not operating:
+		return
+	var scale := (FINE if fine else 1.0) * _load_factor(LOAD_SPEED)
+	_target_vel = _target_vel.move_toward(move.limit_length(1.0) * MOVE_SPEED * scale, MOVE_ACCEL * delta)
+	_yaw_vel = move_toward(_yaw_vel, clampf(turn, -1.0, 1.0) * TURN_SPEED * scale, TURN_ACCEL * delta)
+	var raw := target + _target_vel * delta
+	var clamped := clamp_target(raw)
+	at_limit = clamped.distance_to(raw) > 0.0005
+	if at_limit:
+		# Pressed against the edge: the push into it goes, the slide along
+		# it stays.
+		var n := (raw - clamped).normalized()
+		_target_vel -= n * maxf(0.0, _target_vel.dot(n))
+	target = clamped
+	target_yaw = wrapf(target_yaw + _yaw_vel * delta, -PI, PI)
+
+## The nearest point to `p` (the jaws, in the truck's frame) the crane can
+## put its grapple: within its reach and height, inside its slew arc, and out
+## of the cab.
+func clamp_target(p: Vector3) -> Vector3:
+	var rel := p + Vector3.UP * HANG - head_offset
+	var h := clampf(rel.y, -DEPTH_BELOW, boom_len * HEIGHT_ABOVE)
+	var r := Vector2(rel.x, rel.z).length()
+	var ang := atan2(rel.x, rel.z) if r > 0.001 else float(joints.slew)
+	ang = clampf(ang, -SLEW_ARC, SLEW_ARC)
+	var most := max_reach()
+	r = clampf(r, REACH_MIN, most)
+	if r * r + h * h > most * most:
+		r = sqrt(maxf(most * most - h * h, REACH_MIN * REACH_MIN))
+	var out := head_offset + Vector3(sin(ang) * r, h, cos(ang) * r) - Vector3.UP * HANG
+	if cab_box.size != Vector3.ZERO:
+		var keep_out := cab_box.grow(0.45 + _held_half_height())
+		if keep_out.has_point(out):
+			var faces := [Vector3(out.x, keep_out.end.y, out.z),
+				Vector3(keep_out.position.x, out.y, out.z), Vector3(keep_out.end.x, out.y, out.z),
+				Vector3(out.x, out.y, keep_out.position.z), Vector3(out.x, out.y, keep_out.end.z)]
+			var best: Vector3 = faces[0]
+			for f: Vector3 in faces:
+				if f.distance_to(out) < best.distance_to(out):
+					best = f
+			out = best
+	return out
+
+## How far out the crane reaches with what it is holding.
+func max_reach() -> float:
+	return (boom_len + stick_len + tele_max) * 0.97 * _load_factor(LOAD_REACH)
+
+## 1 empty, falling to `at_rating` with the rated load on.
+func _load_factor(at_rating: float) -> float:
+	if held == null or crane_power_kg <= 0.0:
+		return 1.0
+	return lerpf(1.0, at_rating, clampf(held.mass / crane_power_kg, 0.0, 1.0))
+
+func _held_half_height() -> float:
+	if held == null:
+		return 0.0
+	var b := Solid.bounds(held.dims)
+	return b.z * 0.5
+
+# --- Crane: kinematics ------------------------------------------------------------------
+
+## The joint angles that put the jaws on `p` (truck frame) with the log at
+## `yaw`: slew to face it, boom and stick as a two-link arm in that vertical
+## plane, the telescope out when the two links are not enough.
+func solve(p: Vector3, yaw: float) -> Dictionary:
+	var rel := p + Vector3.UP * HANG - head_offset
+	var d := Vector2(rel.x, rel.z).length()
+	var h := rel.y
+	var slew := atan2(rel.x, rel.z) if d > 0.05 else float(joints.slew)
+	var dist := sqrt(d * d + h * h)
+	var tele := clampf(dist - (boom_len + stick_len) * 0.9, 0.0, tele_max)
+	var l2 := stick_len + tele
+	dist = clampf(dist, absf(boom_len - l2) + 0.05, boom_len + l2 - 0.02)
+	var c := acos(clampf((boom_len * boom_len + dist * dist - l2 * l2) / (2.0 * boom_len * dist), -1.0, 1.0))
+	var boom := atan2(h, d) + c
+	var stick := atan2(h - sin(boom) * boom_len, d - cos(boom) * boom_len)
+	return {"slew": slew, "boom": boom, "stick": stick, "tele": tele,
+		"rot": wrapf(yaw - slew, -PI, PI)}
+
+## Where the crane's parts are for a set of joints, in the truck's frame.
+func fk(j: Dictionary = joints) -> Dictionary:
+	var dir := Vector3(sin(float(j.slew)), 0.0, cos(float(j.slew)))
+	var elbow := head_offset + (dir * cos(float(j.boom)) + Vector3.UP * sin(float(j.boom))) * boom_len
+	var stick_dir := dir * cos(float(j.stick)) + Vector3.UP * sin(float(j.stick))
+	var sleeve := elbow + stick_dir * stick_len
+	var tip := sleeve + stick_dir * float(j.tele)
+	return {"base": head_offset, "elbow": elbow, "sleeve": sleeve, "tip": tip,
+		"jaw": tip - Vector3.UP * HANG + _sway, "yaw": float(j.slew) + float(j.rot)}
+
+## The jaws, in the world.
+func jaw_world() -> Vector3:
+	return _frame() * fk().jaw
+
+## What the camera looks at in operator mode: the log, or the empty grapple.
+func focus_point() -> Vector3:
+	if held != null and is_instance_valid(held):
+		return held.global_position
+	return jaw_world()
+
+func _frame() -> Transform3D:
+	if vehicle == null:
+		return global_transform
+	return vehicle.global_transform.orthonormalized()
+
+## A basis with a log's long axis (+Y) lying at `yaw` in the truck's frame,
+## its top face up.
+static func yaw_basis(yaw: float) -> Basis:
+	var along := Vector3(sin(yaw), 0.0, cos(yaw))
+	return Basis(along.cross(Vector3.UP), along, Vector3.UP)
+
+## Moves every joint toward its goal at hydraulic speed.
+func _step_joints(goals: Dictionary, delta: float, speed_scale: float) -> void:
+	for k: String in joints:
+		var cur := float(joints[k])
+		var goal := float(goals[k])
+		# The rotator turns the short way; the slew never swings through the
+		# cab, so it goes the way the arc allows.
+		var err := angle_difference(cur, goal) if k == "rot" else goal - cur
+		var top: float = JOINT_SPEED[k] * speed_scale
+		var want := clampf(err * 5.0, -top, top)
+		_joint_vel[k] = move_toward(float(_joint_vel[k]), want, float(JOINT_ACCEL[k]) * delta)
+		cur += float(_joint_vel[k]) * delta
+		joints[k] = wrapf(cur, -PI, PI) if k == "rot" else cur
+
+func _settled(goals: Dictionary, tolerance: float = 0.02) -> bool:
+	for k: String in joints:
+		var err := angle_difference(float(joints[k]), float(goals[k])) if k == "rot" \
+			else float(goals[k]) - float(joints[k])
+		if absf(err) > tolerance:
+			return false
+	return true
+
+## The grapple swings a little on its link when the stick starts and stops.
+func _update_sway(delta: float) -> void:
+	var tip: Vector3 = fk().tip
+	var v := (tip - _last_tip) / maxf(delta, 0.0001)
+	var a := (v - _last_tip_vel) / maxf(delta, 0.0001)
+	_last_tip = tip
+	_last_tip_vel = v
+	var rest := Vector3(-a.x, 0.0, -a.z) * SWAY_GAIN
+	_sway_vel += ((rest - _sway) * SWAY_SPRING - _sway_vel * SWAY_DAMP) * delta
+	_sway += _sway_vel * delta
+	_sway = _sway.limit_length(SWAY_MOST)
+
+# --- Crane: the log ------------------------------------------------------------------
+
+## Closes the grapple on the log between its jaws, or opens it. Returns "" or
+## why not.
+func latch() -> String:
+	if not has_crane():
+		return "this vehicle has no crane"
+	if not operating:
+		return "work the crane first [R]"
+	if held != null:
+		drop()
+		return ""
+	var target_node := _between_jaws()
+	if target_node == null:
+		return "nothing between the jaws - put the grapple on a log"
+	var item := target_node as LooseItem
+	if target_node is OreRock:
+		var rock := target_node as OreRock
+		if rock.pull_required() > crane_power_kg:
+			return "needs %.0f kg of pull - past this %.0f kg crane" % [rock.pull_required(), crane_power_kg]
+		item = rock.try_free(crane_power_kg)
+		if item == null:
+			return "it will not come out of the ground"
+	if item.mass > crane_power_kg:
+		return "%.0f kg is too heavy for this crane (rated %.0f kg)" % [item.mass, crane_power_kg]
+	_take(item)
+	return ""
+
+## Kept for the old key.
+func grab(_item: LooseItem = null) -> String:
+	if held != null:
+		return "the crane is already holding something"
+	return latch()
+
+## The loose piece (or ore in the ground) nearest the jaws, within reach of
+## them.
+func _between_jaws() -> Node3D:
+	var jaw := jaw_world()
+	var q := PhysicsShapeQueryParameters3D.new()
+	var sphere := SphereShape3D.new()
+	sphere.radius = GRAB_RADIUS
+	q.shape = sphere
+	q.transform = Transform3D(Basis(), jaw)
+	q.collision_mask = Layers.LOOSE | Layers.TREE
+	var best: Node3D = null
+	var best_d := INF
+	for hit in get_world_3d().direct_space_state.intersect_shape(q, 16):
+		var o: Object = hit.collider
+		var n: Node3D = null
+		if o is OreRock and not (o as OreRock).consumed():
+			n = o
+		elif o is LooseItem and (o as LooseItem).state == LooseItem.State.FREE:
+			n = o
+		if n != null and n.global_position.distance_to(jaw) < best_d:
+			best_d = n.global_position.distance_to(jaw)
+			best = n
+	return best
+
+func _take(item: LooseItem) -> void:
+	held = item
+	item.owned = true
+	item.set_state(LooseItem.State.CAPTURED)
+	var frame := _frame()
+	_held_basis_from = (frame.basis.inverse() * item.global_transform.basis).orthonormalized()
+	_grab_blend = 0.0
+	# The target goes to the log, turned whichever way round is nearer.
+	var along := _held_basis_from.y
+	var yaw := atan2(along.x, along.z)
+	var now := float(joints.slew) + float(joints.rot)
+	if absf(angle_difference(now, yaw + PI)) < absf(angle_difference(now, yaw)):
+		yaw = wrapf(yaw + PI, -PI, PI)
+	target_yaw = yaw
+	target = clamp_target(frame.affine_inverse() * item.global_position)
+	_target_vel = Vector3.ZERO
+	crane_grabbed.emit(item)
+
+## Opens the grapple. A log let go low over the bed and near square to it is
+## set down square. Returns what it let go of.
+func drop() -> LooseItem:
+	if held == null:
+		return null
+	var item := held
+	held = null
+	if is_instance_valid(item) and item.state == LooseItem.State.CAPTURED:
+		_settle(item)
+		item.set_state(LooseItem.State.FREE)
+		item.linear_velocity = _held_vel.limit_length(3.0)
+	crane_released.emit(item)
+	return item
+
+func holding() -> bool:
+	if held != null and (not is_instance_valid(held) or held.state != LooseItem.State.CAPTURED):
+		held = null
+	return held != null
+
+func _settle(item: LooseItem) -> void:
+	if vehicle == null or vehicle.get("bed_half_width") == null:
+		return
+	var frame := _frame()
+	var local := frame.affine_inverse() * item.global_position
+	var half_w := float(vehicle.get("bed_half_width"))
+	if half_w <= 0.0 or absf(local.x) > half_w \
+			or local.z < float(vehicle.get("bed_front")) or local.z > float(vehicle.get("bed_back")):
+		return
+	if local.y - float(vehicle.get("bed_floor")) - Solid.bounds(item.dims).z * 0.5 > SETTLE_HEIGHT:
+		return
+	var yaw := float(fk().yaw)
+	for square in [0.0, PI]:
+		if absf(angle_difference(yaw, square)) < SETTLE_YAW:
+			var basis := frame.basis * yaw_basis(square)
+			if not _overlaps(item, Transform3D(basis, item.global_position)):
+				item.global_transform = Transform3D(basis, item.global_position)
+			return
+
+## Carries the log in the grapple to the jaws, swept so it stops against the
+## truck, the ground or a building rather than going through.
+func _carry(delta: float) -> void:
+	var frame := _frame()
+	var pose := fk()
+	var want_basis := yaw_basis(float(pose.yaw))
+	if _grab_blend < 1.0:
+		_grab_blend = minf(1.0, _grab_blend + delta / 0.6)
+		want_basis = _held_basis_from.slerp(want_basis, smoothstep(0.0, 1.0, _grab_blend))
+	var from := held.global_position
+	# Turned first, on the spot - unless turning would put it into something.
+	var turned := Transform3D(frame.basis * want_basis, from)
+	if not _overlaps(held, turned) or _overlaps(held, held.global_transform):
+		held.global_transform = turned
+	else:
+		_yaw_vel = 0.0
+		var along := (frame.basis.inverse() * held.global_transform.basis.y)
+		target_yaw = atan2(along.x, along.z)
+	var motion: Vector3 = frame * Vector3(pose.jaw) - from
+	var moved := _sweep(held, motion)
+	held.global_position = from + moved
+	_held_vel = moved / maxf(delta, 0.0001)
+	if (motion - moved).length() > 0.03:
+		# Up against something: the target stops at the log, so the crane
+		# does not go on pressing it in.
+		var at := frame.affine_inverse() * held.global_position
+		target = target.lerp(at, 0.35)
+		_target_vel = Vector3.ZERO
+
+## How far `item` can go along `motion` before it hits something it may not
+## pass through, sliding along what it hits.
+func _sweep(item: LooseItem, motion: Vector3) -> Vector3:
+	if motion.length() < 0.00001:
+		return Vector3.ZERO
+	var frac := _cast(item, item.global_transform, motion)
+	if frac >= 1.0:
+		return motion
+	var done := motion * frac
+	var n := _contact_normal(item, item.global_transform.translated(done + motion.normalized() * 0.03))
+	if n == Vector3.ZERO:
+		return done
+	var rest := motion - done
+	rest -= n * minf(0.0, rest.dot(n))
+	return done + rest * _cast(item, item.global_transform.translated(done), rest)
+
+func _shapes(item: LooseItem) -> Array[CollisionShape3D]:
+	var out: Array[CollisionShape3D] = []
+	for c in item.get_children():
+		if c is CollisionShape3D and (c as CollisionShape3D).shape != null and not (c as CollisionShape3D).disabled:
+			out.append(c)
+	return out
+
+func _query(item: LooseItem, cs: CollisionShape3D, xform: Transform3D) -> PhysicsShapeQueryParameters3D:
+	var q := PhysicsShapeQueryParameters3D.new()
+	q.shape = cs.shape
+	q.transform = xform * (item.global_transform.affine_inverse() * cs.global_transform)
+	q.collision_mask = SWEEP_MASK
+	q.exclude = [item.get_rid()]
+	return q
+
+func _cast(item: LooseItem, xform: Transform3D, motion: Vector3) -> float:
+	var space := get_world_3d().direct_space_state
+	var least := 1.0
+	for cs in _shapes(item):
+		var q := _query(item, cs, xform)
+		q.motion = motion
+		var f: float = space.cast_motion(q)[0]
+		if f <= 0.0:
+			# Already touching (lying on the ground, say): moving away from
+			# what it touches is allowed.
+			q.margin = 0.02
+			var info := space.get_rest_info(q)
+			if not info.is_empty() and (info.normal as Vector3).dot(motion.normalized()) > -0.05:
+				f = 1.0
+		least = minf(least, f)
+	return least
+
+func _contact_normal(item: LooseItem, xform: Transform3D) -> Vector3:
+	var space := get_world_3d().direct_space_state
+	for cs in _shapes(item):
+		var q := _query(item, cs, xform)
+		q.margin = 0.03
+		var info := space.get_rest_info(q)
+		if not info.is_empty():
+			return info.normal
+	return Vector3.ZERO
+
+func _overlaps(item: LooseItem, xform: Transform3D) -> bool:
+	var space := get_world_3d().direct_space_state
+	for cs in _shapes(item):
+		if not space.intersect_shape(_query(item, cs, xform), 1).is_empty():
+			return true
+	return false
+
+func _work_crane(delta: float) -> void:
+	if not has_crane():
+		return
+	holding()
+	var goals: Dictionary = solve(target, target_yaw) if operating else REST
+	_step_joints(goals, delta, _load_factor(LOAD_SPEED))
+	if folding and _settled(REST, 0.05):
+		folding = false
+		_apply_plant()
+	_update_sway(delta)
+	if held != null:
+		_carry(delta)
+
+# --- Outriggers ------------------------------------------------------------------
 
 ## Outriggers out: the truck stands on them, locked where it is - an anchor
 ## for the winch, or a steady base for the crane. Working the crane puts them
@@ -303,7 +738,7 @@ func set_outriggers(on: bool) -> void:
 	_apply_plant()
 
 func planted() -> bool:
-	return outriggers_down or operating
+	return outriggers_down or operating or folding
 
 func _apply_plant() -> void:
 	var on := planted()
@@ -312,225 +747,15 @@ func _apply_plant() -> void:
 	for leg in _outriggers:
 		leg.visible = on
 
-## Works the crane: `swing` slews, `raise` luffs, `extend` runs the boom out
-## or in, `hoist` takes up (+) or lets out (-) rope. Each is -1..1.
-func work(swing: float, raise: float, extend: float, hoist: float, delta: float) -> void:
-	if not operating:
-		return
-	slew = wrapf(slew + swing * 0.55 * delta, -PI, PI)
-	luff = clampf(luff + raise * 0.35 * delta, LUFF_MIN, LUFF_MAX)
-	boom_length = clampf(boom_length + extend * 1.4 * delta, BOOM_MIN, reach)
-	if hoist > 0.0:
-		_hoisting = 2
-		# The hoist stalls at its rating: it does not lift what it cannot.
-		if hoist_tension < crane_power_kg * 9.8 * 0.97:
-			hoist_length = maxf(0.6, hoist_length - hoist * hoist_speed * delta)
-	elif hoist < 0.0:
-		# A slack-line cut-out: with the hook resting on something, the drum
-		# stops paying out rather than piling rope on top of it.
-		var hanging := tip_point().distance_to(hook.global_position + Vector3(0, HOOK_RADIUS, 0))
-		hoist_length = minf(minf(reach * 1.5, hanging + 0.5), hoist_length - hoist * hoist_speed * delta)
-	hook.sleeping = false
-
-## Latches the hook to whatever loose piece it is touching, or lets go of
-## what it has. Returns "" or why not.
-func latch() -> String:
-	if not has_crane():
-		return "this vehicle has no crane"
-	if not operating:
-		return "work the crane first [Q]"
-	if held != null or held_rock != null:
-		drop()
-		return ""
-	var target := _touching_hook()
-	if target == null:
-		return "the hook is not touching anything to lift"
-	if target is OreRock:
-		held_rock = target
-		held_rock.touched = true
-		_pin(held_rock)
-		return ""
-	_latch_item(target as LooseItem)
-	return ""
-
-func _latch_item(item: LooseItem) -> void:
-	held = item
-	# Spin damped hard while it hangs from the hook.
-	_held_spin_damp = item.angular_damp
-	item.angular_damp = 6.0
-	item.owned = true
-	if item.state != LooseItem.State.FREE:
-		item.set_state(LooseItem.State.FREE)
-	item.sleeping = false
-	_pin(item)
-	crane_grabbed.emit(item)
-
-func _pin(body: PhysicsBody3D) -> void:
-	if _latch != null and is_instance_valid(_latch):
-		_latch.queue_free()
-	var pin := PinJoint3D.new()
-	pin.name = "Latch"
-	add_child(pin)
-	pin.global_position = hook.global_position
-	pin.node_a = pin.get_path_to(hook)
-	pin.node_b = pin.get_path_to(body)
-	_latch = pin
-
-## The hooked chunk has been pulled out of the ground: the hook comes away
-## with the ore on it.
-func _free_rock() -> void:
-	var rock := held_rock
-	held_rock = null
-	if _latch != null and is_instance_valid(_latch):
-		_latch.queue_free()
-	_latch = null
-	var item := rock.try_free(maxf(crane_power_kg, hoist_tension / 9.8) + 1.0)
-	if item == null:
-		return
-	var side := pow(item.volume(), 1.0 / 3.0)
-	item.teleport(Transform3D(Basis(), hook.global_position - Vector3(0, HOOK_RADIUS + side * 0.5, 0)))
-	_latch_item(item)
-
-## Kept for the old key: latch whatever the hook is touching.
-func grab(_item: LooseItem = null) -> String:
-	if held != null:
-		return "the crane is already holding something"
-	return latch()
-
-func drop() -> LooseItem:
-	if held_rock != null:
-		held_rock = null
-		if _latch != null and is_instance_valid(_latch):
-			_latch.queue_free()
-		_latch = null
-		return null
-	if held == null:
-		return null
-	var item := held
-	held = null
-	if is_instance_valid(item):
-		item.angular_damp = _held_spin_damp
-	if _latch != null and is_instance_valid(_latch):
-		_latch.queue_free()
-	_latch = null
-	crane_released.emit(item)
-	return item
-
-func holding() -> bool:
-	if held_rock != null and (not is_instance_valid(held_rock) or held_rock.consumed()):
-		drop()
-	if held != null and (not is_instance_valid(held) or held.state == LooseItem.State.POOLED):
-		drop()
-	return held != null or held_rock != null
-
-## Whatever the ball is touching: a loose piece, or ore still in the ground.
-func _touching_hook() -> Node3D:
-	var space := get_world_3d().direct_space_state
-	var q := PhysicsShapeQueryParameters3D.new()
-	var sphere := SphereShape3D.new()
-	sphere.radius = HOOK_RADIUS + 0.15
-	q.shape = sphere
-	q.transform = Transform3D(Basis(), hook.global_position)
-	q.collision_mask = Layers.LOOSE | Layers.TREE
-	q.exclude = [hook.get_rid()]
-	# The nearest contact first: what the ball is actually against.
-	var info := space.get_rest_info(q)
-	var best: Node3D = _latchable(instance_from_id(int(info.get("collider_id", 0))) if not info.is_empty() else null)
-	if best != null:
-		return best
-	for hit in space.intersect_shape(q, 16):
-		var n := _latchable(hit.collider)
-		if n != null:
-			return n
-	return null
-
-static func _latchable(o: Object) -> Node3D:
-	if o is OreRock and not (o as OreRock).consumed():
-		return o
-	if o is LooseItem and (o as LooseItem).state != LooseItem.State.POOLED:
-		return o
-	return null
-
-func _stow_hook() -> void:
-	# Stowed, the hook is clipped to the boom and touches nothing - not the
-	# load in the bed it hangs over.
-	hook.freeze = true
-	hook.collision_layer = 0
-	hook.collision_mask = 0
-	var tip := tip_point()
-	hook.global_transform = Transform3D(Basis(), tip + Vector3(0, -0.6, 0))
-	hook.linear_velocity = Vector3.ZERO
-	hook.angular_velocity = Vector3.ZERO
-	hoist_length = 0.6
-	hoist_tension = 0.0
-
-func _work_crane() -> void:
-	if not has_crane():
-		return
-	holding()
-	if not operating and held == null and held_rock == null:
-		# Stowed, the boom folds itself back down over the bed.
-		var dt := 1.0 / float(Engine.physics_ticks_per_second)
-		slew = rotate_toward(slew, REST_SLEW, 0.8 * dt)
-		luff = move_toward(luff, REST_LUFF, 0.4 * dt)
-		boom_length = move_toward(boom_length, BOOM_MIN, 2.0 * dt)
-		_stow_hook()
-		return
-	if hook.freeze:
-		hook.freeze = false
-		hook.collision_layer = Layers.VEHICLE
-		hook.collision_mask = Layers.WORLD | Layers.LOOSE | Layers.MACHINE | Layers.TREE
-	var extra := held.mass if held != null else 0.0
-	if held_rock != null:
-		extra = held_rock.mass()
-	if held != null:
-		_wake(held)
-	hoist_tension = pull(null, tip_point(), hook, hook.global_position + Vector3(0, HOOK_RADIUS, 0), hoist_length,
-		crane_power_kg * 9.8 * 1.25 + HOOK_MASS * 9.8, extra)
-	# Hoisting on ore in the ground, rope tight: the hoist pulls with all it
-	# is rated for, and the chunk comes out if that is enough.
-	if held_rock != null and ((_hoisting > 0 and hoist_tension > 0.0 \
-			and crane_power_kg >= held_rock.pull_required()) or hoist_tension / 9.8 >= held_rock.pull_required()):
-		_free_rock()
-	_hoisting = maxi(0, _hoisting - 1)
-	# The swing is damped hard - far more than a real rope would - so a load
-	# settles under the boom instead of pendulum-ing about.
-	_damp_swing(hook)
-	if held != null:
-		_damp_swing(held)
-	# The crane truck's tip is carried by its outriggers; stood down with a
-	# load still on, the load pulls on the truck.
-	if not operating and vehicle != null and hoist_tension > 0.0:
-		var n := (hook.global_position - tip_point()).normalized()
-		vehicle.apply_impulse(n * hoist_tension / float(Engine.physics_ticks_per_second),
-			tip_point() - vehicle.global_position)
-
-const SWING_DAMP := 0.12
-
-## Steers sideways motion toward hanging straight under the boom tip, and
-## bleeds off spin: the swing dies in a moment, and the load still follows
-## the boom round.
-func _damp_swing(body: RigidBody3D) -> void:
-	if body == null or body.freeze:
-		return
-	var tip := tip_point()
-	var off := Vector2(body.global_position.x - tip.x, body.global_position.z - tip.z)
-	var want := -off * 2.5
-	# As impulses, not by setting the velocity: that would throw away the
-	# rope's pull applied this same step.
-	var v := Vector2(body.linear_velocity.x, body.linear_velocity.z)
-	var change := (want - v) * SWING_DAMP
-	body.apply_central_impulse(Vector3(change.x, 0.0, change.y) * body.mass)
-
 static func _wake(body: RigidBody3D) -> void:
 	if body != null and body.sleeping:
 		body.sleeping = false
 
-func _physics_process(_delta: float) -> void:
+func _physics_process(delta: float) -> void:
 	if vehicle == null:
 		return
 	_work_winch()
-	_work_crane()
+	_work_crane(delta)
 	_draw()
 
 ## One line of what the rig is doing, for the prompt.
@@ -539,14 +764,12 @@ func status_line() -> String:
 	if outriggers_down and not operating:
 		bits.append("outriggers down - locked in place  [O] up")
 	if operating:
-		bits.append("crane: %.0f° slew, %.0f m boom, hoist %.0f / %.0f kg%s  [A/D] swing [W/S] boom up/down [R/T] out/in [Shift/Ctrl] hoist [F] %s [Q] done" % [
-			rad_to_deg(slew), boom_length, hoist_tension / 9.8, crane_power_kg,
-			" - STALLED" if hoist_tension >= crane_power_kg * 9.8 * 0.97 else "",
-			"let go" if held != null or held_rock != null else "latch"])
-		if held_rock != null:
-			bits.append("hooked on %s in the ground: needs %.0f kg of pull%s" % [
-				GameData.item_name(held_rock.ore_item), held_rock.pull_required(),
-				" - past this crane" if held_rock.pull_required() > crane_power_kg else ""])
+		var load := "%s, %.0f / %.0f kg" % [held.display_name(), held.mass, crane_power_kg] if held != null \
+			else "grapple open, %.0f kg crane" % crane_power_kg
+		bits.append("crane: %s%s  [W/S] along [A/D] across [Shift/Ctrl] up/down [Q/E] turn [F] %s [RMB] fine [R] done" % [
+			load, " - AT ITS LIMIT" if at_limit else "", "let go" if held != null else "grab"])
+	elif folding:
+		bits.append("crane folding away")
 	if anchored:
 		if anchor_rock != null:
 			bits.append("winch on %s in the ground: needs %.0f kg of pull" % [
@@ -557,25 +780,17 @@ func status_line() -> String:
 		return "\n".join(bits)
 	if not has_crane():
 		return "winch %.0f kg, %.0f m of line  [Y] hook what you aim at" % [winch_power_kg, reach]
-	return "winch %.0f kg / crane %.0f kg, %.0f m reach  [Y] winch [Q] crane" % [
-		winch_power_kg, crane_power_kg, reach]
+	return "winch %.0f kg / crane %.0f kg, %.0f m reach  [Y] winch [R] crane" % [
+		winch_power_kg, crane_power_kg, max_reach()]
 
 # --- Geometry --------------------------------------------------------------------
 
+const CRANE_YELLOW := Color(0.92, 0.7, 0.12)
+const CRANE_DARK := Color(0.2, 0.2, 0.22)
+
 func _build() -> void:
 	_cable = _line_mesh(Color(0.14, 0.14, 0.16))
-	_rope = _line_mesh(Color(0.12, 0.12, 0.13))
-	_boom = MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = Vector3(0.3, 0.3, 1.0)
-	_boom.mesh = bm
-	var bmat := StandardMaterial3D.new()
-	bmat.albedo_color = Color(0.9, 0.7, 0.12)
-	bmat.metallic = 0.3
-	_boom.material_override = bmat
-	_boom.visible = false
-	_boom.top_level = true
-	add_child(_boom)
+	var paint := _mat(CRANE_YELLOW, 0.3)
 	# Outrigger legs, out to each side at front and back, shown while down.
 	if vehicle != null and vehicle.get("body_size") != null:
 		var size: Vector3 = vehicle.get("body_size")
@@ -585,7 +800,7 @@ func _build() -> void:
 				var lm := BoxMesh.new()
 				lm.size = Vector3(1.4, 0.2, 0.3)
 				leg.mesh = lm
-				leg.material_override = bmat
+				leg.material_override = paint
 				leg.position = Vector3(side * (size.x * 0.5 + 0.5), -size.y * 0.5 + 0.05, zf * size.z)
 				leg.visible = false
 				vehicle.add_child.call_deferred(leg)
@@ -593,43 +808,143 @@ func _build() -> void:
 				var fm := BoxMesh.new()
 				fm.size = Vector3(0.5, 0.9, 0.5)
 				foot.mesh = fm
-				foot.material_override = bmat
+				foot.material_override = paint
 				foot.position = Vector3(side * 0.6, -0.45, 0)
 				leg.add_child(foot)
 				_outriggers.append(leg)
 	if not has_crane():
 		return
-	hook = RigidBody3D.new()
-	hook.name = "Hook"
-	hook.top_level = true
-	hook.mass = HOOK_MASS
-	hook.collision_layer = Layers.VEHICLE
-	hook.collision_mask = Layers.WORLD | Layers.LOOSE | Layers.MACHINE | Layers.TREE
-	hook.angular_damp = 4.0
-	hook.linear_damp = 0.6
-	# Just a ball: it latches on to whatever it is touching.
-	var cs := CollisionShape3D.new()
-	var ball := SphereShape3D.new()
-	ball.radius = HOOK_RADIUS
-	cs.shape = ball
-	hook.add_child(cs)
-	var mi := MeshInstance3D.new()
-	var sm := SphereMesh.new()
-	sm.radius = HOOK_RADIUS
-	sm.height = HOOK_RADIUS * 2.0
-	sm.radial_segments = 12
-	sm.rings = 6
-	mi.mesh = sm
-	var hmat := StandardMaterial3D.new()
-	hmat.albedo_color = Color(0.95, 0.72, 0.1)
-	hmat.metallic = 0.4
-	hmat.roughness = 0.4
-	mi.material_override = hmat
-	hook.add_child(mi)
-	add_child(hook)
-	if vehicle != null:
-		hook.add_collision_exception_with(vehicle)
-	_stow_hook.call_deferred()
+	_column = _box_part(paint)
+	_boom = _box_part(paint)
+	_stick = _box_part(paint)
+	_tele = _box_part(_mat(CRANE_YELLOW.lightened(0.25), 0.4))
+	_link = _line_mesh(CRANE_DARK)
+	_build_grapple()
+	_build_aids()
+
+func _mat(color: Color, metal: float) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = color
+	m.metallic = metal
+	m.roughness = 0.5
+	return m
+
+func _box_part(mat: Material) -> MeshInstance3D:
+	var m := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	m.mesh = bm
+	m.material_override = mat
+	m.top_level = true
+	m.visible = false
+	add_child(m)
+	return m
+
+## The grapple: a rotator on top and two curved jaws that close round a log.
+func _build_grapple() -> void:
+	_grapple = Node3D.new()
+	_grapple.name = "Grapple"
+	_grapple.top_level = true
+	add_child(_grapple)
+	var dark := _mat(CRANE_DARK, 0.5)
+	var rot := MeshInstance3D.new()
+	var rm := CylinderMesh.new()
+	rm.top_radius = 0.16
+	rm.bottom_radius = 0.16
+	rm.height = 0.25
+	rot.mesh = rm
+	rot.material_override = dark
+	rot.position = Vector3(0, 0.62, 0)
+	_grapple.add_child(rot)
+	var head := MeshInstance3D.new()
+	var hm := BoxMesh.new()
+	hm.size = Vector3(0.5, 0.18, 0.4)
+	head.mesh = hm
+	head.material_override = _mat(CRANE_YELLOW, 0.3)
+	head.position = Vector3(0, 0.45, 0)
+	_grapple.add_child(head)
+	for side in [-1.0, 1.0]:
+		var pivot := Node3D.new()
+		pivot.position = Vector3(side * 0.2, 0.4, 0)
+		_grapple.add_child(pivot)
+		# Two plates per jaw, angled in, so it reads as a curved claw.
+		for k in 2:
+			var plate := MeshInstance3D.new()
+			var pm := BoxMesh.new()
+			pm.size = Vector3(0.07, 0.45, 0.34)
+			plate.mesh = pm
+			plate.material_override = dark
+			plate.position = Vector3(side * 0.05, -0.22, 0) if k == 0 else Vector3(side * 0.02, -0.62, 0)
+			plate.rotation.z = side * (0.15 if k == 0 else -0.55)
+			if k == 1:
+				plate.position.x += side * 0.1
+			pivot.add_child(plate)
+		_claws.append(pivot)
+
+## The operator's aids: the ghost of where the log is heading, a drop line and
+## footprint under it, and arrows for which way the keys move it.
+func _build_aids() -> void:
+	_aids = Node3D.new()
+	_aids.name = "CraneAids"
+	_aids.top_level = true
+	_aids.visible = false
+	add_child(_aids)
+	_ghost_mat = StandardMaterial3D.new()
+	_ghost_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_ghost_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_ghost_mat.albedo_color = Color(0.5, 0.9, 1.0, 0.25)
+	_ghost = MeshInstance3D.new()
+	_ghost.mesh = BoxMesh.new()
+	_ghost.material_override = _ghost_mat
+	_ghost.top_level = true
+	_aids.add_child(_ghost)
+	var line_mat := StandardMaterial3D.new()
+	line_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	line_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	line_mat.albedo_color = Color(1, 1, 1, 0.55)
+	_drop_line = MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = 0.015
+	cm.bottom_radius = 0.015
+	cm.radial_segments = 4
+	_drop_line.mesh = cm
+	_drop_line.material_override = line_mat
+	_drop_line.top_level = true
+	_aids.add_child(_drop_line)
+	_footprint = MeshInstance3D.new()
+	_footprint.mesh = BoxMesh.new()
+	var foot_mat := line_mat.duplicate() as StandardMaterial3D
+	foot_mat.albedo_color = Color(0, 0, 0, 0.35)
+	_footprint.material_override = foot_mat
+	_footprint.top_level = true
+	_aids.add_child(_footprint)
+	# The truck-axis gizmo: W toward the cab, S toward the tail, A and D
+	# across - whichever way the camera is looking.
+	_gizmo = Node3D.new()
+	_gizmo.top_level = true
+	_aids.add_child(_gizmo)
+	var arrow_mat := line_mat.duplicate() as StandardMaterial3D
+	arrow_mat.albedo_color = Color(1.0, 0.85, 0.3, 0.8)
+	arrow_mat.no_depth_test = true
+	for spec in [["W", Vector3(0, 0, -1)], ["S", Vector3(0, 0, 1)], ["A", Vector3(-1, 0, 0)], ["D", Vector3(1, 0, 0)]]:
+		var dir: Vector3 = spec[1]
+		var arm := MeshInstance3D.new()
+		var am := BoxMesh.new()
+		am.size = Vector3(0.05, 0.05, 0.6) if dir.x == 0.0 else Vector3(0.6, 0.05, 0.05)
+		arm.mesh = am
+		arm.material_override = arrow_mat
+		arm.position = dir * 0.75
+		_gizmo.add_child(arm)
+		var label := Label3D.new()
+		label.text = spec[0]
+		label.font_size = 48
+		label.pixel_size = 0.006
+		label.outline_size = 10
+		label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		label.no_depth_test = true
+		label.modulate = Color(1.0, 0.9, 0.4)
+		label.position = dir * 1.2
+		_gizmo.add_child(label)
+
 func _line_mesh(color: Color) -> MeshInstance3D:
 	var m := MeshInstance3D.new()
 	var cm := CylinderMesh.new()
@@ -648,11 +963,72 @@ func _draw() -> void:
 		_span(_cable, fairlead(), anchor_point, 0.035)
 	else:
 		_cable.visible = false
-	if has_crane():
-		_span(_boom, head_point(), tip_point(), 0.15)
-		_span(_rope, tip_point(), hook.global_position + Vector3(0, HOOK_RADIUS, 0), 0.03)
+	if not has_crane():
+		return
+	var frame := _frame()
+	var pose := fk()
+	var base: Vector3 = frame * Vector3(pose.base)
+	var elbow: Vector3 = frame * Vector3(pose.elbow)
+	var sleeve: Vector3 = frame * Vector3(pose.sleeve)
+	var tip: Vector3 = frame * Vector3(pose.tip)
+	var up := frame.basis.y.normalized()
+	_span(_column, base - up * 0.5, base + up * 0.25, 0.26)
+	_span(_boom, base, elbow, 0.16)
+	_span(_stick, elbow, sleeve, 0.12)
+	_span(_tele, sleeve.lerp(elbow, 0.05), tip, 0.09)
+	# The grapple hangs from the tip; holding a log it is wherever the log is.
+	var yaw := float(pose.yaw)
+	var grip: Vector3 = held.global_position if held != null else frame * Vector3(pose.jaw)
+	var grapple_basis := frame.basis * Basis(Vector3.UP, yaw)
+	var lift := _held_half_height()
+	_grapple.global_transform = Transform3D(grapple_basis, grip + up * lift)
+	_span(_link, tip, grip + up * (lift + 0.75), 0.04)
+	var open := 0.1 if held != null else 0.75
+	for i in _claws.size():
+		var side := -1.0 if i == 0 else 1.0
+		_claws[i].rotation.z = lerp_angle(_claws[i].rotation.z, side * open, 0.25)
+	_draw_aids(frame, grip, yaw)
+
+func _draw_aids(frame: Transform3D, grip: Vector3, yaw: float) -> void:
+	_aids.visible = operating
+	if not operating:
+		return
+	var ghost_at: Vector3 = frame * target
+	_ghost_mat.albedo_color = Color(1.0, 0.3, 0.25, 0.35) if at_limit else Color(0.5, 0.9, 1.0, 0.22)
+	var gm := _ghost.mesh as BoxMesh
+	if held != null:
+		gm.size = Solid.bounds(held.dims)
+		_ghost.global_transform = Transform3D(frame.basis * yaw_basis(target_yaw), ghost_at)
 	else:
-		_boom.visible = false
+		gm.size = Vector3(0.5, 0.5, 0.5)
+		_ghost.global_transform = Transform3D(frame.basis * Basis(Vector3.UP, target_yaw), ghost_at)
+	# Scaled to clear the log, so the arrows stand out beyond its ends.
+	var spread := 1.0 if held == null else maxf(1.0, Solid.bounds(held.dims).y * 0.6)
+	_gizmo.global_transform = Transform3D(frame.basis.scaled(Vector3.ONE * spread), ghost_at + frame.basis.y * 0.9)
+	# Straight down from the log (or the jaws) to whatever it would land on.
+	var down := -frame.basis.y.normalized()
+	var q := PhysicsRayQueryParameters3D.create(grip, grip + down * 40.0,
+		Layers.WORLD | Layers.VEHICLE | Layers.LOOSE | Layers.MACHINE)
+	if held != null:
+		q.exclude = [held.get_rid()]
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	if hit.is_empty():
+		_drop_line.visible = false
+		_footprint.visible = false
+		return
+	var land: Vector3 = hit.position
+	_span(_drop_line, grip, land, 0.015)
+	_footprint.visible = true
+	var fm := _footprint.mesh as BoxMesh
+	if held != null:
+		var b := Solid.bounds(held.dims)
+		fm.size = Vector3(b.x, 0.02, b.y)
+	else:
+		fm.size = Vector3(0.6, 0.02, 0.6)
+	var n: Vector3 = hit.normal
+	var along := (frame.basis * Vector3(sin(yaw), 0.0, cos(yaw)))
+	along = (along - n * along.dot(n)).normalized()
+	_footprint.global_transform = Transform3D(Basis(n.cross(along), n, along).orthonormalized(), land + n * 0.03)
 
 func _span(mesh: MeshInstance3D, from: Vector3, to: Vector3, thickness: float) -> void:
 	var delta := to - from

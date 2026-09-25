@@ -25,6 +25,9 @@ signal wants_to_drive(vehicle: Node3D)
 @export var throw_impulse: float = 9.0
 ## Spec: driving is third-person on the vehicle.
 @export var chase_distance: float = 9.0
+## How far back the camera sits from the log in crane operator mode (the
+## wheel zooms it; it pulls further back to keep the bed in view).
+var crane_zoom: float = 7.0
 @export var chase_height: float = 2.8
 
 ## Water deeper than this is swum rather than waded.
@@ -235,6 +238,8 @@ func _on_mouse_button(event: InputEventMouseButton) -> void:
 		MOUSE_BUTTON_RIGHT:
 			if building:
 				build_system.try_remove()
+			elif driving():
+				pass
 			elif dragged != null:
 				_throw_dragged()
 			else:
@@ -242,6 +247,8 @@ func _on_mouse_button(event: InputEventMouseButton) -> void:
 		MOUSE_BUTTON_WHEEL_UP:
 			if building:
 				build_system.cycle(-1)
+			elif steering_load():
+				crane_zoom = maxf(3.0, crane_zoom - 1.0)
 			elif dragged != null:
 				_drag_distance = minf(_drag_distance + 0.3, reach)
 			elif not driving():
@@ -249,6 +256,8 @@ func _on_mouse_button(event: InputEventMouseButton) -> void:
 		MOUSE_BUTTON_WHEEL_DOWN:
 			if building:
 				build_system.cycle(1)
+			elif steering_load():
+				crane_zoom = minf(30.0, crane_zoom + 1.0)
 			elif dragged != null:
 				_drag_distance = maxf(_drag_distance - 0.3, DRAG_MIN_DISTANCE)
 			elif not driving():
@@ -330,36 +339,41 @@ func _on_driving_key(event: InputEventKey) -> bool:
 	if r == null:
 		return false
 	match event.keycode:
-		KEY_Q:
+		KEY_R:
 			if not r.has_crane():
 				interacted.emit("this vehicle has no crane")
 			else:
 				r.set_operating(not r.operating)
-				interacted.emit("working the crane - the truck is on its outriggers" if r.operating
-					else "crane stowed, outriggers up")
+				interacted.emit("crane: you move the log - W/S along the truck, A/D across, Shift/Ctrl up and down, Q/E turn it, F grab"
+					if r.operating else "crane folding away")
 			return true
 		KEY_F:
 			if r.operating:
 				var had := r.held != null
-				interacted.emit(_said(r.latch(), "let go" if had else "hook latched on"))
+				interacted.emit(_said(r.latch(), "let go" if had else "grapple closed"))
 			elif r.has_crane():
-				interacted.emit("[Q] to work the crane")
+				interacted.emit("[R] to work the crane")
 			return true
-		KEY_E, KEY_Y:
+		KEY_Q, KEY_E:
+			# In operator mode Q and E turn the log.
+			if r.operating:
+				return true
+			if event.keycode == KEY_E:
+				interacted.emit(hook_winch(r))
+			return true
+		KEY_Y:
 			interacted.emit(hook_winch(r))
 			return true
 		KEY_O:
 			interacted.emit(toggle_outriggers(r))
 			return true
-		KEY_R, KEY_T:
-			return r.operating
 	return false
 
 ## Puts a rig's outriggers out, locking the truck where it stands, or brings
 ## them in.
 func toggle_outriggers(r: VehicleRig) -> String:
-	if r.operating:
-		return "the crane is working on them - stow it first [Q]"
+	if r.operating or r.folding:
+		return "the crane is working on them - stow it first [R]"
 	r.set_outriggers(not r.outriggers_down)
 	return "outriggers down - the truck is locked in place" if r.outriggers_down else "outriggers up"
 
@@ -445,25 +459,33 @@ func _physics_process(delta: float) -> void:
 	_update_drag()
 	_update_prompt()
 
-## Spec: the camera is third-person on the vehicle while driving, and fixed on
-## the object while the crane is moving one.
+## Spec: the camera is third-person on the vehicle while driving. Working the
+## crane it orbits the log (or the empty grapple) - the mouse turns it, the
+## wheel zooms - and pulls back far enough to keep the truck's bed in view.
+## Turning it never changes which way the keys move the log.
 func _update_chase_camera(_delta: float) -> void:
-	var focus: Node3D = vehicle
-	var r := rig()
-	if r != null and r.operating and r.hook != null:
-		focus = r.hook
-	if focus == null or not is_instance_valid(focus):
+	if vehicle == null or not is_instance_valid(vehicle):
 		return
-	var pivot := focus.global_position + Vector3(0, chase_height, 0)
 	var basis := Basis.from_euler(Vector3(camera.rotation.x, rotation.y, 0.0))
+	var r := rig()
+	if r != null and r.operating:
+		var focus := r.focus_point()
+		var bed: Vector3 = vehicle.global_transform * Vector3(0, float(vehicle.get("bed_floor")), float(vehicle.get("bed_mid_z"))) \
+			if vehicle.get("bed_mid_z") != null else vehicle.global_position
+		var frame := clampf(focus.distance_to(bed) * 1.1 + 3.0, 5.0, 26.0)
+		var distance := maxf(crane_zoom, frame)
+		camera.global_transform = Transform3D(basis, focus + Vector3(0, 0.6, 0) + basis.z * distance)
+		return
+	var pivot := vehicle.global_position + Vector3(0, chase_height, 0)
 	var distance: float = chase_distance
-	if focus == vehicle and vehicle.get("camera_distance") != null:
+	if vehicle.get("camera_distance") != null:
 		distance = float(vehicle.get("camera_distance"))
 	camera.global_transform = Transform3D(basis, pivot + basis.z * distance)
 
-## The winch (reel in, let out) whenever there is one, and the crane's
-## controls while it is being worked: A/D swing, W/S boom up and down, R/T
-## boom out and in, Shift/Ctrl hoist.
+## The winch (reel in, let out) whenever there is one, and in crane operator
+## mode the log itself, in the truck's frame: W/S along the truck (W toward
+## the cab), A/D across it, Shift/Ctrl up and down, Q/E turn it. Holding the
+## right mouse button is the slow, fine speed for setting it down.
 func _update_vehicle_controls(delta: float) -> void:
 	var r := rig()
 	if r == null:
@@ -471,8 +493,11 @@ func _update_vehicle_controls(delta: float) -> void:
 	work_winch(r, delta)
 	if not r.operating:
 		return
-	r.work(Input.get_axis("move_right", "move_left"), Input.get_axis("move_back", "move_forward"),
-		Input.get_axis("boom_in", "boom_out"), Input.get_axis("lower", "sprint"), delta)
+	var move := Vector3(Input.get_axis("move_left", "move_right"), Input.get_axis("lower", "sprint"),
+		Input.get_axis("move_forward", "move_back"))
+	var turn := (1.0 if Input.is_physical_key_pressed(KEY_Q) else 0.0) \
+		- (1.0 if Input.is_physical_key_pressed(KEY_E) else 0.0)
+	r.drive(move, turn, Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT), delta)
 
 func work_winch(r: VehicleRig, delta: float) -> void:
 	if Input.is_action_pressed("winch_in") or (driving() and Input.is_action_pressed("reel")):
@@ -1002,7 +1027,7 @@ func enter_vehicle(v: Node3D) -> void:
 func exit_vehicle() -> void:
 	var r := rig()
 	if r != null:
-		r.drop()
+		r.set_operating(false)
 		r.release_winch()
 	vehicle = null
 	collision_layer = Layers.PLAYER
