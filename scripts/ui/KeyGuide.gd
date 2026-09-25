@@ -40,8 +40,7 @@ const GROUPS := [
 		[["Esc"], "Leave build mode"],
 	]},
 	{"title": "Vehicles", "rows": [
-		[["E"], "Aim at the driver's seat or cab to get in"],
-		[["V"], "Get out"],
+		[["F"], "Get in (look at it or stand by it) / get out"],
 		[["W", "S"], "Throttle and reverse"],
 		[["A", "D"], "Steer"],
 		[["Space"], "Brake"],
@@ -100,10 +99,10 @@ static func hints_for(state: String) -> Array:
 				[["Wheel"], "Choose"], [["Z", "X", "C"], "Rotate"], [["Shift", "/", "Ctrl"], "Up / down"], [["B"], "Done"]]
 		"drive":
 			return [[["W", "S"], "Drive"], [["Space"], "Brake"], [["X"], "Unload"],
-				[["Y"], "Winch"], [["K", "/", "L"], "Reel"], [["Q"], "Crane"], [["V"], "Get out"]]
+				[["Y"], "Winch"], [["K", "/", "L"], "Reel"], [["R"], "Crane"], [["F"], "Get out"]]
 		"crane":
-			return [[["A", "D"], "Swing"], [["W", "S"], "Boom up / down"], [["R", "/", "T"], "Boom out / in"],
-				[["Shift", "/", "Ctrl"], "Hoist"], [["F"], "Latch / let go"], [["Q"], "Stow"]]
+			return [[["W", "S"], "Along"], [["A", "D"], "Across"], [["Shift", "/", "Ctrl"], "Up / down"],
+				[["Q", "/", "E"], "Turn"], [["F"], "Grab / let go"], [["RMB"], "Fine"], [["R"], "Done"]]
 		"dragging":
 			return [[["LMB"], "Hold to keep hold"], [["Wheel"], "Closer / further"], [["RMB"], "Throw"]]
 		"carrying":

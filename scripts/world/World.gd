@@ -1629,6 +1629,23 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		KEY_V:
 			if not building:
 				_toggle_vehicle()
+		KEY_F:
+			# In and out: seated, F gets out (unless it is working the crane's
+			# grapple); on foot, it gets into the vehicle looked at or stood by.
+			if building:
+				pass
+			elif player.driving():
+				var r := player.rig()
+				if r == null or not r.operating:
+					_toggle_vehicle()
+			else:
+				var v := _vehicle_looked_at()
+				if v == null:
+					v = vehicle_at_hand(3.0)
+					if v != null and _distance_to(v) > 3.0:
+						v = null
+				if v != null:
+					drive(v)
 		KEY_X:
 			var v := vehicle_at_hand(8.0)
 			if v != null and not building:
@@ -1676,6 +1693,16 @@ func _unstick_player() -> void:
 			player.velocity = Vector3.ZERO
 			return
 
+## The vehicle under the crosshair, if one is within reach.
+func _vehicle_looked_at() -> Hauler:
+	var hit := player.aim_hit()
+	if hit.is_empty():
+		return null
+	var n := hit.collider as Node
+	while n != null and not (n is Hauler):
+		n = n.get_parent()
+	return n as Hauler
+
 func _toggle_vehicle() -> void:
 	if player.driving():
 		var riding := player.vehicle as Hauler
@@ -1690,7 +1717,7 @@ func _toggle_vehicle() -> void:
 	if vehicles().is_empty():
 		hud.log_message("No vehicle yet - they are sold at the Store, and each spawns on its own pad")
 		return
-	hud.log_message("aim at a vehicle's driver seat and press [E] to get in")
+	hud.log_message("look at a vehicle, or stand by it, and press [F] to get in")
 
 ## Into the driving seat of `v`.
 func drive(v: Hauler) -> void:
@@ -1699,6 +1726,6 @@ func drive(v: Hauler) -> void:
 	hauler = v
 	player.enter_vehicle(v)
 	v.driver = player
-	hud.log_message("driving the %s - [V] to get out" % v.display_name.to_lower())
+	hud.log_message("driving the %s - [F] to get out" % v.display_name.to_lower())
 	if v.cargo_count() > 0:
 		hud.log_message("%d piece(s) in the bed - they ride loose, so mind the corners" % v.cargo_count())

@@ -348,12 +348,12 @@ func _on_driving_key(event: InputEventKey) -> bool:
 					if r.operating else "crane folding away")
 			return true
 		KEY_F:
+			# Working the crane, F is the grapple; otherwise it is the door.
 			if r.operating:
 				var had := r.held != null
 				interacted.emit(_said(r.latch(), "let go" if had else "grapple closed"))
-			elif r.has_crane():
-				interacted.emit("[R] to work the crane")
-			return true
+				return true
+			return false
 		KEY_Q, KEY_E:
 			# In operator mode Q and E turn the log.
 			if r.operating:
@@ -592,13 +592,11 @@ func _update_prompt() -> void:
 		last_prompt = (target as Conveyor).status_line()
 	elif target is Hauler:
 		var h := target as Hauler
-		if h.is_seat_point(hit.position):
-			last_prompt = "[E] drive the %s" % h.display_name.to_lower()
-		elif h.has_bed():
-			last_prompt = "[E] load   ·   aim at the cab to drive\ncargo %d (%s)" % [
-				h.cargo_count(), h.cargo_summary()]
+		if h.has_bed():
+			last_prompt = "[F] drive the %s   ·   [E] load\ncargo %d (%s)" % [
+				h.display_name.to_lower(), h.cargo_count(), h.cargo_summary()]
 		else:
-			last_prompt = h.display_name
+			last_prompt = "[F] drive the %s" % h.display_name.to_lower()
 	else:
 		last_prompt = ""
 
