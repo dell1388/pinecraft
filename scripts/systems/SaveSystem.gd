@@ -97,6 +97,7 @@ static func _loose_to_array(manager: LooseItemManager, plot: Plot) -> Array:
 		out.append({
 			"id": String(item.item_id),
 			"dims": Solid.to_dict(item.dims),
+			"limbs": item.limbs_to_array(),
 			"position": [t.origin.x, t.origin.y, t.origin.z],
 			"basis": [t.basis.x.x, t.basis.x.y, t.basis.x.z,
 				t.basis.y.x, t.basis.y.y, t.basis.y.z,
@@ -112,9 +113,14 @@ static func _loose_from_array(manager: LooseItemManager, entries: Array, plot_id
 		if b.size() == 9:
 			basis = Basis(Vector3(b[0], b[1], b[2]), Vector3(b[3], b[4], b[5]),
 				Vector3(b[6], b[7], b[8]))
-		manager.spawn(StringName(entry.get("id", "")),
+		var item := manager.spawn(StringName(entry.get("id", "")),
 			Transform3D(basis, Vector3(pos[0], pos[1], pos[2])), plot_id,
 			Vector3.ZERO, Solid.from_dict(entry.get("dims", {})), true)
+		if item != null:
+			for l in entry.get("limbs", []):
+				var a: Array = l
+				if a.size() == 8:
+					item.add_limb(Vector3(a[0], a[1], a[2]), Vector3(a[3], a[4], a[5]), float(a[6]), float(a[7]))
 
 ## What the main menu shows under Continue, read without loading anything.
 static func summary(path: String = SAVE_PATH) -> Dictionary:

@@ -154,6 +154,15 @@ var pause_menu: PauseMenu
 var playing: bool = false
 
 var sun: DirectionalLight3D
+## The moon: cool, dim light from the other side of the sky at night.
+var moon: DirectionalLight3D
+## Where a winch to hand would hook on, if you pressed the key now.
+var winch_reticle: WinchReticle
+var _sky: ProceduralSkyMaterial
+## How much daylight there is, 1 at noon to 0 at midnight, and how dark it is
+## (the other way round, eased so dusk is short).
+var daylight: float = 1.0
+var night: float = 0.0
 var environment: Environment
 var _rng := RandomNumberGenerator.new()
 var _autosave_timer: float = AUTOSAVE_SECONDS
@@ -273,6 +282,15 @@ func _build_environment() -> void:
 	sun.shadow_blur = 1.2
 	sun.directional_shadow_blend_splits = true
 	add_child(sun)
+	moon = DirectionalLight3D.new()
+	moon.name = "Moon"
+	moon.light_color = Color(0.62, 0.72, 1.0)
+	moon.light_energy = 0.0
+	moon.shadow_enabled = false
+	add_child(moon)
+	winch_reticle = WinchReticle.new()
+	winch_reticle.name = "WinchReticle"
+	add_child(winch_reticle)
 
 	var env_node := WorldEnvironment.new()
 	environment = Environment.new()
@@ -280,6 +298,7 @@ func _build_environment() -> void:
 	env.background_mode = Environment.BG_SKY
 	env.sky = Sky.new()
 	var sky := ProceduralSkyMaterial.new()
+	_sky = sky
 	sky.sky_top_color = Color(0.24, 0.45, 0.78)
 	sky.sky_horizon_color = Color(0.70, 0.80, 0.88)
 	sky.sky_curve = 0.12
@@ -1354,27 +1373,97 @@ func _apply_all_settings() -> void:
 	if not Settings.flag(&"moving_sun"):
 		sun.rotation_degrees = Vector3(-52, -38, 0)
 		sun.light_color = Color(1.0, 0.95, 0.86)
+		sun.light_energy = 1.25
+		sun.visible = true
+		moon.visible = false
 
-## Spec: a market day. The sun crosses the sky with it - morning light when the
-## prices are new, long shadows when they are about to change - but it never
-## sets, because nobody wants to chop trees in the dark.
+## Day and night. The sun rises at five and sets at nine, crossing the sky
+## on a long arc; the sky and the haze go gold at either end of the day and
+## deep blue at night, when the moon gives just enough light to find your way
+## and your hat lamp comes on. With the moving sun turned off it is always
+## mid-morning.
+const DAY_SKY_TOP := Color(0.24, 0.45, 0.78)
+const DAY_SKY_HORIZON := Color(0.70, 0.80, 0.88)
+const DUSK_HORIZON := Color(0.98, 0.62, 0.42)
+const NIGHT_SKY_TOP := Color(0.02, 0.03, 0.08)
+const NIGHT_SKY_HORIZON := Color(0.07, 0.09, 0.17)
+const DAY_HAZE := Color(0.68, 0.78, 0.87)
+const NIGHT_HAZE := Color(0.05, 0.07, 0.12)
+
 func _update_sun() -> void:
 	if not Settings.flag(&"moving_sun"):
+		daylight = 1.0
+		night = 0.0
+		_paint_sky(1.0, 0.0)
 		return
-	var t := Economy.day_progress()
-	var arc := sin(t * PI)
-	var elevation := lerpf(16.0, 62.0, arc)
-	var azimuth := lerpf(-110.0, 70.0, t)
-	sun.rotation_degrees = Vector3(-elevation, azimuth, 0.0)
-	sun.light_color = Color(1.0, 0.80, 0.62).lerp(Color(1.0, 0.96, 0.88), clampf(arc * 1.6, 0.0, 1.0))
-	sun.light_energy = lerpf(1.0, 1.3, arc)
+	var h := Economy.hour()
+	# Up from 5:00 to 21:00.
+	var t := (h - 5.0) / 16.0
+	var arc := sin(clampf(t, 0.0, 1.0) * PI) if t >= 0.0 and t <= 1.0 else -0.2
+	var elevation := arc * 64.0
+	var azimuth := lerpf(-110.0, 110.0, clampf(t, 0.0, 1.0))
+	daylight = smoothstep(-0.05, 0.35, arc)
+	night = 1.0 - smoothstep(-0.12, 0.06, arc)
+	sun.rotation_degrees = Vector3(-maxf(elevation, 4.0), azimuth, 0.0)
+	sun.light_color = Color(1.0, 0.62, 0.42).lerp(Color(1.0, 0.96, 0.88), smoothstep(0.05, 0.4, arc))
+	sun.light_energy = lerpf(0.0, 1.3, daylight)
+	sun.visible = daylight > 0.01
+	# The moon rides opposite the sun.
+	moon.rotation_degrees = Vector3(-50.0, azimuth + 180.0, 0.0)
+	moon.light_energy = 0.45 * night
+	moon.visible = night > 0.01
+	_paint_sky(daylight, night)
+
+func _paint_sky(day: float, dark: float) -> void:
+	if _sky == null:
+		return
+	var dusk := clampf(1.0 - absf(day - 0.5) * 2.0, 0.0, 1.0) * (1.0 - dark)
+	var top := NIGHT_SKY_TOP.lerp(DAY_SKY_TOP, day)
+	var horizon := NIGHT_SKY_HORIZON.lerp(DAY_SKY_HORIZON, day).lerp(DUSK_HORIZON, dusk * 0.8)
+	_sky.sky_top_color = top
+	_sky.sky_horizon_color = horizon
+	var haze := NIGHT_HAZE.lerp(DAY_HAZE, day).lerp(DUSK_HORIZON.darkened(0.2), dusk * 0.4)
+	_sky.ground_bottom_color = haze
+	_sky.ground_horizon_color = haze
+	_haze = haze
+
+var _haze: Color = DAY_HAZE
 
 # --- Runtime ---------------------------------------------------------------
 
 func _process(delta: float) -> void:
 	_update_sun()
+	_update_winch_reticle()
 	_update_underground(delta)
 	_check_discovery(delta)
+
+## Aiming a winch: seated in a truck with one, or standing by one, the ring
+## shows where the hook would catch and whether the line reaches.
+func _update_winch_reticle() -> void:
+	if winch_reticle == null or player == null:
+		return
+	var r: VehicleRig = null
+	var truck: Hauler = null
+	if player.driving():
+		truck = player.vehicle as Hauler
+		if truck != null and truck.rig != null and not truck.rig.operating:
+			r = truck.rig
+	elif playing and not (build_system != null and build_system.active):
+		truck = vehicle_at_hand(10.0)
+		if truck != null and truck.rig != null and _distance_to(truck) <= 10.0:
+			r = truck.rig
+	if r == null or r.anchored:
+		winch_reticle.hide_reticle()
+		return
+	var hit := player.aim_hit_far(r.reach + 6.0)
+	# Pointed at the truck itself there is nothing to show.
+	if not hit.is_empty():
+		var n := hit.collider as Node
+		while n != null and n != truck:
+			n = n.get_parent()
+		if n == truck:
+			hit = {}
+	winch_reticle.show_for(r, hit)
 
 ## Underground the sky goes away: ambient light and the sun fade, the haze
 ## turns dark, and a lamp on the player's hat comes on. The caves' own lamps
@@ -1394,8 +1483,10 @@ func _update_underground(delta: float) -> void:
 	else:
 		environment.ambient_light_sky_contribution = 1.0
 		environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-		environment.ambient_light_energy = OUTDOOR_AMBIENT
-	environment.fog_light_color = Color(0.68, 0.78, 0.87).lerp(Color(0.03, 0.03, 0.05), underground)
+		# The night sky lights little, so the ambient is lifted a touch to
+		# keep the land readable by moonlight.
+		environment.ambient_light_energy = OUTDOOR_AMBIENT * lerpf(1.0, 2.2, night)
+	environment.fog_light_color = _haze.lerp(Color(0.03, 0.03, 0.05), underground)
 	environment.background_energy_multiplier = lerpf(1.0, 0.05, underground)
 	sun.light_energy = lerpf(sun.light_energy, 0.0, underground)
 	if _headlamp == null:
@@ -1406,8 +1497,11 @@ func _update_underground(delta: float) -> void:
 		_headlamp.shadow_enabled = false
 		_headlamp.position = Vector3(0.3, 0.2, 0.0)
 		player.camera.add_child(_headlamp)
-	_headlamp.light_energy = underground * 1.8
-	_headlamp.visible = underground > 0.01
+	# On underground, and outside after dark.
+	var lamp := maxf(underground, night * 0.8)
+	_headlamp.light_energy = lamp * 1.8
+	_headlamp.omni_range = lerpf(22.0, 14.0, underground) if night > underground else 14.0
+	_headlamp.visible = lamp > 0.01
 	var plates_on := underground < 0.5
 	if plates_on != _plates_shown:
 		_plates_shown = plates_on

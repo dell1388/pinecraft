@@ -33,6 +33,10 @@ var cut_progress: float = 0.0     ## axe work done on this piece since the last 
 ## free body; this is only so the truck can count its load and save it.
 var carrier: Node3D = null
 
+## Branches still on a felled trunk, each with its own collider and weight:
+## {origin, dir (both in this piece's frame), radius, length, cut, shape, nodes}.
+var limbs: Array[Dictionary] = []
+
 var _shape: CollisionShape3D
 var _mesh: MeshInstance3D
 var _extras: Array[Node3D] = []
@@ -57,6 +61,7 @@ func configure(def: ItemDef, p_dims: Dictionary = {}) -> void:
 	cut_progress = 0.0
 	owned = false
 	clear_extras()
+	clear_limbs()
 	# Round stock rolls; a little extra spin damping stops a felled trunk
 	# rolling across the plot forever without making it feel glued down.
 	angular_damp = 0.9 if dims.get("shape", Solid.BOX) == Solid.CYLINDER else 0.4
@@ -161,6 +166,113 @@ func add_extra_node(node: Node3D) -> void:
 	add_child(node)
 	_extras.append(node)
 
+# --- Limbs -------------------------------------------------------------------
+
+## Puts a branch on this piece: solid, weighed with it, carried with it. The
+## `visuals` (the branch's own model, its foliage) are reparented to ride
+## along; with none, a plain one is made.
+func add_limb(origin: Vector3, dir: Vector3, radius: float, length: float, visuals: Array = [],
+		bark: Color = Color(0.42, 0.3, 0.2)) -> void:
+	dir = dir.normalized()
+	var cs := CollisionShape3D.new()
+	var cyl := CylinderShape3D.new()
+	cyl.radius = maxf(0.03, radius)
+	cyl.height = maxf(0.1, length)
+	cs.shape = cyl
+	cs.transform = Transform3D(_up_basis(dir), origin + dir * length * 0.5)
+	add_child(cs)
+	var nodes: Array = []
+	for v in visuals:
+		var n := v as Node3D
+		if n == null or not is_instance_valid(n):
+			continue
+		n.reparent(self, true)
+		nodes.append(n)
+	if nodes.is_empty():
+		var mi := MeshInstance3D.new()
+		var cm := CylinderMesh.new()
+		cm.bottom_radius = radius
+		cm.top_radius = radius * 0.7
+		cm.height = length
+		cm.radial_segments = 6
+		mi.mesh = cm
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = bark
+		mat.roughness = 0.9
+		mi.material_override = mat
+		mi.transform = cs.transform
+		add_child(mi)
+		nodes.append(mi)
+	mass += Solid.volume(Solid.cylinder(radius, radius * 0.7, length)) * _density()
+	limbs.append({"origin": origin, "dir": dir, "radius": radius, "length": length, "cut": 0.0,
+		"shape": cs, "nodes": nodes})
+
+func _density() -> float:
+	var def: ItemDef = GameData.item(item_id)
+	var v := Solid.volume(dims)
+	return def.mass_of(dims) / v if def != null and v > 0.0 else 600.0
+
+static func _up_basis(up: Vector3) -> Basis:
+	var side := up.cross(Vector3.FORWARD if absf(up.dot(Vector3.FORWARD)) < 0.9 else Vector3.RIGHT).normalized()
+	return Basis(side, up, side.cross(up)).orthonormalized()
+
+## The limb nearest a world point, or -1 when the point is not on one.
+func limb_at(world_point: Vector3) -> int:
+	var local := to_local(world_point)
+	var best := -1
+	var best_d := INF
+	for i in limbs.size():
+		var l: Dictionary = limbs[i]
+		var a: Vector3 = l.origin
+		var b: Vector3 = a + (l.dir as Vector3) * float(l.length)
+		var d := local.distance_to(Geometry3D.get_closest_point_to_segment(local, a, b))
+		if d < float(l.radius) + 0.3 and d < best_d:
+			best_d = d
+			best = i
+	return best
+
+## The branch as a piece of its own: its shape, and where it lies in the world.
+func limb_dims(i: int) -> Dictionary:
+	var l: Dictionary = limbs[i]
+	return Solid.cylinder(float(l.radius), float(l.radius) * 0.7, float(l.length))
+
+func limb_transform(i: int) -> Transform3D:
+	var l: Dictionary = limbs[i]
+	return global_transform * Transform3D(_up_basis(l.dir), (l.origin as Vector3) + (l.dir as Vector3) * float(l.length) * 0.5)
+
+func remove_limb(i: int) -> void:
+	var l: Dictionary = limbs[i]
+	mass = maxf(1.0, mass - Solid.volume(limb_dims(i)) * _density())
+	(l.shape as Node).queue_free()
+	for n in l.nodes:
+		if is_instance_valid(n):
+			(n as Node).queue_free()
+	limbs.remove_at(i)
+
+func limb_volume() -> float:
+	var total := 0.0
+	for i in limbs.size():
+		total += Solid.volume(limb_dims(i))
+	return total
+
+func clear_limbs() -> void:
+	for l in limbs:
+		if is_instance_valid(l.shape):
+			(l.shape as Node).queue_free()
+		for n in l.nodes:
+			if is_instance_valid(n):
+				(n as Node).queue_free()
+	limbs.clear()
+
+## For saving: each limb as numbers.
+func limbs_to_array() -> Array:
+	var out: Array = []
+	for l in limbs:
+		var o: Vector3 = l.origin
+		var d: Vector3 = l.dir
+		out.append([o.x, o.y, o.z, d.x, d.y, d.z, float(l.radius), float(l.length)])
+	return out
+
 func clear_extras() -> void:
 	for e in _extras:
 		if is_instance_valid(e):
@@ -208,6 +320,7 @@ func set_state(next: State) -> void:
 			freeze = false
 			sleeping = true
 			carrier = null
+			clear_limbs()
 	quiet_time = 0.0
 	if next != State.CARRIED:
 		gravity_scale = 1.0

@@ -110,8 +110,8 @@ func _signature() -> String:
 	return TABS[_tab]
 
 func _market_note() -> String:
-	return "Day %d  ·  prices redraw in %s. Everything is priced by volume. The guide below shows what a cubic metre of each raw material is worth at each step of its processing - most gain, some do not." % [
-		Economy.day, UIKit.clock(Economy.seconds_left_today())]
+	return "Day %d  ·  the market moves once a week, next in %s. Everything is priced by volume. The guide below shows what a cubic metre of each raw material is worth at each step of its processing - most gain, some do not." % [
+		Economy.day, UIKit.clock(Economy.seconds_left_this_week())]
 
 func _rebuild() -> void:
 	_built_sig = _signature()

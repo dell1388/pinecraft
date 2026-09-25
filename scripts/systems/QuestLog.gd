@@ -56,9 +56,14 @@ func _running(id: StringName) -> bool:
 			return true
 	return false
 
+## An order for a material takes it in any form: a pine order takes pine
+## logs and pine planks alike, cubic metre for cubic metre.
 func _matches(quest: Dictionary, item_id: StringName, category: StringName) -> bool:
 	if quest.item != &"":
-		return quest.item == item_id
+		if quest.item == item_id:
+			return true
+		var wanted: StringName = GameData.material_of.get(quest.item, &"")
+		return wanted != &"" and GameData.material_of.get(item_id, &"") == wanted
 	return quest.category != &"" and quest.category == category
 
 ## Credits a delivery against every order it fits. Returns the reward paid.
@@ -83,11 +88,24 @@ func deliver(item_id: StringName, category: StringName, volume: float) -> int:
 		changed.emit(self)
 	return paid
 
+## What an order wants, in words: the item and the other forms that count.
+static func wanted_label(quest: Dictionary) -> String:
+	if quest.item == &"":
+		return String(quest.category).capitalize()
+	var name := GameData.item_name(quest.item)
+	match String(GameData.material_for(quest.item).get("path", "")):
+		"wood":
+			return "%s - logs or planks" % name
+		"metal":
+			return "%s - ore or bars" % name
+		"gem":
+			return "%s - rough or cut" % name
+	return name
+
 func lines() -> Array[String]:
 	var out: Array[String] = []
 	for quest in active:
-		var want: String = GameData.item_name(quest.item) if quest.item != &"" \
-			else String(quest.category)
+		var want: String = wanted_label(quest)
 		out.append("%s: %.2f / %.2f m3 %s  ->  $%d" % [
 			quest.title, float(quest.delivered), float(quest.volume), want, int(quest.reward)])
 	return out

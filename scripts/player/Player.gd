@@ -618,17 +618,43 @@ func _swing() -> void:
 		if said != "":
 			interacted.emit(said)
 	elif target is LooseItem and kind == "axe":
-		_buck(target as LooseItem)
+		var piece := target as LooseItem
+		var limb := piece.limb_at(hit.position)
+		if limb >= 0:
+			_limb(piece, limb)
+		else:
+			_buck(piece)
 	else:
 		_swing_cd = _tool_stat("cooldown", 0.4)
 
 ## Bucking: cutting felled wood down to a size you can move. Work needed scales
 ## with the cross-section at the cut, so a fat trunk takes real swings and a
 ## branch takes one or two - and a better axe cuts through more per swing.
+## Limbing: taking a branch off a felled trunk. It comes away as a piece of
+## its own; work scales with its cross-section, like any cut.
+func _limb(item: LooseItem, index: int) -> void:
+	_swing_cd = _tool_stat("cooldown", 0.4)
+	var l: Dictionary = item.limbs[index]
+	var needed: float = PI * float(l.radius) * float(l.radius) * BUCK_WORK_PER_M2
+	l.cut = float(l.cut) + _tool_stat("damage", 34.0)
+	if float(l.cut) < needed:
+		interacted.emit("cutting branch: %d%%" % int(float(l.cut) / needed * 100.0))
+		return
+	var xform := item.limb_transform(index)
+	var dims := item.limb_dims(index)
+	item.remove_limb(index)
+	var branch := manager.spawn(item.item_id, xform, item.plot_id, item.linear_velocity, dims, item.owned)
+	if branch != null:
+		branch.owned = item.owned
+	interacted.emit("branch off" if not item.limbs.is_empty() else "last branch off - clean trunk")
+
 func _buck(item: LooseItem) -> void:
 	if not item.is_wood() or item.state != LooseItem.State.FREE:
 		return
 	_swing_cd = _tool_stat("cooldown", 0.4)
+	if not item.limbs.is_empty():
+		interacted.emit("take the branches off first (%d left)" % item.limbs.size())
+		return
 	if item.length() <= MIN_BUCK_LENGTH:
 		interacted.emit("too short to cut - carry it or mill it")
 		return

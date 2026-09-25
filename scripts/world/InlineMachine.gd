@@ -102,6 +102,15 @@ func _build_canopy() -> void:
 	for side in [-1.0, 1.0]:
 		_solid(Vector3(WALL, h, run), Vector3(side * (half - WALL * 0.5), floor_y + h * 0.5, 0))
 	_solid(Vector3(outer, 0.12, run), Vector3(0, floor_y + h + 0.06, 0))
+	# Inside, a duct exactly the size of the mouths, from one bulkhead to the
+	# other. With room to spare in there, pieces wandered off the line -
+	# sideways, or up on top of each other - and fetched up against the out
+	# bulkhead beside the opening, where the belt could never free them.
+	var duct := run - WALL * 2.0
+	for side in [-1.0, 1.0]:
+		_solid(Vector3(WALL, hole.y, duct), Vector3(side * (hole.x * 0.5 + WALL * 0.5), floor_y + hole.y * 0.5, 0))
+	if h - hole.y > 0.01:
+		_solid(Vector3(hole.x, WALL, duct), Vector3(0, floor_y + hole.y + WALL * 0.5, 0))
 	# The bulkheads at each end, with the mouth cut out of them.
 	for end in [-1.0, 1.0]:
 		var z: float = end * (run * 0.5 - WALL * 0.5)
@@ -153,7 +162,7 @@ func _dress_canopy(outer: float, run: float, h: float) -> Greeble:
 	# Shell: side panels, roof, and the dark inside that the belt disappears into.
 	for side in [-1.0, 1.0]:
 		g.box(Vector3(WALL, h, run), Transform3D(Basis(), Vector3(side * (half - WALL * 0.5), floor_y + h * 0.5, 0)), body)
-		g.box(Vector3(0.02, h - 0.05, run - 0.1), Transform3D(Basis(), Vector3(side * (half - WALL - 0.01), floor_y + h * 0.5, 0)), dark)
+		g.box(Vector3(0.02, hole.y, run - 0.1), Transform3D(Basis(), Vector3(side * (hole.x * 0.5 + 0.01), floor_y + hole.y * 0.5, 0)), dark)
 		# Ribs and a bolted access panel down each side.
 		var ribs := maxi(2, int(run / 0.9) + 1)
 		for i in ribs:
@@ -162,7 +171,7 @@ func _dress_canopy(outer: float, run: float, h: float) -> Greeble:
 		g.box(Vector3(0.03, h * 0.45, run * 0.4), Transform3D(Basis(), Vector3(side * (half + 0.02), floor_y + h * 0.45, 0)), body.lightened(0.12))
 		g.rivets(Vector3(side * (half + 0.04), floor_y + h * 0.7, -run * 0.2), Vector3(side * (half + 0.04), floor_y + h * 0.7, run * 0.2), 5, steel, 0.035)
 	g.box(Vector3(outer + 0.08, 0.12, run + 0.08), Transform3D(Basis(), Vector3(0, floor_y + h + 0.06, 0)), body.darkened(0.15))
-	g.box(Vector3(outer - 0.3, 0.02, run - 0.2), Transform3D(Basis(), Vector3(0, floor_y + h - 0.01, 0)), dark)
+	g.box(Vector3(hole.x, 0.02, run - 0.2), Transform3D(Basis(), Vector3(0, floor_y + hole.y + 0.01, 0)), dark)
 	# Mouths: a bulkhead each end with a hazard-striped frame round the hole
 	# and strip curtains hanging over it.
 	for end in [-1.0, 1.0]:

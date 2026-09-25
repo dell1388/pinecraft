@@ -1,5 +1,5 @@
 {
-  "day_length_seconds": 360.0,
+  "day_length_seconds": 900.0,
   "seed": 20260921,
   "trend_strength": 0.35,
   "notes": "Daily multiplier per item = 1 + volatility * deterministic noise(day, item) + market trend."

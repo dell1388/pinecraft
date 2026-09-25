@@ -54,6 +54,7 @@ func _run_all() -> void:
 	await _test(&"cave networks: joined up, below sea level, with open mouths", test_cave_network)
 	await _test(&"belted lines of machines keep flowing without jamming", test_machine_lines)
 	await _test(&"a tunnel mouth is a real opening", test_tunnel_mouth)
+	await _test(&"logs never stick inside a tunnel", test_tunnel_flow)
 	await _test(&"workbench assembles from volumes", test_workbench)
 	await _test(&"the yard buys what the player owns in it", test_sell_yard)
 	await _test(&"orders pay out on delivery", test_quests)
@@ -195,7 +196,7 @@ func loose_volume(item_id: StringName = &"") -> float:
 	var total := 0.0
 	for item in manager.free_items():
 		if item_id == &"" or item.item_id == item_id:
-			total += item.volume()
+			total += item.volume() + item.limb_volume()
 	return total
 
 # --- Tests -----------------------------------------------------------------
@@ -279,7 +280,8 @@ func test_chop() -> void:
 
 	# The trunk must arrive as one piece, exactly the shape it grew to - not as
 	# a pile of pre-cut logs.
-	check_eq(manager.active_count(), 1 + 4, "felling produced the wrong piece count")
+	# One piece: the branches come down still on it.
+	check_eq(manager.active_count(), 1, "felling produced the wrong piece count")
 	check(not tree.standing(), "the tree is still standing after being cut through")
 	var trunk: LooseItem = null
 	for item in manager.free_items():
@@ -291,8 +293,24 @@ func test_chop() -> void:
 		check_near(float(trunk.dims.r0), 0.34, 0.001, "the felled trunk lost its base radius")
 		check_near(float(trunk.dims.r1), 0.34 * 0.6, 0.001, "the felled trunk lost its taper")
 		check(trunk.mass > 200.0, "a 7 m trunk should be far too heavy to pocket (%.0f kg)" % trunk.mass)
+		check_eq(trunk.limbs.size(), 4, "the felled trunk lost its branches")
 	check_near(loose_volume(), grown_volume, 0.0001,
 		"felling did not conserve the tree's wood volume")
+	# Bucking is refused until it is limbed; each limb comes off as a piece.
+	var player := _make_player()
+	world.add_child(player)
+	await step(1)
+	if trunk != null:
+		player._buck(trunk)
+		check_eq(manager.active_count(), 1, "a trunk with branches on was bucked")
+		for n in 4:
+			for s in 50:
+				if trunk.limbs.size() == 4 - n:
+					player._limb(trunk, 0)
+		check_eq(trunk.limbs.size(), 0, "limbing did not clear the branches")
+		check_eq(manager.active_count(), 5, "each limb did not come off as its own piece")
+		check_near(loose_volume(), grown_volume, 0.0001, "limbing did not conserve wood")
+		check(trunk.mass < 10000.0 and trunk.mass > 200.0, "trunk mass odd after limbing")
 
 	# And it should topple rather than stand there.
 	await step(90)
@@ -1446,6 +1464,41 @@ func test_tunnel_mouth() -> void:
 	check_eq(trunk.item_id, &"lumber_pine", "the trunk was not planked once it got in")
 	done()
 
+## From play: logs got stuck inside the sander and the planker. Whatever fits
+## the mouth - fed crooked, fat, thin, long or in a crowd - comes out the far
+## end.
+func test_tunnel_flow() -> void:
+	for machine in [&"sawmill", &"sander"]:
+		_setup()
+		var m := _inline(machine)
+		await step(3)
+		var pieces: Array[LooseItem] = []
+		var rng := RandomNumberGenerator.new()
+		rng.seed = 7
+		for i in 8:
+			var r := rng.randf_range(0.12, minf(m.hole.x, m.hole.y) * 0.45)
+			var span := rng.randf_range(1.2, m.canopy_length() * 1.2)
+			var yaw := rng.randf_range(-0.5, 0.5)
+			var at := m.global_transform * Vector3(rng.randf_range(-0.2, 0.2), 0.3 + r, m.length * 0.5 - 0.35)
+			var dims := Solid.cylinder(r, r * 0.85, span)
+			if machine == &"sander" and i % 2 == 1:
+				dims = Solid.box(Vector3(r * 1.8, span, r * 0.8))
+			var piece := manager.spawn(&"wood_pine" if dims.shape == Solid.CYLINDER else &"lumber_pine",
+				Transform3D(m.global_transform.basis * LooseItem.lying_basis(yaw), at), 0, Vector3.ZERO, dims, true)
+			pieces.append(piece)
+			await step(50)
+		await step(60 * 20)
+		var out := 0
+		var stuck: Array[String] = []
+		for piece in pieces:
+			var z := (m.global_transform.affine_inverse() * piece.global_position).z
+			if z < -m.canopy_length() * 0.5:
+				out += 1
+			else:
+				stuck.append("z=%.2f %s" % [z, str(Solid.bounds(piece.dims))])
+		check_eq(out, pieces.size(), "%s: pieces stuck: %s" % [machine, ", ".join(stuck)])
+	done()
+
 ## A plain belt runs straight into a machine and the machine takes it from there.
 func test_conveyor_to_machine() -> void:
 	_setup()
@@ -1570,6 +1623,14 @@ func test_quests() -> void:
 	check_eq(quests.active.size(), GameData.quest_slots(), "the log did not refill after a payout")
 	for quest in quests.active:
 		check(quest.id != &"test_order", "the filled order is still running")
+
+	# An order for a wood takes its planks too.
+	quests.active = [{
+		"id": &"plank_order", "title": "Pine order", "item": &"wood_pine",
+		"category": &"", "volume": 0.5, "delivered": 0.0, "reward": 250,
+	}]
+	check_eq(quests.deliver(&"lumber_oak", &"lumber", 0.6), 0, "a pine order took oak planks")
+	check_eq(quests.deliver(&"lumber_pine", &"lumber", 0.6), 250, "a pine order would not take pine planks")
 
 	# Category orders take anything in the category.
 	quests.active = [{
@@ -3286,8 +3347,18 @@ func test_vehicle_rig() -> void:
 	# The winch drags a log in.
 	var log_piece := spawn(&"wood_pine", front + ahead * 9.0 + Vector3(0, 0.2, 0), Solid.cylinder(0.25, 0.25, 2.0))
 	await step(20)
+	# The aiming ring: green on something in reach, red past the line's end,
+	# gone once hooked on.
+	var reticle := WinchReticle.new()
+	world.add_child(reticle)
+	reticle.show_for(rig, {"position": log_piece.global_position, "normal": Vector3.UP})
+	check(reticle.visible and reticle.in_reach, "the winch reticle does not show a log in reach as in reach")
+	reticle.show_for(rig, {"position": front + ahead * (rig.reach + 4.0), "normal": Vector3.UP})
+	check(reticle.visible and not reticle.in_reach, "the winch reticle shows a point past the line's end as in reach")
 	check_eq(rig.attach_winch(log_piece, log_piece.global_position), "", "the winch would not hook a log")
 	check(rig.anchored and log_piece.owned, "hooking a log did not take it")
+	reticle.show_for(rig, {"position": log_piece.global_position, "normal": Vector3.UP})
+	check(not reticle.visible, "the winch reticle stays up with the hook already on")
 	var start := log_piece.global_position.distance_to(rig.fairlead())
 	for i in 240:
 		rig.reel(1.0 / 60.0)

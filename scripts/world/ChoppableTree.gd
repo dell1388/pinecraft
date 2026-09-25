@@ -415,11 +415,16 @@ func _sever(height: float, from: Vector3) -> String:
 		var piece := manager.spawn(wood_item, Transform3D(lean, centre), plot_id,
 			Vector3.ZERO, upper)
 		if piece != null:
+			# The branches above the cut come down on it, still attached:
+			# limbing them off is the next job.
+			for i in range(branches.size() - 1, -1, -1):
+				if float(branches[i].height) >= height:
+					dropped += _attach_branch(i, piece)
 			var spin := axis * FALL_RATE
 			piece.angular_velocity = spin
 			piece.linear_velocity = spin.cross(Vector3(0, (trunk_height - height) * 0.5, 0))
 
-	# Branches above the cut go with it.
+	# Any branches above the cut not taken with it (no trunk piece) drop loose.
 	for i in range(branches.size() - 1, -1, -1):
 		if float(branches[i].height) >= height:
 			dropped += _drop_branch(i, dir * 1.5)
@@ -454,6 +459,24 @@ func fell(from: Vector3 = Vector3.ZERO) -> String:
 		return ""
 	var origin := from if from != Vector3.ZERO else global_position + Vector3(0, 0, 3)
 	return _sever(0.0, origin)
+
+## Moves a branch - its model, its foliage, its collider and its weight - on
+## to the felled trunk piece. Returns its volume.
+func _attach_branch(index: int, piece: LooseItem) -> float:
+	var b: Dictionary = branches[index]
+	var dims := _branch_dims(b)
+	var inv := piece.global_transform.affine_inverse()
+	var origin: Vector3 = inv * (global_position + Vector3(0, float(b.height), 0))
+	var dir: Vector3 = inv.basis * (b.dir as Vector3)
+	var visuals: Array = [b.mesh]
+	if b.leaf != null and is_instance_valid(b.leaf):
+		visuals.append(b.leaf)
+	piece.add_limb(origin, dir, float(b.radius), float(b.length), visuals)
+	(b.shape as CollisionShape3D).queue_free()
+	branches.remove_at(index)
+	if branches.is_empty() and _crown != null and foliage_style != &"palm" and foliage_style != &"cap":
+		_crown.visible = false
+	return Solid.volume(dims)
 
 func _drop_branch(index: int, impulse: Vector3) -> float:
 	var b: Dictionary = branches[index]

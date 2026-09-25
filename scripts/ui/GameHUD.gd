@@ -92,7 +92,11 @@ func setup(p_player: Player, p_plot: Plot, p_manager: LooseItemManager, p_world:
 	Economy.day_changed.connect(func(day: int):
 		# Not while a save is being read in: that is not a new day.
 		if day > 1 and bool(world.get("playing")):
-			show_banner("Day %d" % day, "The market has moved - check prices with [P]"))
+			if Economy.day_of_week() == 1:
+				show_banner("Week %d" % (Economy.week() + 1), "The market has moved - check prices with [P]")
+			else:
+				show_banner("Day %d" % day, "%d day%s until the market moves" % [
+					Economy.WEEK - Economy.day_of_week() + 1, "" if Economy.WEEK - Economy.day_of_week() == 0 else "s"]))
 	Economy.money_changed.connect(_on_money_changed)
 	PlayerState.upgraded.connect(func(track: StringName, _level: int):
 		toast("Upgraded: %s" % PlayerState.label(track), UITheme.ACCENT))
@@ -677,9 +681,17 @@ func _current_prompt(building: bool, driving: bool) -> String:
 		return ""
 	return player.last_prompt
 
+## "07:30" from an hour of the day.
+static func _clock_text(hour: float) -> String:
+	var h := int(hour)
+	var m := int((hour - float(h)) * 60.0)
+	return "%02d:%02d" % [h, m]
+
 func _update_status() -> void:
-	_day.text = "DAY %d" % Economy.day
-	_day_left.text = "%s until prices change" % UIKit.clock(Economy.seconds_left_today())
+	_day.text = "DAY %d  ·  %s" % [Economy.day, _clock_text(Economy.hour())]
+	var days_left := Economy.WEEK - Economy.day_of_week()
+	_day_left.text = ("prices change tonight" if days_left == 0 else "prices change in %d day%s" % [
+		days_left, "" if days_left == 1 else "s"])
 	_day_bar.value = Economy.day_progress()
 	var cap := maxf(0.001, player.capacity_m3())
 	var used := player.carried_volume()
@@ -713,8 +725,7 @@ func _update_orders() -> void:
 		col.add_child(top)
 		var need := maxf(0.001, float(q.volume))
 		col.add_child(UIKit.bar(float(q.delivered) / need, UITheme.ACCENT, 5))
-		var want: String = GameData.item_name(q.item) if q.item != &"" \
-			else String(q.category).capitalize()
+		var want: String = QuestLog.wanted_label(q)
 		col.add_child(UIKit.label("%.2f / %.2f m³  %s" % [float(q.delivered), need, want], "Small"))
 		_orders_box.add_child(col)
 	_ignore_mouse(_orders_box)
