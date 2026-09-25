@@ -886,8 +886,9 @@ func _update_drive() -> void:
 	_speed.text = str(int(round(truck.linear_velocity.length() * 3.6)))
 	var cap := maxf(0.001, truck.cargo_capacity_m3)
 	if truck.has_bed():
-		_cargo.text = "%s   ·   %.1f / %.1f m³   ·   %d" % [truck.display_name, truck.cargo_volume(), cap, truck.cargo_count()]
-		_cargo_bar.value = truck.cargo_volume() / cap
+		# No limit: the bar just shows how full the bed looks.
+		_cargo.text = "%s   ·   %.1f m³   ·   %d" % [truck.display_name, truck.cargo_volume(), truck.cargo_count()]
+		_cargo_bar.value = minf(1.0, truck.cargo_volume() / cap)
 	else:
 		_cargo.text = "%s   ·   no load space" % truck.display_name
 		_cargo_bar.value = 0.0

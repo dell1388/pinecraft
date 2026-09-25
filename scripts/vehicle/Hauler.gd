@@ -440,8 +440,9 @@ func cargo_volume() -> float:
 			total += item.volume()
 	return total
 
+## There is no carry limit: a bed takes whatever fits in it.
 func cargo_full() -> bool:
-	return cargo_volume() >= cargo_capacity_m3
+	return false
 
 ## Item-sink protocol, so the player can deposit into the bed with [E] and a
 ## conveyor can load the hauler like any other sink.
@@ -567,6 +568,18 @@ func _update_fixed(delta: float) -> void:
 		if float(_still_for[item]) >= FIX_SECONDS:
 			_fix(item)
 
+## A load does not weigh the truck down: its weight on the bed is met by an
+## equal push up under each piece, so the springs never feel it. The pieces
+## still sit on the bed, slide and shift as they would.
+func _carry_load() -> void:
+	if freeze or _load.is_empty():
+		return
+	var g := get_gravity()
+	for item in _load:
+		if _fixed.has(item) or not is_instance_valid(item) or item.state != LooseItem.State.FREE:
+			continue
+		apply_force(-g * item.mass, item.global_position - global_position)
+
 func _crane_busy() -> bool:
 	return rig != null and (rig.operating or rig.folding)
 
@@ -594,8 +607,9 @@ func _fix(item: LooseItem) -> void:
 		copy.transform = item.transform * cs.transform
 		add_child(copy)
 		shapes.append(copy)
-	_fixed[item] = {"shapes": shapes, "mass": item.mass}
-	mass += item.mass
+	# Its shape is the truck's, but not its weight: a load does not press the
+	# truck down on its springs.
+	_fixed[item] = {"shapes": shapes, "mass": 0.0}
 	_still_for.erase(item)
 
 ## Lets every fixed piece loose again, where it lies and moving with the truck.
@@ -734,7 +748,7 @@ func cargo_summary() -> String:
 	var parts: Array[String] = []
 	for id in counts:
 		parts.append("%s x%d" % [GameData.item_name(id), int(counts[id])])
-	return "%.2f/%.1f m3: %s" % [cargo_volume(), cargo_capacity_m3, ", ".join(parts)]
+	return "%.2f m3: %s" % [cargo_volume(), ", ".join(parts)]
 
 # --- Driving ---------------------------------------------------------------
 
@@ -746,6 +760,7 @@ func _physics_process(delta: float) -> void:
 	_update_unload(delta)
 	_update_tub(delta)
 	_update_fixed(delta)
+	_carry_load()
 
 	if towed_by != null and not is_instance_valid(towed_by):
 		towed_by = null
