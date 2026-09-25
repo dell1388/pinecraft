@@ -10,18 +10,18 @@ extends Node3D
 ## is hooked to: a log, a tree, a rock face, another truck. Use it from the
 ## seat or standing near the truck.
 ##
-## The crane is a knuckle-boom loader with a grapple, worked the easy way: the
-## player moves the LOG, not the crane. Input slides a target about in the
-## truck's own frame - along it, across it, up and down, and turns it - and
-## the crane solves its joints to follow: the turntable slews, the boom and
-## stick fold to put the grapple where the target is, the telescope runs out
-## when that is not far enough, and the rotator keeps the log turned the way
-## it was asked. Each joint moves at a hydraulic's pace, so the crane lags the
-## target a little and the ghost shows where it is going. The target stays
-## inside what the crane can reach, sliding along the edge rather than
-## stopping dead; the log itself is swept so it never goes through the bed,
-## the stakes or the truck. While it works the truck stands on its
-## outriggers.
+## The crane is a slewing, luffing, telescoping boom with a grapple on a line,
+## worked the easy way: the player moves the LOG, not the crane. Input slides
+## a target about in the truck's own frame - along it, across it, up and down,
+## and turns it - and the crane works out the rest: the turntable slews to
+## face it, the boom raises and runs out until its tip is right over it, and
+## the line lets down to it. The line hangs dead straight - no swing at all,
+## which is not how a real one behaves but is far easier to work. Each joint
+## moves at a hydraulic's pace, so the crane lags the target a little and the
+## ghost shows where it is going. The target stays inside what the crane can
+## reach, sliding along the edge rather than stopping dead; the log itself is
+## swept so it never goes through the bed, the stakes or the truck. While it
+## works the truck stands on its outriggers.
 
 signal winch_attached(anchor: Vector3)
 signal winch_released()
@@ -58,15 +58,15 @@ const SLEW_ARC := deg_to_rad(155.0)
 const HEIGHT_ABOVE := 0.75        ## of the boom's length, above the turntable
 const DEPTH_BELOW := 3.0          ## m below the turntable
 ## Joint speeds and accelerations: rad/s (m/s for the telescope).
-const JOINT_SPEED := {"slew": 0.9, "boom": 0.8, "stick": 1.0, "tele": 1.8, "rot": 1.6}
-const JOINT_ACCEL := {"slew": 2.2, "boom": 2.0, "stick": 2.6, "tele": 4.0, "rot": 4.0}
-## From the stick's tip down to the middle of the grapple's jaws.
-const HANG := 1.0
-## Sway of the grapple on its link when the crane starts and stops.
-const SWAY_GAIN := 0.012
-const SWAY_SPRING := 22.0
-const SWAY_DAMP := 8.0
-const SWAY_MOST := 0.12
+## slew and luff in rad/s, the telescope and the line in m/s.
+const JOINT_SPEED := {"slew": 0.9, "luff": 0.7, "ext": 2.0, "line": 2.6, "rot": 1.6}
+const JOINT_ACCEL := {"slew": 2.2, "luff": 2.0, "ext": 4.0, "line": 5.0, "rot": 4.0}
+## The shortest the line gets: from the boom tip down to the middle of the
+## grapple's jaws.
+const HANG := 1.2
+## The boom keeps its tip at least this far above the turntable, so the line
+## always has somewhere to hang from.
+const TIP_LOWEST := 1.2
 ## How close a log has to be to the jaws for them to close on it.
 const GRAB_RADIUS := 0.7
 ## A log let go this close above the bed and this near square to it is set
@@ -78,7 +78,7 @@ const SETTLE_YAW := deg_to_rad(14.0)
 const LOAD_REACH := 0.65
 const LOAD_SPEED := 0.5
 ## The folded, travelling pose.
-const REST := {"slew": 0.0, "boom": 1.3, "stick": -1.75, "tele": 0.0, "rot": 0.0}
+const REST := {"slew": 0.0, "luff": 0.08, "ext": 0.0, "line": 1.2, "rot": 0.0}
 ## What the log may not pass through while it is being moved.
 const SWEEP_MASK := Layers.WORLD | Layers.VEHICLE | Layers.MACHINE | Layers.TREE | Layers.KERB
 
@@ -106,12 +106,12 @@ var operating: bool = false
 ## Folding back to the travelling pose after operator mode.
 var folding: bool = false
 ## Link lengths, from the reach.
-var boom_len: float = 4.8
-var stick_len: float = 4.2
-var tele_max: float = 2.4
+## The boom's length run in and run out.
+var boom_min: float = 4.8
+var boom_max: float = 11.0
 ## The joints, where they are and how fast they are moving.
-var joints := {"slew": 0.0, "boom": 1.3, "stick": -1.75, "tele": 0.0, "rot": 0.0}
-var _joint_vel := {"slew": 0.0, "boom": 0.0, "stick": 0.0, "tele": 0.0, "rot": 0.0}
+var joints := {"slew": 0.0, "luff": 0.08, "ext": 4.8, "line": 1.2, "rot": 0.0}
+var _joint_vel := {"slew": 0.0, "luff": 0.0, "ext": 0.0, "line": 0.0, "rot": 0.0}
 ## The target: the jaws' point and the log's yaw, in the truck's frame.
 var target: Vector3 = Vector3.ZERO
 var target_yaw: float = 0.0
@@ -123,10 +123,6 @@ var at_limit: bool = false
 var held: LooseItem = null
 ## The cab, in the truck's frame: the log is kept out of it.
 var cab_box: AABB = AABB()
-var _sway: Vector3 = Vector3.ZERO
-var _sway_vel: Vector3 = Vector3.ZERO
-var _last_tip: Vector3 = Vector3.ZERO
-var _last_tip_vel: Vector3 = Vector3.ZERO
 var _grab_blend: float = 1.0
 var _held_basis_from: Basis = Basis()
 var _held_vel: Vector3 = Vector3.ZERO
@@ -136,9 +132,8 @@ var _held_vel: Vector3 = Vector3.ZERO
 var _cable: MeshInstance3D
 var _column: MeshInstance3D
 var _boom: MeshInstance3D
-var _stick: MeshInstance3D
 var _tele: MeshInstance3D
-var _link: MeshInstance3D
+var _line: MeshInstance3D
 var _grapple: Node3D
 var _claws: Array[Node3D] = []
 var _outriggers: Array[MeshInstance3D] = []
@@ -153,10 +148,10 @@ func setup(p_vehicle: RigidBody3D) -> void:
 	vehicle = p_vehicle
 
 func _ready() -> void:
-	boom_len = reach * 0.34
-	stick_len = reach * 0.3
-	tele_max = reach * 0.17
+	boom_min = reach * 0.35
+	boom_max = reach * 0.8
 	joints = REST.duplicate()
+	joints.ext = boom_min
 	if vehicle != null and vehicle.get("spec") is Dictionary:
 		var cab: Dictionary = (vehicle.get("spec") as Dictionary).get("cab", {})
 		var body: Vector3 = vehicle.get("body_size")
@@ -348,7 +343,7 @@ func set_operating(on: bool) -> void:
 	if on:
 		folding = false
 		# A working spot behind the turntable, over the bed.
-		target = clamp_target(head_offset + Vector3(0, 0.3, boom_len * 0.8))
+		target = clamp_target(head_offset + Vector3(0, 0.3, boom_min * 0.9))
 		target_yaw = 0.0
 		_target_vel = Vector3.ZERO
 		_yaw_vel = 0.0
@@ -382,7 +377,7 @@ func drive(move: Vector3, turn: float, fine: bool, delta: float) -> void:
 ## of the cab.
 func clamp_target(p: Vector3) -> Vector3:
 	var rel := p + Vector3.UP * HANG - head_offset
-	var h := clampf(rel.y, -DEPTH_BELOW, boom_len * HEIGHT_ABOVE)
+	var h := clampf(rel.y, -DEPTH_BELOW, boom_max * HEIGHT_ABOVE)
 	var r := Vector2(rel.x, rel.z).length()
 	var ang := atan2(rel.x, rel.z) if r > 0.001 else float(joints.slew)
 	ang = clampf(ang, -SLEW_ARC, SLEW_ARC)
@@ -406,7 +401,7 @@ func clamp_target(p: Vector3) -> Vector3:
 
 ## How far out the crane reaches with what it is holding.
 func max_reach() -> float:
-	return (boom_len + stick_len + tele_max) * 0.97 * _load_factor(LOAD_REACH)
+	return boom_max * 0.97 * _load_factor(LOAD_REACH)
 
 ## 1 empty, falling to `at_rating` with the rated load on.
 func _load_factor(at_rating: float) -> float:
@@ -422,33 +417,35 @@ func _held_half_height() -> float:
 
 # --- Crane: kinematics ------------------------------------------------------------------
 
-## The joint angles that put the jaws on `p` (truck frame) with the log at
-## `yaw`: slew to face it, boom and stick as a two-link arm in that vertical
-## plane, the telescope out when the two links are not enough.
+## The joints that put the jaws on `p` (truck frame) with the log at `yaw`:
+## slew to face it, the boom raised and run out so its tip is straight over
+## it, and the line let down to it.
 func solve(p: Vector3, yaw: float) -> Dictionary:
 	var rel := p + Vector3.UP * HANG - head_offset
 	var d := Vector2(rel.x, rel.z).length()
-	var h := rel.y
 	var slew := atan2(rel.x, rel.z) if d > 0.05 else float(joints.slew)
-	var dist := sqrt(d * d + h * h)
-	var tele := clampf(dist - (boom_len + stick_len) * 0.9, 0.0, tele_max)
-	var l2 := stick_len + tele
-	dist = clampf(dist, absf(boom_len - l2) + 0.05, boom_len + l2 - 0.02)
-	var c := acos(clampf((boom_len * boom_len + dist * dist - l2 * l2) / (2.0 * boom_len * dist), -1.0, 1.0))
-	var boom := atan2(h, d) + c
-	var stick := atan2(h - sin(boom) * boom_len, d - cos(boom) * boom_len)
-	return {"slew": slew, "boom": boom, "stick": stick, "tele": tele,
+	# The tip goes over the target, no lower than it has to be: at least a
+	# short line above it, and not down near the deck.
+	var h := maxf(rel.y, TIP_LOWEST)
+	var length := sqrt(d * d + h * h)
+	if length > boom_max:
+		h = sqrt(maxf(boom_max * boom_max - d * d, 0.0))
+		length = boom_max
+	elif length < boom_min:
+		h = sqrt(maxf(boom_min * boom_min - d * d, 0.0))
+		length = boom_min
+	var luff := atan2(h, d)
+	return {"slew": slew, "luff": luff, "ext": length, "line": maxf(HANG, h - rel.y + HANG),
 		"rot": wrapf(yaw - slew, -PI, PI)}
 
-## Where the crane's parts are for a set of joints, in the truck's frame.
+## Where the crane's parts are for a set of joints, in the truck's frame. The
+## line hangs straight down from the tip: no sway at all.
 func fk(j: Dictionary = joints) -> Dictionary:
 	var dir := Vector3(sin(float(j.slew)), 0.0, cos(float(j.slew)))
-	var elbow := head_offset + (dir * cos(float(j.boom)) + Vector3.UP * sin(float(j.boom))) * boom_len
-	var stick_dir := dir * cos(float(j.stick)) + Vector3.UP * sin(float(j.stick))
-	var sleeve := elbow + stick_dir * stick_len
-	var tip := sleeve + stick_dir * float(j.tele)
-	return {"base": head_offset, "elbow": elbow, "sleeve": sleeve, "tip": tip,
-		"jaw": tip - Vector3.UP * HANG + _sway, "yaw": float(j.slew) + float(j.rot)}
+	var along := dir * cos(float(j.luff)) + Vector3.UP * sin(float(j.luff))
+	var tip := head_offset + along * float(j.ext)
+	return {"base": head_offset, "sleeve": head_offset + along * boom_min * 0.92, "tip": tip,
+		"jaw": tip - Vector3.UP * float(j.line), "yaw": float(j.slew) + float(j.rot)}
 
 ## The jaws, in the world.
 func jaw_world() -> Vector3:
@@ -492,18 +489,6 @@ func _settled(goals: Dictionary, tolerance: float = 0.02) -> bool:
 		if absf(err) > tolerance:
 			return false
 	return true
-
-## The grapple swings a little on its link when the stick starts and stops.
-func _update_sway(delta: float) -> void:
-	var tip: Vector3 = fk().tip
-	var v := (tip - _last_tip) / maxf(delta, 0.0001)
-	var a := (v - _last_tip_vel) / maxf(delta, 0.0001)
-	_last_tip = tip
-	_last_tip_vel = v
-	var rest := Vector3(-a.x, 0.0, -a.z) * SWAY_GAIN
-	_sway_vel += ((rest - _sway) * SWAY_SPRING - _sway_vel * SWAY_DAMP) * delta
-	_sway += _sway_vel * delta
-	_sway = _sway.limit_length(SWAY_MOST)
 
 # --- Crane: the log ------------------------------------------------------------------
 
@@ -713,16 +698,22 @@ func _overlaps(item: LooseItem, xform: Transform3D) -> bool:
 			return true
 	return false
 
+## Folded for the road: slewed back over the bed, the boom down and run in,
+## the line wound up short.
+func _rest_goals() -> Dictionary:
+	var rest := REST.duplicate()
+	rest.ext = boom_min
+	return rest
+
 func _work_crane(delta: float) -> void:
 	if not has_crane():
 		return
 	holding()
-	var goals: Dictionary = solve(target, target_yaw) if operating else REST
+	var goals: Dictionary = solve(target, target_yaw) if operating else _rest_goals()
 	_step_joints(goals, delta, _load_factor(LOAD_SPEED))
-	if folding and _settled(REST, 0.05):
+	if folding and _settled(_rest_goals(), 0.05):
 		folding = false
 		_apply_plant()
-	_update_sway(delta)
 	if held != null:
 		_carry(delta)
 
@@ -816,10 +807,9 @@ func _build() -> void:
 		return
 	_column = _box_part(paint, "CraneColumn")
 	_boom = _box_part(paint, "CraneBoom")
-	_stick = _box_part(paint, "CraneStick")
 	_tele = _box_part(_mat(CRANE_YELLOW.lightened(0.25), 0.4), "CraneTelescope")
-	_link = _line_mesh(CRANE_DARK)
-	_link.name = "CraneLink"
+	_line = _line_mesh(CRANE_DARK)
+	_line.name = "CraneLine"
 	_build_grapple()
 	_build_aids()
 
@@ -970,23 +960,22 @@ func _draw() -> void:
 	var frame := _frame()
 	var pose := fk()
 	var base: Vector3 = frame * Vector3(pose.base)
-	var elbow: Vector3 = frame * Vector3(pose.elbow)
 	var sleeve: Vector3 = frame * Vector3(pose.sleeve)
 	var tip: Vector3 = frame * Vector3(pose.tip)
 	var up := frame.basis.y.normalized()
 	_span(_column, base - up * 0.5, base + up * 0.25, 0.26)
-	_span(_boom, base, elbow, 0.16)
-	_span(_stick, elbow, sleeve, 0.12)
-	# A little past the stick's end even run right in, so the two never share
-	# an end face.
-	_span(_tele, sleeve.lerp(elbow, 0.05), tip + (tip - elbow).normalized() * 0.04, 0.09)
+	# The boom: a heavy outer section off the turntable, and the telescoping
+	# inner one sliding out of it to the tip.
+	_span(_boom, base, sleeve, 0.18)
+	var run := (tip - base).normalized()
+	_span(_tele, base + run * boom_min * 0.3, tip + run * 0.05, 0.12)
 	# The grapple hangs from the tip; holding a log it is wherever the log is.
 	var yaw := float(pose.yaw)
 	var grip: Vector3 = held.global_position if held != null else frame * Vector3(pose.jaw)
 	var grapple_basis := frame.basis * Basis(Vector3.UP, yaw)
 	var lift := _held_half_height()
 	_grapple.global_transform = Transform3D(grapple_basis, grip + up * lift)
-	_span(_link, tip, grip + up * (lift + 0.75), 0.04)
+	_span(_line, tip, grip + up * (lift + 0.75), 0.025)
 	var open := 0.1 if held != null else 0.75
 	for i in _claws.size():
 		var side := -1.0 if i == 0 else 1.0

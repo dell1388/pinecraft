@@ -3650,8 +3650,8 @@ func test_vehicle_rig() -> void:
 				break
 		await step(90)
 		var jaw: Vector3 = rig.fk().jaw
-		check(jaw.distance_to(rig.target) < 0.1, "the crane did not put its jaws on the target (%.2f m off at %s, sway %s)" % [
-			jaw.distance_to(rig.target), str(rig.target), str(rig._sway)])
+		check(jaw.distance_to(rig.target) < 0.1, "the crane did not put its jaws on the target (%.2f m off at %s)" % [
+			jaw.distance_to(rig.target), str(rig.target)])
 	# Keys move the target in straight lines in the truck's frame.
 	rig.target = rig.clamp_target(Vector3(3.0, 0.0, 2.0))
 	var from_spot := rig.target
@@ -3672,6 +3672,15 @@ func test_vehicle_rig() -> void:
 		rig.drive(Vector3(1, 0, 0.3), 0.0, false, dt)
 	reach_rel = rig.target + Vector3.UP * VehicleRig.HANG - rig.head_offset
 	check(Vector2(reach_rel.x, reach_rel.z).length() <= rig.max_reach() + 0.01, "the target went past the crane's reach")
+	# The line hangs dead straight under the boom tip, even mid-swing.
+	rig.target = rig.clamp_target(Vector3(-3.5, 0.0, 3.0))
+	for i in 40:
+		await step(1)
+		var pose := rig.fk()
+		var off := Vector2(pose.jaw.x - pose.tip.x, pose.jaw.z - pose.tip.z).length()
+		if off > 0.001:
+			check(false, "the line swung %.3f m off vertical" % off)
+			break
 	# Q and E turn it.
 	var yaw_was := rig.target_yaw
 	for i in 30:
@@ -3781,7 +3790,7 @@ func test_vehicle_rig() -> void:
 		await step(1)
 		if not rig.folding:
 			break
-	check(not rig.folding and rig._settled(VehicleRig.REST, 0.06), "the crane did not fold away")
+	check(not rig.folding and rig._settled(rig._rest_goals(), 0.06), "the crane did not fold away")
 	check(not truck.freeze, "stowing the crane left the truck planted")
 	await step(60)
 
