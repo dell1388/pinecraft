@@ -56,6 +56,7 @@ func _run_all() -> void:
 	await _test(&"a tunnel mouth is a real opening", test_tunnel_mouth)
 	await _test(&"logs never stick inside a tunnel", test_tunnel_flow)
 	await _test(&"a machine takes a trunk with its branches if it fits", test_machine_takes_branches)
+	await _test(&"a lone machine dumps on the ground until it is full", test_machine_dumps_on_ground)
 	await _test(&"workbench assembles from volumes", test_workbench)
 	await _test(&"the yard buys what the player owns in it", test_sell_yard)
 	await _test(&"orders pay out on delivery", test_quests)
@@ -1555,6 +1556,25 @@ func test_machine_takes_branches() -> void:
 		if Solid.has_finish(item.dims, &"sanded"):
 			sanded += 1
 	check_eq(sanded, 3, "the branches were not sanded with the trunk")
+	done()
+
+## With nothing after it, a machine tips what it makes out on the ground past
+## its end - a few pieces, until there is no room left - then holds the rest.
+func test_machine_dumps_on_ground() -> void:
+	_setup()
+	var m := _inline(&"sander")
+	await step(3)
+	for i in 12:
+		_feed(m, &"wood_pine", Solid.cylinder(0.15, 0.13, 1.2))
+		await step(40)
+	await step(60 * 8)
+	check(m.total_out >= 5, "a lone machine put out only %d pieces before stopping" % m.total_out)
+	check(m.total_out < 12 and not m.queue.is_empty(), "the ground past a lone machine never filled up")
+	check_eq(m.total_out + m.queue.size(), 12, "pieces went missing in the machine")
+	for item in manager.free_items():
+		var local := m.to_local(item.global_position)
+		check(local.z < -m.canopy_length() * 0.5, "a dumped piece is back inside the machine")
+		check(local.y > -0.5, "a dumped piece went through the ground")
 	done()
 
 ## A plain belt runs straight into a machine and the machine takes it from there.

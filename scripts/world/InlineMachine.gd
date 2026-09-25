@@ -389,13 +389,21 @@ func _release() -> void:
 		return
 	var entry: Dictionary = queue[0]
 	var xform := exit_transform(entry.dims)
-	if not exit_clear(entry.dims, xform):
-		return
+	var on_belt := exit_clear(entry.dims, xform)
+	# With nothing after the machine to carry things off, it tips them out
+	# on the ground past its end instead - a few of them, until that fills.
+	if not on_belt:
+		if fed_onward():
+			return
+		var spot: Variant = ground_spot(entry.dims)
+		if spot == null:
+			return
+		xform = spot
 	queue.pop_front()
 	var item := manager.spawn(entry.id, xform, int(entry.plot), Vector3.ZERO, entry.dims, bool(entry.owned))
 	if item == null:
 		return
-	item.linear_velocity = belt_velocity()
+	item.linear_velocity = belt_velocity() if on_belt else Vector3.ZERO
 	total_out += 1
 	last_out = item
 	emerged.emit(self, item)
@@ -409,14 +417,47 @@ func exit_transform(dims: Dictionary) -> Transform3D:
 	var local := Vector3(0, DECK_THICKNESS + b.z * 0.5 + 0.03, -canopy_length() * 0.5 - b.y * 0.5 - 0.05)
 	return Transform3D(_along_belt(), global_transform * local)
 
+## Is there a belt, bin or machine right after this one's out-feed?
+func fed_onward() -> bool:
+	var box := BoxShape3D.new()
+	box.size = Vector3(0.4, 0.3, 0.4)
+	var q := PhysicsShapeQueryParameters3D.new()
+	q.shape = box
+	q.transform = global_transform * Transform3D(Basis(), Vector3(0, DECK_THICKNESS, -length * 0.5 - 0.35))
+	q.collision_mask = Layers.MACHINE
+	for hit in get_world_3d().direct_space_state.intersect_shape(q, 4):
+		if hit.collider != _deck and hit.collider != _canopy:
+			return true
+	return false
+
+## A clear patch of ground past the out-feed end to set a piece down on: the
+## middle first, then either side, then a row further out. Null if all full.
+func ground_spot(dims: Dictionary) -> Variant:
+	var b := Solid.bounds(dims)
+	var space := get_world_3d().direct_space_state
+	for row in 2:
+		for lane in [0, -1, 1]:
+			var local := Vector3(float(lane) * (b.x + 0.35), 0.0,
+				-length * 0.5 - b.y * 0.5 - 0.4 - float(row) * (b.y + 0.4))
+			var top := global_transform * (local + Vector3(0, 3.0, 0))
+			var ray := PhysicsRayQueryParameters3D.create(top, top - global_transform.basis.y * 8.0, Layers.WORLD)
+			var hit := space.intersect_ray(ray)
+			if hit.is_empty():
+				continue
+			var at: Vector3 = hit.position + global_transform.basis.y.normalized() * (b.z * 0.5 + 0.1)
+			var xform := Transform3D(_along_belt(), at)
+			if exit_clear(dims, xform, Layers.MACHINE | Layers.TREE):
+				return xform
+	return null
+
 ## Is there room at the exit for it? Anything loose in the way holds it back.
-func exit_clear(dims: Dictionary, xform: Transform3D) -> bool:
+func exit_clear(dims: Dictionary, xform: Transform3D, also: int = 0) -> bool:
 	var box := BoxShape3D.new()
 	box.size = Solid.bounds(dims) + Vector3.ONE * 0.06
 	var q := PhysicsShapeQueryParameters3D.new()
 	q.shape = box
 	q.transform = xform
-	q.collision_mask = Layers.LOOSE | Layers.PLAYER | Layers.VEHICLE
+	q.collision_mask = Layers.LOOSE | Layers.PLAYER | Layers.VEHICLE | also
 	return get_world_3d().direct_space_state.intersect_shape(q, 1).is_empty()
 
 ## Does this machine's job to one entry. Returns what comes out - one entry,
