@@ -3350,8 +3350,89 @@ func test_vehicle_rig() -> void:
 		await step(1)
 	check(big.global_position.y < big_low + 0.3, "a %.0f kg crane lifted %.0f kg" % [rig.crane_power_kg, big.mass])
 	rig.drop()
+
+	# Ore still in the ground: the hook latches on, and hoisting pulls the
+	# chunk out once the pull reaches what it takes - if the crane can.
+	rig.crane_power_kg = 1200.0
+	# Swung round to clear ground, away from the logs already dropped.
+	for i in 90:
+		rig.work(1.0, 0, 0, 1.0, 1.0 / 60.0)
+		await step(1)
+	await step(60)
+	tip = rig.tip_point()
+	var rock := OreRock.new()
+	rock.manager = manager
+	rock.ore_item = &"ore_iron"
+	rock.embed = 0.4
+	rock.volume = 0.05
+	rock.position = Vector3(tip.x, 0.0, tip.z)
+	world.add_child(rock)
+	await step(4)
+	check(rock.pull_required() < rig.crane_power_kg, "the test chunk needs %.0f kg" % rock.pull_required())
+	for i in 600:
+		rig.work(0, 0, 0, -1.0, 1.0 / 60.0)
+		await step(1)
+		if rig._touching_hook() == rock:
+			break
+	check_eq(rig.latch(), "", "the hook would not latch ore in the ground")
+	check(rig.held_rock == rock, "the crane is not hooked on the ore")
+	for i in 240:
+		rig.work(0, 0, 0, 1.0, 1.0 / 60.0)
+		await step(1)
+	check(rock.consumed(), "hoisting did not pull the ore out of the ground")
+	check(rig.held != null and rig.held.item_id == &"ore_iron", "the freed ore is not on the hook")
+	if rig.held != null:
+		check(rig.held.global_position.y > 0.5, "the freed ore was not lifted")
+	rig.drop()
+	# Too much for the crane: it stays in the ground.
+	rig.crane_power_kg = 50.0
+	for i in 90:
+		rig.work(1.0, 0, 0, 1.0, 1.0 / 60.0)
+		await step(1)
+	await step(60)
+	tip = rig.tip_point()
+	var stuck := OreRock.new()
+	stuck.manager = manager
+	stuck.ore_item = &"ore_iron"
+	stuck.embed = 0.5
+	stuck.volume = 0.4
+	stuck.position = Vector3(tip.x, 0.0, tip.z)
+	world.add_child(stuck)
+	await step(4)
+	for i in 600:
+		rig.work(0, 0, 0, -1.0, 1.0 / 60.0)
+		await step(1)
+		if rig._touching_hook() == stuck:
+			break
+	check_eq(rig.latch(), "", "the hook would not latch the big chunk")
+	for i in 240:
+		rig.work(0, 0, 0, 1.0, 1.0 / 60.0)
+		await step(1)
+	check(not stuck.consumed(), "a %.0f kg crane pulled out ore needing %.0f kg" % [rig.crane_power_kg, stuck.pull_required()])
+	rig.drop()
 	rig.set_operating(false)
 	check(not truck.freeze, "stowing the crane left the truck planted")
+	await step(60)
+
+	# The winch on ore in the ground: pulled hard enough, the chunk comes out
+	# and stays on the line.
+	rig.winch_power_kg = 6000.0
+	var front2 := rig.fairlead() - truck.global_transform.basis.z * 8.0
+	var seam := OreRock.new()
+	seam.manager = manager
+	seam.ore_item = &"ore_copper"
+	seam.embed = 0.4
+	seam.volume = 0.08
+	seam.position = Vector3(front2.x, 0.0, front2.z)
+	world.add_child(seam)
+	await step(4)
+	check_eq(rig.attach_winch(seam, seam.global_position + Vector3(0, 0.2, 0)), "", "the winch would not hook ore in the ground")
+	for i in 300:
+		rig.reel(1.0 / 60.0)
+		await step(1)
+	check(seam.consumed(), "winching did not pull the ore out (pull %.0f of %.0f kg)" % [rig.winch_load_kg(), seam.pull_required()])
+	check(rig.anchor_body is LooseItem, "the freed ore is not on the winch line")
+	rig.release_winch()
 	done()
 
 func _haulers_in(node: Node) -> int:

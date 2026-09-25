@@ -42,6 +42,7 @@ const BOOM_MIN := 3.0
 const LUFF_MIN := 0.05
 const LUFF_MAX := 1.25
 const HOOK_MASS := 50.0
+const HOOK_RADIUS := 0.3
 
 var vehicle: RigidBody3D
 
@@ -56,6 +57,10 @@ var anchor_local: Vector3 = Vector3.ZERO
 var anchor_point: Vector3 = Vector3.ZERO
 var line_length: float = 0.0
 var winch_tension: float = 0.0
+## The winch hooked on an ore chunk still in the ground.
+var anchor_rock: OreRock = null
+## Frames since the winch was last reeling in.
+var _reeling: int = 0
 
 # --- Crane state ---------------------------------------------------------------
 
@@ -67,6 +72,11 @@ var hoist_length: float = 2.0
 var hoist_tension: float = 0.0
 var hook: RigidBody3D
 var held: LooseItem = null
+## An ore chunk still in the ground, hooked: hoist on it and it comes out
+## when the pull reaches what it takes to free it.
+var held_rock: OreRock = null
+var _hoisting: int = 0
+var _held_spin_damp: float = 0.4
 var _latch: Joint3D
 
 var _cable: MeshInstance3D
@@ -158,6 +168,7 @@ func attach_winch(target: Node3D, point: Vector3) -> String:
 	if target == vehicle or (target != null and target.get_parent() == vehicle):
 		return "the winch will not hook its own truck"
 	anchored = true
+	anchor_rock = target as OreRock
 	anchor_body = target as RigidBody3D
 	anchor_local = anchor_body.global_transform.affine_inverse() * point if anchor_body != null else point
 	anchor_point = point
@@ -176,6 +187,7 @@ func release_winch() -> void:
 		return
 	anchored = false
 	anchor_body = null
+	anchor_rock = null
 	winch_tension = 0.0
 	_cable.visible = false
 	winch_released.emit()
@@ -190,6 +202,7 @@ func _anchor_world() -> Vector3:
 func reel(delta: float) -> void:
 	if not anchored:
 		return
+	_reeling = 2
 	if winch_tension >= winch_power_kg * 9.8 * 0.97:
 		return
 	line_length = maxf(SHORTEST_LINE, line_length - winch_speed * delta)
@@ -226,11 +239,27 @@ func _work_winch() -> void:
 	var most := winch_power_kg * 9.8
 	_wake(body)
 	winch_tension = pull(vehicle, fairlead(), body, anchor_point, line_length, most * 1.25)
+	# Hooked on ore still in the ground: pulled hard enough, it comes out,
+	# and the line stays on the chunk.
+	if anchor_rock != null:
+		if not is_instance_valid(anchor_rock) or anchor_rock.consumed():
+			release_winch()
+			return
+		# Reeling on it with the line tight, the drum pulls with all it is
+		# rated for - the truck on its brakes is the anchor at the other end.
+		if _reeling > 0 and winch_tension > 0.0 and winch_power_kg >= anchor_rock.pull_required():
+			var freed := anchor_rock.try_free(winch_power_kg)
+			anchor_rock = null
+			if freed != null:
+				freed.owned = true
+				anchor_body = freed
+				anchor_local = Vector3.ZERO
 	# Dragged on harder than the drum holds, it slips and pays out.
 	if winch_tension > most:
 		line_length = minf(reach, line_length + (winch_tension - most) / most * 0.02)
 	if fairlead().distance_to(anchor_point) > reach + 3.0:
 		release_winch()
+	_reeling = maxi(0, _reeling - 1)
 
 # --- Crane ---------------------------------------------------------------------
 
@@ -271,13 +300,14 @@ func work(swing: float, raise: float, extend: float, hoist: float, delta: float)
 	luff = clampf(luff + raise * 0.35 * delta, LUFF_MIN, LUFF_MAX)
 	boom_length = clampf(boom_length + extend * 1.4 * delta, BOOM_MIN, reach)
 	if hoist > 0.0:
+		_hoisting = 2
 		# The hoist stalls at its rating: it does not lift what it cannot.
 		if hoist_tension < crane_power_kg * 9.8 * 0.97:
 			hoist_length = maxf(0.6, hoist_length - hoist * hoist_speed * delta)
 	elif hoist < 0.0:
 		# A slack-line cut-out: with the hook resting on something, the drum
 		# stops paying out rather than piling rope on top of it.
-		var hanging := tip_point().distance_to(hook.global_position + Vector3(0, 0.25, 0))
+		var hanging := tip_point().distance_to(hook.global_position + Vector3(0, HOOK_RADIUS, 0))
 		hoist_length = minf(minf(reach * 1.5, hanging + 0.5), hoist_length - hoist * hoist_speed * delta)
 	hook.sleeping = false
 
@@ -288,26 +318,57 @@ func latch() -> String:
 		return "this vehicle has no crane"
 	if not operating:
 		return "work the crane first [Q]"
-	if held != null:
+	if held != null or held_rock != null:
 		drop()
 		return ""
-	var item := _touching_hook()
-	if item == null:
+	var target := _touching_hook()
+	if target == null:
 		return "the hook is not touching anything to lift"
+	if target is OreRock:
+		held_rock = target
+		held_rock.touched = true
+		_pin(held_rock)
+		return ""
+	_latch_item(target as LooseItem)
+	return ""
+
+func _latch_item(item: LooseItem) -> void:
 	held = item
+	# Spin damped hard while it hangs from the hook.
+	_held_spin_damp = item.angular_damp
+	item.angular_damp = 6.0
 	item.owned = true
 	if item.state != LooseItem.State.FREE:
 		item.set_state(LooseItem.State.FREE)
 	item.sleeping = false
+	_pin(item)
+	crane_grabbed.emit(item)
+
+func _pin(body: PhysicsBody3D) -> void:
+	if _latch != null and is_instance_valid(_latch):
+		_latch.queue_free()
 	var pin := PinJoint3D.new()
 	pin.name = "Latch"
 	add_child(pin)
 	pin.global_position = hook.global_position
 	pin.node_a = pin.get_path_to(hook)
-	pin.node_b = pin.get_path_to(item)
+	pin.node_b = pin.get_path_to(body)
 	_latch = pin
-	crane_grabbed.emit(item)
-	return ""
+
+## The hooked chunk has been pulled out of the ground: the hook comes away
+## with the ore on it.
+func _free_rock() -> void:
+	var rock := held_rock
+	held_rock = null
+	if _latch != null and is_instance_valid(_latch):
+		_latch.queue_free()
+	_latch = null
+	var item := rock.try_free(hoist_tension / 9.8 + 1.0)
+	if item == null:
+		return
+	var side := pow(item.volume(), 1.0 / 3.0)
+	item.teleport(Transform3D(Basis(), hook.global_position - Vector3(0, HOOK_RADIUS + side * 0.5, 0)))
+	_latch_item(item)
 
 ## Kept for the old key: latch whatever the hook is touching.
 func grab(_item: LooseItem = null) -> String:
@@ -316,10 +377,18 @@ func grab(_item: LooseItem = null) -> String:
 	return latch()
 
 func drop() -> LooseItem:
+	if held_rock != null:
+		held_rock = null
+		if _latch != null and is_instance_valid(_latch):
+			_latch.queue_free()
+		_latch = null
+		return null
 	if held == null:
 		return null
 	var item := held
 	held = null
+	if is_instance_valid(item):
+		item.angular_damp = _held_spin_damp
 	if _latch != null and is_instance_valid(_latch):
 		_latch.queue_free()
 	_latch = null
@@ -327,30 +396,39 @@ func drop() -> LooseItem:
 	return item
 
 func holding() -> bool:
+	if held_rock != null and (not is_instance_valid(held_rock) or held_rock.consumed()):
+		drop()
 	if held != null and (not is_instance_valid(held) or held.state == LooseItem.State.POOLED):
 		drop()
-	return held != null
+	return held != null or held_rock != null
 
-func _touching_hook() -> LooseItem:
+## Whatever the ball is touching: a loose piece, or ore still in the ground.
+func _touching_hook() -> Node3D:
 	var space := get_world_3d().direct_space_state
 	var q := PhysicsShapeQueryParameters3D.new()
 	var sphere := SphereShape3D.new()
-	sphere.radius = 0.75
+	sphere.radius = HOOK_RADIUS + 0.15
 	q.shape = sphere
 	q.transform = Transform3D(Basis(), hook.global_position)
-	q.collision_mask = Layers.LOOSE
+	q.collision_mask = Layers.LOOSE | Layers.TREE
 	q.exclude = [hook.get_rid()]
-	var best: LooseItem = null
-	var best_d := INF
+	# The nearest contact first: what the ball is actually against.
+	var info := space.get_rest_info(q)
+	var best: Node3D = _latchable(instance_from_id(int(info.get("collider_id", 0))) if not info.is_empty() else null)
+	if best != null:
+		return best
 	for hit in space.intersect_shape(q, 16):
-		var item := hit.collider as LooseItem
-		if item == null or item.state == LooseItem.State.POOLED:
-			continue
-		var d := item.global_position.distance_to(hook.global_position)
-		if d < best_d:
-			best_d = d
-			best = item
-	return best
+		var n := _latchable(hit.collider)
+		if n != null:
+			return n
+	return null
+
+static func _latchable(o: Object) -> Node3D:
+	if o is OreRock and not (o as OreRock).consumed():
+		return o
+	if o is LooseItem and (o as LooseItem).state != LooseItem.State.POOLED:
+		return o
+	return null
 
 func _stow_hook() -> void:
 	# Stowed, the hook is clipped to the boom and touches nothing - not the
@@ -369,7 +447,7 @@ func _work_crane() -> void:
 	if not has_crane():
 		return
 	holding()
-	if not operating and held == null:
+	if not operating and held == null and held_rock == null:
 		# Stowed, the boom folds itself back down over the bed.
 		var dt := 1.0 / float(Engine.physics_ticks_per_second)
 		slew = rotate_toward(slew, REST_SLEW, 0.8 * dt)
@@ -382,16 +460,46 @@ func _work_crane() -> void:
 		hook.collision_layer = Layers.VEHICLE
 		hook.collision_mask = Layers.WORLD | Layers.LOOSE | Layers.MACHINE | Layers.TREE
 	var extra := held.mass if held != null else 0.0
+	if held_rock != null:
+		extra = held_rock.mass()
 	if held != null:
 		_wake(held)
-	hoist_tension = pull(null, tip_point(), hook, hook.global_position + Vector3(0, 0.25, 0), hoist_length,
+	hoist_tension = pull(null, tip_point(), hook, hook.global_position + Vector3(0, HOOK_RADIUS, 0), hoist_length,
 		crane_power_kg * 9.8 * 1.25 + HOOK_MASS * 9.8, extra)
+	# Hoisting on ore in the ground, rope tight: the hoist pulls with all it
+	# is rated for, and the chunk comes out if that is enough.
+	if held_rock != null and _hoisting > 0 and hoist_tension > 0.0 \
+			and crane_power_kg >= held_rock.pull_required():
+		_free_rock()
+	_hoisting = maxi(0, _hoisting - 1)
+	# The swing is damped hard - far more than a real rope would - so a load
+	# settles under the boom instead of pendulum-ing about.
+	_damp_swing(hook)
+	if held != null:
+		_damp_swing(held)
 	# The crane truck's tip is carried by its outriggers; stood down with a
 	# load still on, the load pulls on the truck.
 	if not operating and vehicle != null and hoist_tension > 0.0:
 		var n := (hook.global_position - tip_point()).normalized()
 		vehicle.apply_impulse(n * hoist_tension / float(Engine.physics_ticks_per_second),
 			tip_point() - vehicle.global_position)
+
+const SWING_DAMP := 0.12
+
+## Steers sideways motion toward hanging straight under the boom tip, and
+## bleeds off spin: the swing dies in a moment, and the load still follows
+## the boom round.
+func _damp_swing(body: RigidBody3D) -> void:
+	if body == null or body.freeze:
+		return
+	var tip := tip_point()
+	var off := Vector2(body.global_position.x - tip.x, body.global_position.z - tip.z)
+	var want := -off * 2.5
+	# As impulses, not by setting the velocity: that would throw away the
+	# rope's pull applied this same step.
+	var v := Vector2(body.linear_velocity.x, body.linear_velocity.z)
+	var change := (want - v) * SWING_DAMP
+	body.apply_central_impulse(Vector3(change.x, 0.0, change.y) * body.mass)
 
 static func _wake(body: RigidBody3D) -> void:
 	if body != null and body.sleeping:
@@ -411,8 +519,15 @@ func status_line() -> String:
 		bits.append("crane: %.0f° slew, %.0f m boom, hoist %.0f / %.0f kg%s  [A/D] swing [W/S] boom up/down [R/T] out/in [Shift/Ctrl] hoist [F] %s [Q] done" % [
 			rad_to_deg(slew), boom_length, hoist_tension / 9.8, crane_power_kg,
 			" - STALLED" if hoist_tension >= crane_power_kg * 9.8 * 0.97 else "",
-			"let go" if held != null else "latch"])
+			"let go" if held != null or held_rock != null else "latch"])
+		if held_rock != null:
+			bits.append("hooked on %s in the ground: needs %.0f kg of pull%s" % [
+				GameData.item_name(held_rock.ore_item), held_rock.pull_required(),
+				" - past this crane" if held_rock.pull_required() > crane_power_kg else ""])
 	if anchored:
+		if anchor_rock != null:
+			bits.append("winch on %s in the ground: needs %.0f kg of pull" % [
+				GameData.item_name(anchor_rock.ore_item), anchor_rock.pull_required()])
 		bits.append("winch: %.0f m of line, pulling %.0f / %.0f kg%s  [K] reel in [L] let out [Y] unhook" % [
 			line_length, winch_load_kg(), winch_power_kg, " - STALLED" if winch_stalled() else ""])
 	if not bits.is_empty():
@@ -446,17 +561,27 @@ func _build() -> void:
 	hook.mass = HOOK_MASS
 	hook.collision_layer = Layers.VEHICLE
 	hook.collision_mask = Layers.WORLD | Layers.LOOSE | Layers.MACHINE | Layers.TREE
-	hook.angular_damp = 2.0
-	hook.linear_damp = 0.1
+	hook.angular_damp = 4.0
+	hook.linear_damp = 0.6
+	# Just a ball: it latches on to whatever it is touching.
 	var cs := CollisionShape3D.new()
-	var box := BoxShape3D.new()
-	box.size = Vector3(0.35, 0.5, 0.35)
-	cs.shape = box
+	var ball := SphereShape3D.new()
+	ball.radius = HOOK_RADIUS
+	cs.shape = ball
 	hook.add_child(cs)
-	var g := Greeble.new()
-	g.box(Vector3(0.35, 0.5, 0.35), Transform3D(), Color(0.95, 0.72, 0.1))
-	g.box(Vector3(0.1, 0.25, 0.3), Transform3D(Basis(), Vector3(0, -0.35, 0)), Color(0.2, 0.2, 0.22))
-	hook.add_child(g.instance("HookModel", false))
+	var mi := MeshInstance3D.new()
+	var sm := SphereMesh.new()
+	sm.radius = HOOK_RADIUS
+	sm.height = HOOK_RADIUS * 2.0
+	sm.radial_segments = 12
+	sm.rings = 6
+	mi.mesh = sm
+	var hmat := StandardMaterial3D.new()
+	hmat.albedo_color = Color(0.95, 0.72, 0.1)
+	hmat.metallic = 0.4
+	hmat.roughness = 0.4
+	mi.material_override = hmat
+	hook.add_child(mi)
 	add_child(hook)
 	if vehicle != null:
 		hook.add_collision_exception_with(vehicle)
@@ -503,7 +628,7 @@ func _draw() -> void:
 		_cable.visible = false
 	if has_crane():
 		_span(_boom, head_point(), tip_point(), 0.15)
-		_span(_rope, tip_point(), hook.global_position + Vector3(0, 0.25, 0), 0.03)
+		_span(_rope, tip_point(), hook.global_position + Vector3(0, HOOK_RADIUS, 0), 0.03)
 	else:
 		_boom.visible = false
 

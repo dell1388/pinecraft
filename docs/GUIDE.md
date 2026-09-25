@@ -57,7 +57,7 @@ you play. The full list of keys is on the Controls page and in the journal
 | Q (driving) | crane: work it (the truck goes down on its outriggers) or stow it |
 | A / D, W / S, R / T (crane) | swing the boom, raise and lower it, run it out and in |
 | Shift / Ctrl (crane) | hoist the hook up / let it down |
-| F (crane) | latch the hook on to what it is touching, or let go |
+| F (crane) | latch the hook (a ball) on to whatever it is touching - a loose piece or ore still in the ground - or let go |
 | X / Z / C (not in build mode) | unload all (the dump truck tips its tub) / drop one / flip the vehicle upright |
 
 ## Interface
@@ -514,6 +514,9 @@ them than before.
   and steered by turning the joint, so the truck goes where its tyres take it.
   The winch line and crane rope are real lines too - slack until drawn tight,
   then pulling as hard as the machine on them is rated for and no harder.
+  Hook either one on to ore still in the ground and reel or hoist: if the
+  machine is rated for the pull the chunk needs, it comes out on the line.
+  The hook's swing is damped hard, so a load settles under the boom.
 * **Nameplates.** Primitives can only say so much, and a plot is a field of
   similar boxes, so every placed building, the build ghost and the two landmarks
   carry a billboarded label. It is a stopgap until the models speak for
