@@ -55,6 +55,7 @@ func _run_all() -> void:
 	await _test(&"belted lines of machines keep flowing without jamming", test_machine_lines)
 	await _test(&"a tunnel mouth is a real opening", test_tunnel_mouth)
 	await _test(&"logs never stick inside a tunnel", test_tunnel_flow)
+	await _test(&"a machine takes a trunk with its branches if it fits", test_machine_takes_branches)
 	await _test(&"workbench assembles from volumes", test_workbench)
 	await _test(&"the yard buys what the player owns in it", test_sell_yard)
 	await _test(&"orders pay out on delivery", test_quests)
@@ -900,6 +901,17 @@ func _inline(id: StringName, pos: Vector3 = Vector3.ZERO, tier: int = 1) -> Inli
 	world.add_child(m)
 	return m
 
+## A long belt carrying what comes out of a machine away from its exit, the
+## way a line would: output held at the exit waits for it to be clear.
+func _runout(m: InlineMachine, run: float = 14.0) -> Conveyor:
+	var belt := Conveyor.new()
+	belt.length = run
+	belt.width = 1.8
+	belt.speed = 3.0
+	belt.transform = m.global_transform * Transform3D(Basis(), Vector3(0, 0, -m.length * 0.5 - run * 0.5))
+	world.add_child(belt)
+	return belt
+
 ## Puts a piece on a machine's in-feed lip, lying along the belt.
 func _feed(m: InlineMachine, id: StringName, dims: Dictionary = {}) -> LooseItem:
 	var at := m.global_transform * Vector3(0, 0.6, m.length * 0.5 - 0.35)
@@ -1406,6 +1418,7 @@ func test_machine_lines() -> void:
 func test_ore_line() -> void:
 	_setup()
 	var crusher := _inline(&"crusher")
+	_runout(crusher)
 	await step(3)
 	var chunk := _feed(crusher, &"ore_iron", Solid.cube(0.9))
 	var chunk_volume := chunk.volume()
@@ -1490,6 +1503,7 @@ func test_tunnel_flow() -> void:
 	for machine in [&"sawmill", &"sander"]:
 		_setup()
 		var m := _inline(machine)
+		_runout(m, 12.0)
 		await step(3)
 		var pieces: Array[LooseItem] = []
 		var rng := RandomNumberGenerator.new()
@@ -1506,9 +1520,41 @@ func test_tunnel_flow() -> void:
 				Transform3D(m.global_transform.basis * LooseItem.lying_basis(yaw), at), 0, Vector3.ZERO, dims, true)
 			pieces.append(piece)
 			await step(50)
-		await step(60 * 20)
+		# Whatever reaches the end of the run-out is taken away, as a player
+		# unloading the line would.
+		for f in 60 * 20:
+			await step(1)
+			for it in manager.free_items():
+				if m.to_local(it.global_position).z < -m.length * 0.5 - 10.0:
+					manager.despawn(it)
 		check_eq(m.total_out, pieces.size(), "%s: only %d of %d pieces came out (%d still queued)" % [
 			machine, m.total_out, pieces.size(), m.queue.size()])
+	done()
+
+## From play: a trunk still on its branches goes into a machine if it fits
+## the mouth, and the branches come out after it as pieces of their own.
+func test_machine_takes_branches() -> void:
+	_setup()
+	var m := _inline(&"sander")
+	_runout(m, 12.0)
+	await step(3)
+	var trunk := _feed(m, &"wood_pine", Solid.cylinder(0.18, 0.16, 2.4))
+	# Two short branches laid along the trunk, well inside the mouth.
+	trunk.add_limb(Vector3(0.1, -0.3, 0), Vector3(0.05, 1, 0), 0.05, 0.6)
+	trunk.add_limb(Vector3(-0.1, 0.4, 0), Vector3(-0.05, 1, 0), 0.05, 0.5)
+	var total := trunk.volume() + trunk.limb_volume()
+	for i in 900:
+		if m.total_out >= 3:
+			break
+		await step(1)
+	check_eq(m.total_out, 3, "a trunk and its two branches did not all come out")
+	check_near(loose_volume(), total, 0.0001, "the machine lost or made wood taking the branches off")
+	var sanded := 0
+	for item in manager.free_items():
+		check(item.limbs.is_empty(), "a piece came out still on its branches")
+		if Solid.has_finish(item.dims, &"sanded"):
+			sanded += 1
+	check_eq(sanded, 3, "the branches were not sanded with the trunk")
 	done()
 
 ## A plain belt runs straight into a machine and the machine takes it from there.

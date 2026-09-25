@@ -17,8 +17,9 @@ extends Conveyor
 ## The tunnel mouths are real openings in real walls: a piece too big for the
 ## mouth hits the bulkhead and jams there, which is what the tier upgrades
 ## (wider mouths, faster belts) are for. Anything the machine does not work on
-## comes out as it went in, so machines chain on one line. A piece still on
-## its branches is not taken: limb it first.
+## comes out as it went in, so machines chain on one line. A trunk still on
+## its branches goes in if it fits the mouth, branches and all; they come
+## off inside and follow it out as pieces of their own.
 
 signal processed(machine: InlineMachine, item: LooseItem)
 
@@ -339,8 +340,6 @@ func _physics_process(delta: float) -> void:
 ## Has the front of this piece got into the in-feed mouth? A piece too big
 ## for the mouth never does: it is stopped at the bulkhead.
 func _in_mouth(item: LooseItem) -> bool:
-	if not item.limbs.is_empty():
-		return false
 	var inverse := global_transform.affine_inverse()
 	var local := inverse * item.global_position
 	# Only what is coming in: what the machine has set down is on the far side.
@@ -359,11 +358,20 @@ func take(item: LooseItem) -> bool:
 	var entry := {"id": item.item_id, "dims": item.dims.duplicate(true), "owned": true,
 		"plot": item.plot_id, "changed": false,
 		"ready": _clock + canopy_length() / maxf(0.5, speed)}
+	# Branches still on a trunk that got through the mouth come off inside
+	# and follow it out, each a piece of its own.
+	var branches: Array[Dictionary] = []
+	for i in item.limbs.size():
+		branches.append({"id": item.item_id, "dims": item.limb_dims(i), "owned": true,
+			"plot": item.plot_id, "changed": false, "ready": float(entry.ready) + 0.05 * float(i + 1)})
 	_riding.erase(item)
 	manager.despawn(item)
+	var before := Solid.volume(entry.dims)
 	var outs := work(entry)
-	if bool(outs[0].changed):
-		var before := Solid.volume(entry.dims)
+	for branch in branches:
+		before += Solid.volume(branch.dims)
+		outs.append_array(work(branch))
+	if outs.any(func(o: Dictionary) -> bool: return bool(o.changed)):
 		var after := 0.0
 		for o: Dictionary in outs:
 			after += Solid.volume(o.dims)
