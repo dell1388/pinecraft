@@ -2845,9 +2845,11 @@ func test_hauler() -> void:
 	truck.input_brake = false
 	truck.autopilot = false
 
+	# Real wheels: bodies under the chassis, each wearing its tyre.
 	var wheels := 0
-	for child in truck.get_children():
-		if child is MeshInstance3D and truck._wheels.has(child) and (child as Node3D).position.y < 0.0:
+	for body in truck.wheel_bodies:
+		var local := truck.global_transform.affine_inverse() * body.global_position
+		if local.y < 0.0 and truck._wheels.any(func(m): return m.get_parent() == body):
 			wheels += 1
 	check(wheels >= 4, "the hauler should have wheels, found %d" % wheels)
 
@@ -3152,7 +3154,7 @@ func test_dump_truck() -> void:
 	check(not truck._tailgate.disabled, "the tub's tailgate stayed open")
 	var inverse := truck.global_transform.affine_inverse()
 	for item in manager.free_items():
-		check((inverse * item.global_position).z > truck.bed_mid_z, "a plank came out somewhere other than the back")
+		check((inverse * item.global_position).z > truck.bed_mid_z, "a plank came out somewhere other than the back (%s, truck moved to %s)" % [str((inverse * item.global_position).snapped(Vector3(0.01, 0.01, 0.01))), str(truck.global_position.snapped(Vector3(0.01, 0.01, 0.01)))])
 	done()
 
 ## Debug setting: with unlimited money on, anything can be bought and nothing

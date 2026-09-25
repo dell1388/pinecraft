@@ -5,9 +5,11 @@ extends RigidBody3D
 ## They are all this one body, sized, weighted and dressed from vehicles.json.
 ## The class keeps its old name because the flatbed hauler came first.
 ##
-## Deliberately not a VehicleBody3D: raycast suspension springs plus drive and
-## steering forces behave identically on any backend, stay stable at high
-## speed, and cost one ray query per wheel per frame.
+## The wheels are real: each is its own rigid body, hung from the chassis on a
+## sprung joint, turned by a motor on its axle and steered by turning the joint.
+## Nothing pushes the truck but its tyres on the ground - grip is the tyre's
+## friction under the weight on it, a wheel in the air drives nothing, and a
+## truck that bottoms out or loses a wheel over an edge behaves like it.
 ##
 ## The load is real. Whatever is in the bed is an ordinary physics body resting
 ## on the deck and held in by the sides, headboard and tailgate: it shifts when
@@ -20,13 +22,14 @@ signal cargo_changed(count: int, capacity: int)
 @export var max_steer_angle: float = 0.55         ## radians, at a standstill
 @export var max_speed: float = 22.0
 @export var suspension_rest: float = 0.75
-@export var suspension_strength: float = 78000.0
-@export var suspension_damping: float = 7000.0
+## How far a wheel sinks under the truck's own weight, and how far it can go
+## up into the arch or down off an edge.
+const SAG := 0.12
+const BUMP := 0.22
+const DROOP := 0.3
 ## Friction coefficient at the tyre. What a wheel can do is this times the load
 ## it carries, so a wheel in the air grips nothing and a light end lets go first.
 @export var tyre_grip: float = 1.7
-## How hard a sliding tyre is pulled back into line, per metre per second of slip.
-@export var lateral_stiffness: float = 16.0
 @export var rolling_resistance: float = 0.02
 @export var cargo_capacity_m3: float = 8.0
 @export var wheel_radius: float = 0.45
@@ -95,7 +98,10 @@ var _tub_hold: float = 0.0
 const TUB_TIP := 0.95
 const TUB_SPEED := 0.45
 var _wheels: Array[MeshInstance3D] = []
-var _wheel_spin: float = 0.0
+## The wheels as bodies, their joints, and where each hangs in the chassis frame.
+var wheel_bodies: Array[RigidBody3D] = []
+var _joints: Array[Generic6DOFJoint3D] = []
+var _anchors: Array[Vector3] = []
 var _cargo_area: Area3D
 var _cargo_shape: CollisionShape3D
 var _seat: Node3D
@@ -129,10 +135,6 @@ func _apply_spec() -> void:
 	wheel_radius = float(spec.get("wheel_radius", 0.45))
 	wheel_width = float(spec.get("wheel_width", 0.34))
 	suspension_rest = float(spec.get("suspension_rest", 0.75))
-	# Springs and dampers scale with weight, so every vehicle sits and rides
-	# the way the original 900 kg truck did.
-	suspension_strength = 87.0 * mass * 4.0 / float((spec.get("wheels", [0, 0, 0, 0]) as Array).size())
-	suspension_damping = 7.8 * mass * 4.0 / float((spec.get("wheels", [0, 0, 0, 0]) as Array).size())
 	cargo_capacity_m3 = float(spec.get("capacity", 8))
 	camera_distance = float(spec.get("camera", 9.0))
 	var c: Array = spec.get("paint", [0.62, 0.2, 0.16])
@@ -177,6 +179,9 @@ func _ready() -> void:
 	# Low: makes rollovers very unlikely.
 	center_of_mass = Vector3(0, float(spec.get("com_y", -0.45)), 0)
 	_build()
+	# The wheels go on once the truck is where it is going: a pad puts it in
+	# place just after adding it.
+	_build_wheels.call_deferred()
 
 func _build() -> void:
 	var chassis := CollisionShape3D.new()
@@ -326,18 +331,6 @@ func _update_tub(delta: float) -> void:
 
 ## Wheels turn with the ground speed and the front pair follows the steering,
 ## which is what sells a vehicle as driven rather than slid.
-func _animate_wheels(delta: float) -> void:
-	if _wheels.is_empty():
-		return
-	var forward := -global_transform.basis.z
-	var speed := linear_velocity.dot(forward)
-	_wheel_spin += speed / maxf(0.05, wheel_radius) * delta
-	var steer := clampf(input_steer, -1.0, 1.0) * max_steer_angle
-	for i in _wheels.size():
-		var wheel: MeshInstance3D = _wheels[i]
-		wheel.rotation = Vector3(0, steer if _is_front(i) else 0.0, PI * 0.5)
-		wheel.rotate_object_local(Vector3.UP, -_wheel_spin)
-
 func _is_front(index: int) -> bool:
 	return absf((wheel_offsets[index] as Vector3).z - _front_z) < 0.1
 
@@ -357,7 +350,10 @@ func seat_transform() -> Transform3D:
 
 ## How high above a pad to put the vehicle so it drops onto its wheels.
 func spawn_height() -> float:
-	return suspension_rest + body_size.y * 0.5 + 0.3
+	var low := 0.0
+	for o in wheel_offsets:
+		low = minf(low, (o as Vector3).y)
+	return wheel_radius - low + SAG + 0.3
 
 # --- Cargo -----------------------------------------------------------------
 
@@ -596,7 +592,6 @@ func _physics_process(delta: float) -> void:
 	_update_unload(delta)
 	_update_tub(delta)
 
-	_animate_wheels(delta)
 	if driver != null:
 		_read_input()
 	elif parked():
@@ -607,7 +602,9 @@ func _physics_process(delta: float) -> void:
 		input_brake = false
 	if sleeping and not parked():
 		sleeping = false
-	_apply_wheels(delta)
+		for body in wheel_bodies:
+			body.sleeping = false
+	_drive_wheels()
 	_clamp_motion()
 
 func _read_input() -> void:
@@ -635,116 +632,167 @@ func on_road() -> bool:
 func parked() -> bool:
 	return driver == null and not autopilot
 
-## Suspension and tyres, per wheel.
-##
-## The truck used to be steered by dropping a yaw torque on the chassis and
-## driven by a force through its centre of mass, which is why it behaved like a
-## shopping trolley on ice: the body turned, and the velocity carried straight
-## on regardless. Now every wheel does its own work at its own contact patch.
-## The front pair points where it is steered and the whole thing corners because
-## those tyres bite, and what any tyre can do - drive, brake or hold a line - is
-## bounded by the load that wheel is carrying.
-func _apply_wheels(delta: float) -> void:
-	# A parked truck asleep on its brakes gets no forces at all. Forces pushed
-	# at a sleeping body are not thrown away: they pile up, and the first
-	# frame it wakes it gets every frame's worth of spring at once and leaps.
-	if sleeping and parked():
+# --- Wheels -------------------------------------------------------------------
+
+## Hangs a wheel body under each wheel position: a cylinder of rubber on a
+## joint that lets it ride up and down on a spring, spin on its axle under a
+## motor, and - at the front - turn to steer. The wheel models go on them.
+func _build_wheels() -> void:
+	if not wheel_bodies.is_empty() or not is_inside_tree():
 		return
-	var space := get_world_3d().direct_space_state
-	var up := global_transform.basis.y
-	var forward := -global_transform.basis.z
-	var standing := parked()
-	_grounded = 0
-
-	# Steering softens with speed, so the truck is not twitchy at 20 m/s.
-	var speed := linear_velocity.length()
-	var steer_angle: float = input_steer * max_steer_angle / (1.0 + speed * 0.07)
-	var road_bonus: float = 1.0 + (Terrain.ROAD_SPEED_BONUS if on_road() else 0.0)
-	var throttle: float = 0.0 if (standing or flooded()) else input_throttle
-	var along := linear_velocity.dot(forward)
-	# At the ceiling the engine stops pushing that way, rather than the velocity
-	# being yanked back, which would fight the tyres.
-	if along > max_speed * road_bonus:
-		throttle = minf(throttle, 0.0)
-	elif along < -max_speed * road_bonus * 0.5:
-		throttle = maxf(throttle, 0.0)
-
-	var contacts: Array[Dictionary] = []
+	var n := maxi(1, wheel_offsets.size())
+	var share := mass * 9.8 / float(n)
+	var wheel_mass := maxf(15.0, mass * 0.035)
+	# The joint spring is softer than its number says (Jolt), by this much.
+	var stiffness := share / SAG * 2.4
+	var damping := 2.0 * 0.55 * sqrt(stiffness * mass / float(n))
+	var grip := PhysicsMaterial.new()
+	grip.friction = tyre_grip
+	grip.rough = true
 	for i in wheel_offsets.size():
-		var start: Vector3 = global_transform * (wheel_offsets[i] as Vector3)
-		var q := PhysicsRayQueryParameters3D.create(start, start - up * suspension_rest,
-			Layers.WORLD | Layers.MACHINE, [get_rid()])
-		var hit := space.intersect_ray(q)
-		if hit.is_empty():
-			continue
-		_grounded += 1
-		var arm: Vector3 = start - global_position
-		var point_velocity: Vector3 = linear_velocity + angular_velocity.cross(arm)
-		var compression: float = clampf(
-			1.0 - start.distance_to(hit.position) / suspension_rest, 0.0, 1.0)
-		var load: float = maxf(0.0, compression * suspension_strength
-			- point_velocity.dot(up) * suspension_damping)
-		apply_force(up * load, arm)
-		contacts.append({"index": i, "arm": arm, "load": load, "velocity": point_velocity})
+		var o: Vector3 = wheel_offsets[i]
+		var anchor := Vector3(o.x + signf(o.x) * 0.12, o.y, o.z)
+		var body := RigidBody3D.new()
+		body.name = "Wheel%d" % i
+		body.top_level = true
+		body.mass = wheel_mass
+		body.collision_layer = Layers.VEHICLE
+		body.collision_mask = Layers.WORLD | Layers.LOOSE | Layers.MACHINE | Layers.TREE
+		body.physics_material_override = grip
+		body.continuous_cd = true
+		body.angular_damp = 0.3
+		var cs := CollisionShape3D.new()
+		var cyl := CylinderShape3D.new()
+		cyl.radius = wheel_radius
+		cyl.height = wheel_width
+		cs.shape = cyl
+		cs.rotation = Vector3(0, 0, PI * 0.5)
+		body.add_child(cs)
+		add_child(body)
+		body.global_transform = global_transform * Transform3D(Basis(), anchor)
+		add_collision_exception_with(body)
+		for other in wheel_bodies:
+			body.add_collision_exception_with(other)
+		if i < _wheels.size():
+			var mesh := _wheels[i]
+			mesh.reparent(body, false)
+			mesh.transform = Transform3D(Basis.from_euler(Vector3(0, 0, PI * 0.5)), Vector3.ZERO)
+		var j := Generic6DOFJoint3D.new()
+		j.name = "Axle%d" % i
+		j.position = anchor
+		add_child(j)
+		for ax in ["x", "z"]:
+			j.set("linear_limit_%s/enabled" % ax, true)
+			j.set("linear_limit_%s/upper_distance" % ax, 0.0)
+			j.set("linear_limit_%s/lower_distance" % ax, 0.0)
+		j.set("linear_limit_y/enabled", true)
+		j.set("linear_limit_y/upper_distance", BUMP)
+		j.set("linear_limit_y/lower_distance", -DROOP)
+		j.set("linear_spring_y/enabled", true)
+		j.set("linear_spring_y/stiffness", stiffness)
+		j.set("linear_spring_y/damping", damping)
+		# Where the spring would put the wheel with no weight on it: one
+		# sag below, so under the truck it sits where it is drawn.
+		j.set("linear_spring_y/equilibrium_point", -SAG)
+		j.set("angular_limit_x/enabled", false)
+		j.set("angular_motor_x/enabled", true)
+		j.set("angular_motor_x/target_velocity", 0.0)
+		j.set("angular_motor_x/force_limit", _brake_torque())
+		for ax2 in ["y", "z"]:
+			j.set("angular_limit_%s/enabled" % ax2, true)
+			j.set("angular_limit_%s/upper_angle" % ax2, 0.0)
+			j.set("angular_limit_%s/lower_angle" % ax2, 0.0)
+		j.node_a = j.get_path_to(self)
+		j.node_b = j.get_path_to(body)
+		wheel_bodies.append(body)
+		_joints.append(j)
+		_anchors.append(anchor)
 
-	if contacts.is_empty():
+func _brake_torque() -> float:
+	return mass * 9.8 / float(maxi(1, wheel_offsets.size())) * wheel_radius * 1.6
+
+## Puts the wheels back under the chassis wherever it now is: for a truck
+## moved in one go (a pad, a recovery, a load) rather than driven there.
+func _snap_wheels() -> void:
+	for i in wheel_bodies.size():
+		var body := wheel_bodies[i]
+		var xform := global_transform * Transform3D(Basis(), _anchors[i])
+		PhysicsServer3D.body_set_state(body.get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM, xform)
+		body.global_transform = xform
+		body.linear_velocity = linear_velocity
+		body.angular_velocity = Vector3.ZERO
+
+## Throttle, brakes and steering, through the joints. The motor on each axle
+## turns the wheel toward the speed asked for with no more than the engine's
+## torque; the tyre on the ground does the rest.
+func _drive_wheels() -> void:
+	if wheel_bodies.is_empty():
 		return
+	# Anything that moved the chassis in one jump takes its wheels with it.
+	if global_transform.origin.distance_to(wheel_bodies[0].global_position
+			- global_transform.basis * _anchors[0]) > 1.5:
+		_snap_wheels()
+	var standing := parked()
+	if sleeping and standing:
+		return
+	var forward := -global_transform.basis.z
+	var speed := linear_velocity.dot(forward)
+	# Steering softens with speed, so the truck is not twitchy at 20 m/s.
+	var steer: float = input_steer * max_steer_angle / (1.0 + absf(speed) * 0.07)
+	var bonus: float = 1.0 + (Terrain.ROAD_SPEED_BONUS if on_road() else 0.0)
+	var throttle: float = 0.0 if (standing or flooded()) else input_throttle
+	var n := float(wheel_bodies.size())
+	var target := 0.0
+	var torque := 0.0
+	if standing or input_brake:
+		torque = _brake_torque()
+	elif absf(throttle) > 0.05:
+		var top: float = max_speed * bonus if throttle > 0.0 else max_speed * 0.5
+		target = throttle * top / wheel_radius
+		torque = engine_force_max * bonus * wheel_radius / n
+	else:
+		# Coasting: only the drag of the drivetrain.
+		torque = mass * 9.8 / n * wheel_radius * rolling_resistance
+	_grounded = 0
+	var space := get_world_3d().direct_space_state
+	for i in wheel_bodies.size():
+		var j := _joints[i]
+		j.set("angular_motor_x/target_velocity", target)
+		j.set("angular_motor_x/force_limit", torque)
+		if _is_front(i):
+			j.set("angular_limit_y/upper_angle", -steer)
+			j.set("angular_limit_y/lower_angle", -steer)
+		var at := wheel_bodies[i].global_position
+		var q := PhysicsRayQueryParameters3D.create(at, at + Vector3.DOWN * (wheel_radius + 0.25),
+			Layers.WORLD | Layers.MACHINE, [get_rid(), wheel_bodies[i].get_rid()])
+		if not space.intersect_ray(q).is_empty():
+			_grounded += 1
+	# Parked, it goes to sleep once it, its wheels and its load have all been
+	# still for a moment - so a load dropped in still presses the springs
+	# down before it does.
+	if standing and _still():
+		_rest_time += get_physics_process_delta_time()
+		if _rest_time > 0.5:
+			sleeping = true
+			for body in wheel_bodies:
+				body.sleeping = true
+			for item in _load:
+				item.sleeping = true
+	else:
+		_rest_time = 0.0
 
-	var share := float(contacts.size())
-	for contact in contacts:
-		var index: int = contact.index
-		var arm: Vector3 = contact.arm
-		var load: float = contact.load
-		var v: Vector3 = contact.velocity
+var _rest_time: float = 0.0
 
-		# The front pair points where it is steered; the rear stays straight.
-		var wheel_forward := forward
-		if _is_front(index) and absf(steer_angle) > 0.001:
-			wheel_forward = forward.rotated(up, steer_angle)
-		var wheel_side := wheel_forward.cross(up).normalized()
-
-		var grip: float = tyre_grip * load
-		var lateral: float = clampf(
-			-v.dot(wheel_side) * lateral_stiffness * mass / share, -grip, grip)
-
-		var rolling := v.dot(wheel_forward)
-		var drive := 0.0
-		if standing or input_brake:
-			# Locked wheels.
-			drive = -rolling * lateral_stiffness * mass / share
-		elif absf(throttle) > 0.05:
-			drive = throttle * engine_force_max * road_bonus / share
-		else:
-			drive = -rolling * rolling_resistance * mass * 9.0
-		drive = clampf(drive, -grip, grip)
-
-		apply_force(wheel_forward * drive + wheel_side * lateral, arm)
-
-	# Settled and nobody aboard: let it sleep, so it is genuinely parked rather
-	# than merely slow.
-	if standing and _grounded >= 3 and speed < 0.25 and angular_velocity.length() < 0.25 \
-			and not unloading() and not _load_settling():
-		linear_velocity = Vector3.ZERO
-		angular_velocity = Vector3.ZERO
-		sleeping = true
-		# The load goes to sleep with it, in the same step. A sleeping truck
-		# under a load that is still awake does not push back properly.
-		for item in _load:
-			item.linear_velocity = Vector3.ZERO
-			item.angular_velocity = Vector3.ZERO
-			item.sleeping = true
-
-## Something in the bed is still moving about relative to the truck - rolling,
-## sliding, landing. The truck waits for it to settle before parking up, and
-## then truck and load go to sleep together.
-func _load_settling() -> bool:
+func _still() -> bool:
+	if linear_velocity.length() > 0.05 or angular_velocity.length() > 0.05:
+		return false
+	for body in wheel_bodies:
+		if (body.linear_velocity - linear_velocity).length() > 0.05:
+			return false
 	for item in _load:
-		if item.sleeping:
-			continue
-		var carry := linear_velocity + angular_velocity.cross(item.global_position - global_position)
-		if (item.linear_velocity - carry).length() > 0.3 or item.angular_velocity.length() > 0.6:
-			return true
-	return false
+		if not item.sleeping and (item.linear_velocity.length() > 0.08 or item.angular_velocity.length() > 0.2):
+			return false
+	return not unloading()
 
 func _clamp_motion() -> void:
 	var ceiling := max_speed * 1.4 * (1.0 + Terrain.ROAD_SPEED_BONUS)
@@ -768,6 +816,7 @@ func recover() -> void:
 	global_transform = after
 	linear_velocity = Vector3.ZERO
 	angular_velocity = Vector3.ZERO
+	_snap_wheels()
 	for pair in riders:
 		(pair[0] as LooseItem).teleport(after * (pair[1] as Transform3D))
 
@@ -795,6 +844,7 @@ func from_dict(d: Dictionary) -> void:
 	global_transform = xform
 	linear_velocity = Vector3.ZERO
 	angular_velocity = Vector3.ZERO
+	_snap_wheels()
 	if manager != null:
 		for item in _load:
 			manager.despawn(item)
