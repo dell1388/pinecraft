@@ -48,10 +48,14 @@ const GROUPS := [
 		[["X"], "Drop the tailgate and tip the load out"],
 		[["Z"], "Drop one piece off the back"],
 		[["C"], "Recover (set it back on its wheels)"],
-		[["E"], "Hook or unhook the winch"],
-		[["G"], "Reel the winch in"],
-		[["F"], "Crane: grab or release"],
-		[["R", "/", "T"], "Crane: turn the load"],
+		[["Y"], "Winch: hook on what you aim at, or unhook (seated or standing by it)"],
+		[["K", "/", "L"], "Winch: reel in / let out"],
+		[["Q"], "Crane: work it (outriggers down) or stow it"],
+		[["A", "D"], "Crane: swing the boom"],
+		[["W", "S"], "Crane: boom up / down"],
+		[["R", "/", "T"], "Crane: boom out / in"],
+		[["Shift", "/", "Ctrl"], "Crane: hoist up / down"],
+		[["F"], "Crane: latch the hook on, or let go"],
 	]},
 	{"title": "Game", "rows": [
 		[["Esc"], "Pause menu"],
@@ -93,10 +97,10 @@ static func hints_for(state: String) -> Array:
 				[["Wheel"], "Choose"], [["Z", "X", "C"], "Rotate"], [["Shift", "/", "Ctrl"], "Up / down"], [["B"], "Done"]]
 		"drive":
 			return [[["W", "S"], "Drive"], [["Space"], "Brake"], [["X"], "Unload"],
-				[["E"], "Winch"], [["F"], "Crane"], [["C"], "Recover"], [["V"], "Get out"]]
+				[["Y"], "Winch"], [["K", "/", "L"], "Reel"], [["Q"], "Crane"], [["V"], "Get out"]]
 		"crane":
-			return [[["W", "A", "S", "D"], "Move load"], [["Shift", "/", "Ctrl"], "Raise / lower"],
-				[["R", "/", "T"], "Turn"], [["F"], "Release"]]
+			return [[["A", "D"], "Swing"], [["W", "S"], "Boom up / down"], [["R", "/", "T"], "Boom out / in"],
+				[["Shift", "/", "Ctrl"], "Hoist"], [["F"], "Latch / let go"], [["Q"], "Stow"]]
 		"dragging":
 			return [[["LMB"], "Hold to keep hold"], [["Wheel"], "Closer / further"], [["RMB"], "Throw"]]
 		"carrying":

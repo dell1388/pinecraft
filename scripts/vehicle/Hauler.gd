@@ -323,14 +323,29 @@ func _update_tub(delta: float) -> void:
 		return
 	_tub_angle = move_toward(_tub_angle, _tub_target, TUB_SPEED * delta)
 	_pose_tub(_tub_angle)
-	# Moving colliders do not wake what rests on them.
+	# Moving colliders do not wake what rests on them - nor the truck they
+	# are part of, which has to be awake for them to push anything.
+	sleeping = false
 	for item in _load:
 		item.sleeping = false
 	if _tub_angle == 0.0 and _tub_target == 0.0:
 		_set_tailgate(false)
+		_clear_under_tub()
 
-## Wheels turn with the ground speed and the front pair follows the steering,
-## which is what sells a vehicle as driven rather than slid.
+## Anything that slid in under the raised tub would be crushed into the
+## chassis as it came down; it is squeezed out behind the truck instead.
+func _clear_under_tub() -> void:
+	if manager == null:
+		return
+	var inverse := global_transform.affine_inverse()
+	for item in manager.free_items():
+		var local := inverse * item.global_position
+		if absf(local.x) < bed_half_width + 0.2 and local.z > bed_front and local.z < bed_back \
+				and local.y > body_size.y * 0.5 - 0.2 and local.y < bed_floor:
+			item.teleport(Transform3D(item.global_transform.basis,
+				global_transform * Vector3(local.x, bed_floor + 0.3, bed_back + 1.2)))
+
+## The front axle's wheels are the ones that steer.
 func _is_front(index: int) -> bool:
 	return absf((wheel_offsets[index] as Vector3).z - _front_z) < 0.1
 
@@ -608,9 +623,28 @@ func _physics_process(delta: float) -> void:
 	_clamp_motion()
 
 func _read_input() -> void:
+	if planted:
+		# The controls are working the crane.
+		input_throttle = 0.0
+		input_steer = 0.0
+		input_brake = true
+		return
 	input_throttle = Input.get_axis("move_back", "move_forward")
 	input_steer = Input.get_axis("move_right", "move_left")
 	input_brake = Input.is_action_pressed("jump")
+
+## Stood on its outriggers for the crane: it does not roll, rock or tip, and
+## the crane's load is carried into the ground.
+var planted: bool = false
+
+func set_planted(on: bool) -> void:
+	planted = on
+	if on:
+		linear_velocity = Vector3.ZERO
+		angular_velocity = Vector3.ZERO
+		freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
+	freeze = on
+	sleeping = false
 
 ## Spec: a driver seat under water means the truck can no longer be driven.
 func flooded() -> bool:
@@ -732,7 +766,7 @@ func _drive_wheels() -> void:
 	if global_transform.origin.distance_to(wheel_bodies[0].global_position
 			- global_transform.basis * _anchors[0]) > 1.5:
 		_snap_wheels()
-	var standing := parked()
+	var standing := parked() or planted
 	if sleeping and standing:
 		return
 	var forward := -global_transform.basis.z

@@ -120,9 +120,10 @@ func _write_log() -> void:
 		f.close()
 
 func _test(name: StringName, fn: Callable) -> void:
-	# TEST_ONLY=word runs just the tests whose names contain it.
+	# TEST_ONLY=word runs just the tests whose names contain it (or any of
+	# several words, split by |).
 	var only := OS.get_environment("TEST_ONLY")
-	if only != "" and not String(name).contains(only):
+	if only != "" and not Array(only.split("|")).any(func(w): return String(name).contains(w)):
 		return
 	_current = String(name)
 	var before := _failures.size()
@@ -3225,87 +3226,132 @@ func test_unlimited_money() -> void:
 	check(not Economy.try_spend(1000000), "turning it off left money unlimited")
 	done()
 
-## Spec: every machine has a set power, beyond which it has no effect. The crane
-## will not lift past its rating and the winch will not pull past its own.
+## Spec: the winch and crane are real machines on real lines. The winch drags
+## what it is hooked to - up to its rating, where it stalls - or, hooked to
+## something fixed, drags the truck. The crane hoists a load on its hook,
+## swings it with the boom, stands the truck on outriggers while it works,
+## and cannot lift past its rating.
 func test_vehicle_rig() -> void:
 	_setup(false)
 	var truck := Hauler.new()
 	truck.setup(manager, 0)
-	truck.position = Vector3(0, 1.5, 0)
 	world.add_child(truck)
-	await step(40)
+	truck.global_position = Vector3(0, truck.spawn_height(), 0)
+	await step(60)
 	var rig := truck.rig
 	check(rig != null, "the hauler has no rig")
-	rig.crane_power_kg = 800.0
+	check(rig.has_crane(), "the hauler has no crane")
 	rig.winch_power_kg = 3000.0
-	rig.reach = 14.0
+	var ahead := -truck.global_transform.basis.z
+	var front := rig.fairlead()
 
-	# Inside the rating: the crane takes it, and the load goes kinematic so it
-	# cannot fight the solver while it is being placed.
-	var light := spawn(&"wood_pine", truck.global_position + Vector3(3, 1, 0),
-		Solid.cylinder(0.3, 0.3, 3.0))
-	check(light.mass < 800.0, "light test piece is %.0f kg" % light.mass)
-	check_eq(rig.grab(light), "", "the crane refused a piece inside its rating")
-	check(rig.holding(), "the crane does not think it is holding anything")
-	check_eq(light.state, LooseItem.State.HELD, "a crane load is still loose in the solver")
-	check(light.owned, "lifting a piece with the crane did not make it the player's")
+	# The winch drags a log in.
+	var log_piece := spawn(&"wood_pine", front + ahead * 9.0 + Vector3(0, 0.2, 0), Solid.cylinder(0.25, 0.25, 2.0))
+	await step(20)
+	check_eq(rig.attach_winch(log_piece, log_piece.global_position), "", "the winch would not hook a log")
+	check(rig.anchored and log_piece.owned, "hooking a log did not take it")
+	var start := log_piece.global_position.distance_to(rig.fairlead())
+	for i in 240:
+		rig.reel(1.0 / 60.0)
+		await step(1)
+	var now := log_piece.global_position.distance_to(rig.fairlead())
+	check(now < start - 3.0, "reeling in moved the log %.1f m" % (start - now))
+	check(rig.winch_load_kg() < rig.winch_power_kg, "a light log stalled the winch")
+	rig.release_winch()
+	check(not rig.anchored, "unhooking left the winch hooked")
 
-	# The crane drives the object: WASD in, object moves, boom follows.
-	var before := light.global_position
-	rig.steer(Vector3(1, 0, 0), 0.0, 0, 0.5)
-	check(light.global_position.distance_to(before) > 0.1, "steering did not move the load")
-	var height := light.global_position.y
-	rig.steer(Vector3.ZERO, 1.0, 0, 0.5)
-	check(light.global_position.y > height, "raising the load did not lift it")
-	var yaw := rig.hold_yaw
-	rig.steer(Vector3.ZERO, 0.0, 1, 0.1)
-	check_near(absf(rig.hold_yaw - yaw), PI * 0.5, 0.0001, "a turn was not a quarter turn")
-
-	# It cannot be walked past the boom's reach.
-	for i in 400:
-		rig.steer(Vector3(1, 0, 0), 0.0, 0, 0.1)
-	check(rig.head_point().distance_to(light.global_position) <= rig.reach + 0.01,
-		"the load went past the crane's reach")
-
-	rig.drop()
-	check(not rig.holding(), "dropping left the crane holding on")
-	check_eq(light.state, LooseItem.State.FREE, "a dropped load is still kinematic")
-
-	# Past the rating: refused outright, not lifted slowly.
-	var heavy := spawn(&"wood_ironwood", truck.global_position + Vector3(3, 1, 2),
-		Solid.cylinder(0.5, 0.5, 4.0))
-	check(heavy.mass > 800.0, "heavy test piece is only %.0f kg" % heavy.mass)
-	check(rig.grab(heavy) != "", "the crane lifted a piece past its rating")
-	check(not rig.holding(), "a refused lift still left the crane holding something")
-
-	# Out of reach is refused too, whatever it weighs.
-	var distant := spawn(&"wood_pine", truck.global_position + Vector3(40, 1, 0),
-		Solid.cylinder(0.2, 0.2, 1.0))
-	check(rig.grab(distant) != "", "the crane reached 40 m")
-
-	# The winch takes a load up to its rating and no further.
-	check_eq(rig.attach_winch(heavy, heavy.global_position), "",
-		"the winch refused a load inside its rating")
-	check(rig.anchored, "the winch does not think it is hooked on")
-	check(rig.winch_can_pull(), "the winch will not pull a load inside its rating")
+	# Past its rating the drum stalls and the load stays put.
+	var heavy := spawn(&"wood_ironwood", front + ahead * 8.0 + Vector3(3, 0.4, 0), Solid.cylinder(0.5, 0.5, 4.0))
+	await step(60)
+	rig.winch_power_kg = 100.0
+	check_eq(rig.attach_winch(heavy, heavy.global_position), "", "the winch would not hook a heavy log")
+	var stood := heavy.global_position
+	for i in 180:
+		rig.reel(1.0 / 60.0)
+		await step(1)
+	check(heavy.global_position.distance_to(stood) < 0.6,
+		"a %.0f kg winch dragged a %.0f kg log %.1f m" % [rig.winch_power_kg, heavy.mass, heavy.global_position.distance_to(stood)])
+	check(rig.winch_stalled(), "an over-rated pull did not stall the winch")
 	rig.release_winch()
 
-	rig.winch_power_kg = 100.0
-	check(rig.attach_winch(heavy, heavy.global_position) != "",
-		"the winch hooked a load past its rating")
-	check(not rig.anchored, "a refused hook still left the winch attached")
-
-	# And a hooked load past the rating simply does not move.
-	rig.winch_power_kg = 100000.0
-	check_eq(rig.attach_winch(heavy, heavy.global_position), "", "re-hooking failed")
-	rig.winch_power_kg = 10.0
-	check(not rig.winch_can_pull(), "an over-rated load still counts as pullable")
-	var stood := heavy.global_position
-	for i in 30:
+	# Hooked to something fixed, it drags the truck instead (brakes off).
+	rig.winch_power_kg = 6000.0
+	truck.autopilot = true
+	var post := StaticBody3D.new()
+	world.add_child(post)
+	var anchor := rig.fairlead() + ahead * 10.0
+	check_eq(rig.attach_winch(post, anchor), "", "the winch would not hook a fixed point")
+	var truck_start := truck.global_position
+	for i in 240:
 		rig.reel(1.0 / 60.0)
-	await step(4)
-	check(heavy.global_position.distance_to(stood) < 0.5,
-		"the winch dragged a load %.0f times past its rating" % (heavy.mass / 10.0))
+		await step(1)
+	check(truck.global_position.distance_to(truck_start) > 2.0,
+		"winching on a fixed point did not pull the truck (%.1f m)" % truck.global_position.distance_to(truck_start))
+	rig.release_winch()
+	truck.autopilot = false
+	check(rig.attach_winch(post, rig.fairlead() + ahead * 40.0) != "", "the winch hooked on 40 m away")
+	await step(60)
+
+	# The crane: outriggers down, hook lowered onto a log, latched, hoisted.
+	rig.crane_power_kg = 1200.0
+	rig.set_operating(true)
+	check(truck.freeze, "working the crane did not plant the truck")
+	# Swung out to the side, clear of the truck.
+	var slew_from := rig.slew
+	for i in 200:
+		rig.work(1.0, 0, 0.6, 0, 1.0 / 60.0)
+		await step(1)
+		if absf(angle_difference(rig.slew, PI * 0.5)) < 0.05:
+			break
+	check(absf(rig.slew - slew_from) > 0.5, "the boom would not swing")
+	await step(30)
+	var tip := rig.tip_point()
+	var load_piece := spawn(&"wood_pine", Vector3(tip.x, 0.35, tip.z), Solid.cylinder(0.25, 0.25, 1.6))
+	await step(30)
+	for i in 400:
+		rig.work(0, 0, 0, -1.0, 1.0 / 60.0)
+		await step(1)
+		if rig.hook.global_position.distance_to(load_piece.global_position) < 0.7:
+			break
+	check_eq(rig.latch(), "", "the hook would not latch the log beneath it")
+	check(rig.holding(), "the crane does not think it has the log")
+	var low := load_piece.global_position.y
+	for i in 180:
+		rig.work(0, 0, 0, 1.0, 1.0 / 60.0)
+		await step(1)
+	check(load_piece.global_position.y > low + 1.0, "hoisting lifted the log %.2f m (hook y %.2f, tip y %.2f, rope %.2f, tension %.0f, log frozen %s state %d mass %.0f)" % [load_piece.global_position.y - low, rig.hook.global_position.y, rig.tip_point().y, rig.hoist_length, rig.hoist_tension, str(load_piece.freeze), load_piece.state, load_piece.mass])
+	# Swinging the boom carries the load round with it.
+	var was := Vector2(load_piece.global_position.x, load_piece.global_position.z)
+	for i in 120:
+		rig.work(1.0, 0, 0, 0, 1.0 / 60.0)
+		await step(1)
+	await step(60)
+	var moved := Vector2(load_piece.global_position.x, load_piece.global_position.z).distance_to(was)
+	check(moved > 1.0, "slewing moved the load %.2f m" % moved)
+	rig.drop()
+	check(not rig.holding(), "letting go left the crane holding on")
+	await step(90)
+	check(load_piece.global_position.y < 1.0, "a released load did not fall")
+
+	# Past its rating the hoist stalls and the load stays down.
+	rig.crane_power_kg = 150.0
+	tip = rig.tip_point()
+	var big := spawn(&"wood_ironwood", Vector3(tip.x, 0.5, tip.z), Solid.cylinder(0.4, 0.4, 2.0))
+	await step(40)
+	for i in 400:
+		rig.work(0, 0, 0, -1.0, 1.0 / 60.0)
+		await step(1)
+		if rig.hook.global_position.distance_to(big.global_position) < 0.8:
+			break
+	check_eq(rig.latch(), "", "the hook would not latch the heavy log")
+	var big_low := big.global_position.y
+	for i in 180:
+		rig.work(0, 0, 0, 1.0, 1.0 / 60.0)
+		await step(1)
+	check(big.global_position.y < big_low + 0.3, "a %.0f kg crane lifted %.0f kg" % [rig.crane_power_kg, big.mass])
+	rig.drop()
+	rig.set_operating(false)
+	check(not truck.freeze, "stowing the crane left the truck planted")
 	done()
 
 func _haulers_in(node: Node) -> int:

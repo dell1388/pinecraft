@@ -672,7 +672,7 @@ func _current_prompt(building: bool, driving: bool) -> String:
 		return ""
 	if driving:
 		var r := player.rig()
-		if r != null and (r.holding() or r.anchored):
+		if r != null and (r.operating or r.anchored):
 			return r.status_line()
 		return ""
 	return player.last_prompt
@@ -872,8 +872,11 @@ func _update_drive() -> void:
 	var bits: Array[String] = []
 	if truck.input_brake:
 		bits.append("braking")
-	if player.steering_load():
-		bits.append("crane has a load")
+	var rg := player.rig()
+	if rg != null and rg.operating:
+		bits.append("on outriggers" + (" - load on the hook" if rg.held != null else ""))
+	if rg != null and rg.anchored:
+		bits.append("winch %.0f kg" % rg.winch_load_kg())
 	_drive_state.text = "   ·   ".join(bits) if not bits.is_empty() else "the load rides loose - mind the corners"
 
 func _update_debug() -> void:

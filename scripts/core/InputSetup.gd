@@ -15,6 +15,11 @@ const BINDINGS := {
 	# object, so "sprint" doubles as raise and this is lower.
 	"lower": [KEY_CTRL],
 	"reel": [KEY_G],
+	# The winch, seated or standing by the truck, and the crane's boom.
+	"winch_in": [KEY_K],
+	"winch_out": [KEY_L],
+	"boom_out": [KEY_R],
+	"boom_in": [KEY_T],
 }
 
 static func ensure() -> void:

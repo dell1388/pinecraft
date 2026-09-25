@@ -52,9 +52,12 @@ you play. The full list of keys is on the Controls page and in the journal
 | H / F3 | hide the key hints / debug readout |
 | F5 / F9 / F8 | quick save / quick load / new game (asks first) |
 | E at a vehicle's cab or seat / V | get in / get out (third-person while driving) |
-| E / G (driving) | hook and unhook the winch / reel it in |
-| F (driving) | crane: take hold of a piece, or let it go |
-| WASD / Shift / Ctrl / R / T (crane) | drive the load itself, and turn it |
+| Y | winch: hook the line on whatever you aim at, or unhook it - from the seat or standing by the truck |
+| K / L | winch: reel in / let out (E and G still work in the seat) |
+| Q (driving) | crane: work it (the truck goes down on its outriggers) or stow it |
+| A / D, W / S, R / T (crane) | swing the boom, raise and lower it, run it out and in |
+| Shift / Ctrl (crane) | hoist the hook up / let it down |
+| F (crane) | latch the hook on to what it is touching, or let go |
 | X / Z / C (not in build mode) | unload all (the dump truck tips its tub) / drop one / flip the vehicle upright |
 
 ## Interface
@@ -506,9 +509,11 @@ them than before.
   belt). Splitters and filters have a turntable and an arrow to each output.
 * **The hauler** has a cab with glass and mirrors, a light bar, a grille,
   bumper, headlights and tail lights, an exhaust stack, mudguards, stake posts
-  round the bed, and wheels with a tread, rims and lug nuts that spin with
-  ground speed and steer with the front axle. Its winch cable and crane boom
-  are drawn last, from the hook to wherever the load ended up.
+  round the bed, and wheels with a tread, rims and lug nuts. The wheels are
+  real: each is its own body on a sprung joint, driven by a motor on its axle
+  and steered by turning the joint, so the truck goes where its tyres take it.
+  The winch line and crane rope are real lines too - slack until drawn tight,
+  then pulling as hard as the machine on them is rated for and no harder.
 * **Nameplates.** Primitives can only say so much, and a plot is a field of
   similar boxes, so every placed building, the build ghost and the two landmarks
   carry a billboarded label. It is a stopgap until the models speak for
@@ -766,9 +771,10 @@ generated cracks that deepen faster under a heavier head; a crusher that does it
 wholesale; ore smelted to higher value density. Value as density times volume,
 periodic price swings, and orders that reward delivering quantities of named
 materials. A yard where the shopkeep buys everything of yours standing in it.
-Lifting to 100 kg and moving to 1000 kg. A loose load in a walled truck bed. Third-person driving, winches that hook to any solid
-surface, a crane that hands the player the *object* rather than the boom, and a
-power rating on both past which nothing happens at all. A square of property to
+Lifting to 100 kg and moving to 1000 kg. A loose load in a walled truck bed. Third-person driving on real wheels, a winch that hooks
+anything and drags the lighter end, a crane with a boom you swing, luff and
+run out and a hook that hoists and swings its load, and a rating on both at
+which the drum stalls. A square of property to
 build on, freecam build mode, quarter-turn rotation on three axes, and schematic
 shapes that solidify when filled with their own volume of one material. Machines
 that must be placed and fed, and vehicle spawn pads that deliver one copy and
@@ -787,7 +793,7 @@ representation of the land than the one here. Build-mode gizmo handles and
 multi-select: the doc asks for cardinal handles on a selected object for finer
 translation, rotation and scale, and for selecting several objects and moving
 them as one; placement here is still grid-snapped, which is what keeps the
-occupancy grid exact. Working crane outriggers, and trailers.
+occupancy grid exact. Trailers.
 Belt curves and tees as distinct pieces, though filters and splitters already
 cover the sorting the doc lists beside them.
 

@@ -1135,6 +1135,12 @@ func vehicles() -> Array[Hauler]:
 
 ## The vehicle you are driving, or else the nearest one within `reach`
 ## (measured to its hull, so a long truck is as easy to get into as a quad).
+## How far the player stands from a vehicle's body.
+func _distance_to(v: Hauler) -> float:
+	var local := v.global_transform.affine_inverse() * player.global_position
+	var half := v.body_size * 0.5
+	return Vector3(maxf(absf(local.x) - half.x, 0.0), 0.0, maxf(absf(local.z) - half.z, 0.0)).length()
+
 func vehicle_at_hand(reach: float = 6.0) -> Hauler:
 	if player != null and player.driving():
 		return player.vehicle as Hauler
@@ -1425,6 +1431,11 @@ func return_to_base() -> void:
 func _physics_process(delta: float) -> void:
 	if player != null and player.global_position.y < FELL_OUT_Y:
 		return_to_base()
+	# Standing by a truck, its winch answers the reel keys too.
+	if player != null and not player.driving() and playing:
+		var wv := vehicle_at_hand(10.0)
+		if wv != null and wv.rig != null and wv.rig.anchored and _distance_to(wv) <= 10.0:
+			player.work_winch(wv.rig, delta)
 	var riding := player.vehicle as Hauler if player != null and player.driving() else null
 	if riding != null and is_instance_valid(riding):
 		# The player rides the seat; the camera is a child of the player, so
@@ -1471,6 +1482,14 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			var v := vehicle_at_hand(8.0)
 			if v != null and not building and v.unload_one():
 				hud.log_message("dropping one off the back (%d left)" % (v.cargo_count() - 1))
+		KEY_Y:
+			# The winch from outside the truck: stand by it, aim, hook on.
+			if not player.driving() and not building:
+				var wv := vehicle_at_hand(10.0)
+				if wv == null or wv.rig == null or _distance_to(wv) > 10.0:
+					hud.log_message("stand by a truck with a winch to use it")
+				else:
+					hud.log_message(player.hook_winch(wv.rig))
 		KEY_C:
 			var v := vehicle_at_hand(8.0)
 			if v != null and not building:

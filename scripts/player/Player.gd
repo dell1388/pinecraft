@@ -187,7 +187,7 @@ func rig() -> VehicleRig:
 ## driving the load rather than the truck.
 func steering_load() -> bool:
 	var r := rig()
-	return r != null and r.holding()
+	return r != null and r.operating
 
 # --- Input -----------------------------------------------------------------
 
@@ -330,37 +330,52 @@ func _on_driving_key(event: InputEventKey) -> bool:
 	if r == null:
 		return false
 	match event.keycode:
+		KEY_Q:
+			if not r.has_crane():
+				interacted.emit("this vehicle has no crane")
+			else:
+				r.set_operating(not r.operating)
+				interacted.emit("working the crane - the truck is on its outriggers" if r.operating
+					else "crane stowed, outriggers up")
+			return true
 		KEY_F:
-			if r.holding():
-				r.drop()
-				interacted.emit("load released")
-			else:
-				var hit := aim_hit()
-				var item := _owner_of(hit.get("collider")) as LooseItem if not hit.is_empty() else null
-				interacted.emit(_said(r.grab(item), "crane has it"))
+			if r.operating:
+				var had := r.held != null
+				interacted.emit(_said(r.latch(), "let go" if had else "hook latched on"))
+			elif r.has_crane():
+				interacted.emit("[Q] to work the crane")
 			return true
-		KEY_E:
-			if r.anchored:
-				r.release_winch()
-				interacted.emit("winch unhooked")
-			else:
-				var hit := aim_hit()
-				if hit.is_empty():
-					interacted.emit("nothing in front of the winch")
-				else:
-					interacted.emit(_said(
-						r.attach_winch(_owner_of(hit.collider) as Node3D, hit.position),
-						"winch hooked on"))
+		KEY_E, KEY_Y:
+			interacted.emit(hook_winch(r))
 			return true
-		KEY_R:
-			if r.holding():
-				_load_spin = 1
-				return true
-		KEY_T:
-			if r.holding():
-				_load_spin = -1
-				return true
+		KEY_R, KEY_T:
+			return r.operating
 	return false
+
+## Hooks a rig's winch line to whatever the player is aiming at, or unhooks it.
+func hook_winch(r: VehicleRig) -> String:
+	if r.anchored:
+		r.release_winch()
+		return "winch unhooked"
+	var hit := aim_hit_far(r.reach + 6.0)
+	if hit.is_empty():
+		return "nothing there to hook the winch to"
+	var target := _owner_of(hit.collider) as Node3D
+	if target == null:
+		target = hit.collider as Node3D
+	return _said(r.attach_winch(target, hit.position), "winch hooked on - [K] reel in, [L] let out")
+
+## What the player is aiming at, further out than arm's reach.
+func aim_hit_far(distance: float) -> Dictionary:
+	var space := get_world_3d().direct_space_state
+	var from := camera.global_position
+	var to := from - camera.global_transform.basis.z * distance
+	var q := PhysicsRayQueryParameters3D.create(from, to)
+	q.exclude = [get_rid()]
+	var v := vehicle as CollisionObject3D
+	if v != null:
+		q.exclude.append(v.get_rid())
+	return space.intersect_ray(q)
 
 ## Tool calls report a problem as text and success as an empty string; this
 ## turns that into something to show the player either way.
@@ -424,8 +439,8 @@ func _physics_process(delta: float) -> void:
 func _update_chase_camera(_delta: float) -> void:
 	var focus: Node3D = vehicle
 	var r := rig()
-	if r != null and r.holding():
-		focus = r.held
+	if r != null and r.operating and r.hook != null:
+		focus = r.hook
 	if focus == null or not is_instance_valid(focus):
 		return
 	var pivot := focus.global_position + Vector3(0, chase_height, 0)
@@ -435,32 +450,25 @@ func _update_chase_camera(_delta: float) -> void:
 		distance = float(vehicle.get("camera_distance"))
 	camera.global_transform = Transform3D(basis, pivot + basis.z * distance)
 
-## Spec: while the crane holds something the player drives the object - WASD
-## slides it, Shift and Control raise and lower it, R and T turn it.
+## The winch (reel in, let out) whenever there is one, and the crane's
+## controls while it is being worked: A/D swing, W/S boom up and down, R/T
+## boom out and in, Shift/Ctrl hoist.
 func _update_vehicle_controls(delta: float) -> void:
 	var r := rig()
 	if r == null:
 		return
-	if Input.is_action_pressed("reel"):
-		r.reel(delta)
-	if not r.holding():
+	work_winch(r, delta)
+	if not r.operating:
 		return
-	var input := Vector2(
-		Input.get_axis("move_left", "move_right"),
-		Input.get_axis("move_forward", "move_back"))
-	# Lateral movement is read in the camera's frame, so "forward" is whichever
-	# way the player is looking at the load from.
-	var flat := Basis.from_euler(Vector3(0, rotation.y, 0))
-	var move := (flat * Vector3(input.x, 0.0, input.y))
-	var lift := 0.0
-	if Input.is_action_pressed("sprint"):
-		lift += 1.0
-	if Input.is_action_pressed("lower"):
-		lift -= 1.0
-	r.steer(move, lift, _load_spin, delta)
-	_load_spin = 0
+	r.work(Input.get_axis("move_right", "move_left"), Input.get_axis("move_back", "move_forward"),
+		Input.get_axis("boom_in", "boom_out"), Input.get_axis("lower", "sprint"), delta)
 
-var _load_spin: int = 0
+func work_winch(r: VehicleRig, delta: float) -> void:
+	if Input.is_action_pressed("winch_in") or (driving() and Input.is_action_pressed("reel")):
+		r.reel(delta)
+	if Input.is_action_pressed("winch_out"):
+		r.pay_out(delta)
+
 
 # --- Aiming ----------------------------------------------------------------
 

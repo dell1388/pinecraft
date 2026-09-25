@@ -249,14 +249,12 @@ static func _tub(v: Hauler) -> void:
 	v._tub_mesh = g.instance("Tub")
 	v.add_child(v._tub_mesh)
 
-## The crane truck's mast: a pedestal behind the cab, a column and a folded
-## boom lying back over the bed.
+## The crane truck's mast: a pedestal behind the cab and a column. The boom
+## itself is the working one (see VehicleRig), folded back over the bed.
 static func _mast(v: Hauler, g: Greeble, head: Vector3) -> void:
 	var base := Vector3(0, v.body_size.y * 0.5, head.z)
 	g.prism(8, 0.55, 0.5, 0.35, Transform3D(Basis(), base), STEEL.darkened(0.3))
 	g.block(Vector3(0.6, head.y - base.y, 0.6), base + Vector3(0, (head.y - base.y) * 0.5 + 0.35, 0), Color(0.95, 0.78, 0.15))
-	var boom_end := Vector3(0, head.y - 0.3, v.bed_back - 0.3)
-	g.pipe(head + Vector3(0, 0.2, 0), boom_end, 0.2, Color(0.95, 0.78, 0.15), 6)
 	g.block(Vector3(0.5, 0.5, 0.5), head + Vector3(0, 0.2, 0), DARK)
 	g.pipe(base + Vector3(0, 0.8, 0.1), head + Vector3(0, -0.1, 0.9), 0.1, STEEL, 6)
 	for side in [-1.0, 1.0]:
