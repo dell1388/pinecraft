@@ -348,9 +348,20 @@ func _on_driving_key(event: InputEventKey) -> bool:
 		KEY_E, KEY_Y:
 			interacted.emit(hook_winch(r))
 			return true
+		KEY_O:
+			interacted.emit(toggle_outriggers(r))
+			return true
 		KEY_R, KEY_T:
 			return r.operating
 	return false
+
+## Puts a rig's outriggers out, locking the truck where it stands, or brings
+## them in.
+func toggle_outriggers(r: VehicleRig) -> String:
+	if r.operating:
+		return "the crane is working on them - stow it first [Q]"
+	r.set_outriggers(not r.outriggers_down)
+	return "outriggers down - the truck is locked in place" if r.outriggers_down else "outriggers up"
 
 ## Hooks a rig's winch line to whatever the player is aiming at, or unhooks it.
 func hook_winch(r: VehicleRig) -> String:

@@ -672,7 +672,7 @@ func _current_prompt(building: bool, driving: bool) -> String:
 		return ""
 	if driving:
 		var r := player.rig()
-		if r != null and (r.operating or r.anchored):
+		if r != null and (r.operating or r.anchored or r.outriggers_down):
 			return r.status_line()
 		return ""
 	return player.last_prompt

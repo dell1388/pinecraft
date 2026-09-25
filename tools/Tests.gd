@@ -3427,11 +3427,43 @@ func test_vehicle_rig() -> void:
 	world.add_child(seam)
 	await step(4)
 	check_eq(rig.attach_winch(seam, seam.global_position + Vector3(0, 0.2, 0)), "", "the winch would not hook ore in the ground")
+	# Outriggers lock the truck: reeling on a fixed chunk no longer drags it.
+	rig.set_outriggers(true)
+	check(truck.freeze, "outriggers down did not lock the truck")
+	var locked_at := truck.global_position
 	for i in 300:
 		rig.reel(1.0 / 60.0)
 		await step(1)
 	check(seam.consumed(), "winching did not pull the ore out (pull %.0f of %.0f kg)" % [rig.winch_load_kg(), seam.pull_required()])
 	check(rig.anchor_body is LooseItem, "the freed ore is not on the winch line")
+	check(truck.global_position.distance_to(locked_at) < 0.05, "a truck on its outriggers moved")
+	rig.release_winch()
+	rig.set_outriggers(false)
+	check(not truck.freeze, "outriggers up left the truck locked")
+	# Jerked: a line snatched tight past the chunk's pull frees it, whatever
+	# the winch's own rating.
+	var jerk := OreRock.new()
+	jerk.manager = manager
+	jerk.ore_item = &"ore_tin"
+	jerk.embed = 0.4
+	jerk.volume = 0.08
+	var spot := rig.fairlead() - truck.global_transform.basis.z * 6.0
+	jerk.position = Vector3(spot.x, 0.0, spot.z)
+	world.add_child(jerk)
+	await step(4)
+	check_eq(rig.attach_winch(jerk, jerk.global_position + Vector3(0, 0.2, 0)), "", "the winch would not hook the chunk to jerk")
+	# Rated under what the chunk needs, but the line holds more than the
+	# drum pulls: backed away hard, the truck snatches it out.
+	rig.winch_power_kg = jerk.pull_required() * 0.9
+	truck.autopilot = true
+	truck.input_throttle = -1.0
+	for i in 240:
+		await step(1)
+		if jerk.consumed():
+			break
+	truck.input_throttle = 0.0
+	truck.autopilot = false
+	check(jerk.consumed(), "a line snatched tight (%.0f kg) did not jerk out a chunk needing %.0f kg" % [rig.winch_load_kg(), jerk.pull_required()])
 	rig.release_winch()
 	done()
 

@@ -1490,6 +1490,13 @@ func _unhandled_key_input(event: InputEvent) -> void:
 					hud.log_message("stand by a truck with a winch to use it")
 				else:
 					hud.log_message(player.hook_winch(wv.rig))
+		KEY_O:
+			if not player.driving() and not building:
+				var ov := vehicle_at_hand(10.0)
+				if ov == null or ov.rig == null or _distance_to(ov) > 10.0:
+					hud.log_message("stand by a truck with outriggers to put them out")
+				else:
+					hud.log_message(player.toggle_outriggers(ov.rig))
 		KEY_C:
 			var v := vehicle_at_hand(8.0)
 			if v != null and not building:

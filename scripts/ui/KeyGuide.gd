@@ -50,6 +50,7 @@ const GROUPS := [
 		[["C"], "Recover (set it back on its wheels)"],
 		[["Y"], "Winch: hook on what you aim at, or unhook (seated or standing by it)"],
 		[["K", "/", "L"], "Winch: reel in / let out"],
+		[["O"], "Outriggers out or in: locks the truck where it stands (seated or standing by it)"],
 		[["Q"], "Crane: work it (outriggers down) or stow it"],
 		[["A", "D"], "Crane: swing the boom"],
 		[["W", "S"], "Crane: boom up / down"],

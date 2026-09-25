@@ -54,6 +54,7 @@ you play. The full list of keys is on the Controls page and in the journal
 | E at a vehicle's cab or seat / V | get in / get out (third-person while driving) |
 | Y | winch: hook the line on whatever you aim at, or unhook it - from the seat or standing by the truck |
 | K / L | winch: reel in / let out (E and G still work in the seat) |
+| O | outriggers out or in - the truck is locked where it stands (seated or standing by it) |
 | Q (driving) | crane: work it (the truck goes down on its outriggers) or stow it |
 | A / D, W / S, R / T (crane) | swing the boom, raise and lower it, run it out and in |
 | Shift / Ctrl (crane) | hoist the hook up / let it down |

@@ -140,7 +140,9 @@ static func pull(a: RigidBody3D, pa: Vector3, b: RigidBody3D, pb: Vector3, lengt
 		inv += 1.0 / (b.mass + extra_mass_b)
 		vb = b.linear_velocity + b.angular_velocity.cross(pb - b.global_position)
 	if inv <= 0.0:
-		return 0.0
+		# Both ends fixed (a locked truck on a rock): the line is as good as
+		# rigid, so drawing it tighter only raises the pull.
+		return clampf((dist - length) * 200000.0, 0.0, most)
 	for body in [a, b]:
 		if body != null and body.sleeping:
 			body.sleeping = false
@@ -247,8 +249,11 @@ func _work_winch() -> void:
 			return
 		# Reeling on it with the line tight, the drum pulls with all it is
 		# rated for - the truck on its brakes is the anchor at the other end.
-		if _reeling > 0 and winch_tension > 0.0 and winch_power_kg >= anchor_rock.pull_required():
-			var freed := anchor_rock.try_free(winch_power_kg)
+		# Or jerked: whatever the line is actually pulling with - a truck's
+		# momentum snatching it tight - counts in full.
+		var reeled := _reeling > 0 and winch_tension > 0.0 and winch_power_kg >= anchor_rock.pull_required()
+		if reeled or winch_load_kg() >= anchor_rock.pull_required():
+			var freed := anchor_rock.try_free(maxf(winch_power_kg, winch_load_kg()))
 			anchor_rock = null
 			if freed != null:
 				freed.owned = true
@@ -275,10 +280,7 @@ func set_operating(on: bool) -> void:
 	if not has_crane() or operating == on:
 		return
 	operating = on
-	if vehicle != null and vehicle.has_method("set_planted"):
-		vehicle.call("set_planted", on)
-	for leg in _outriggers:
-		leg.visible = on
+	_apply_plant()
 	if on:
 		# Up off the bed, ready to work.
 		if luff < 0.3:
@@ -290,6 +292,25 @@ func set_operating(on: bool) -> void:
 		hoist_length = maxf(1.0, hoist_length)
 	elif held == null:
 		_stow_hook()
+
+## Outriggers out: the truck stands on them, locked where it is - an anchor
+## for the winch, or a steady base for the crane. Working the crane puts them
+## down too; stowing it leaves them as they were set.
+var outriggers_down: bool = false
+
+func set_outriggers(on: bool) -> void:
+	outriggers_down = on
+	_apply_plant()
+
+func planted() -> bool:
+	return outriggers_down or operating
+
+func _apply_plant() -> void:
+	var on := planted()
+	if vehicle != null and vehicle.has_method("set_planted"):
+		vehicle.call("set_planted", on)
+	for leg in _outriggers:
+		leg.visible = on
 
 ## Works the crane: `swing` slews, `raise` luffs, `extend` runs the boom out
 ## or in, `hoist` takes up (+) or lets out (-) rope. Each is -1..1.
@@ -363,7 +384,7 @@ func _free_rock() -> void:
 	if _latch != null and is_instance_valid(_latch):
 		_latch.queue_free()
 	_latch = null
-	var item := rock.try_free(hoist_tension / 9.8 + 1.0)
+	var item := rock.try_free(maxf(crane_power_kg, hoist_tension / 9.8) + 1.0)
 	if item == null:
 		return
 	var side := pow(item.volume(), 1.0 / 3.0)
@@ -468,8 +489,8 @@ func _work_crane() -> void:
 		crane_power_kg * 9.8 * 1.25 + HOOK_MASS * 9.8, extra)
 	# Hoisting on ore in the ground, rope tight: the hoist pulls with all it
 	# is rated for, and the chunk comes out if that is enough.
-	if held_rock != null and _hoisting > 0 and hoist_tension > 0.0 \
-			and crane_power_kg >= held_rock.pull_required():
+	if held_rock != null and ((_hoisting > 0 and hoist_tension > 0.0 \
+			and crane_power_kg >= held_rock.pull_required()) or hoist_tension / 9.8 >= held_rock.pull_required()):
 		_free_rock()
 	_hoisting = maxi(0, _hoisting - 1)
 	# The swing is damped hard - far more than a real rope would - so a load
@@ -515,6 +536,8 @@ func _physics_process(_delta: float) -> void:
 ## One line of what the rig is doing, for the prompt.
 func status_line() -> String:
 	var bits: Array[String] = []
+	if outriggers_down and not operating:
+		bits.append("outriggers down - locked in place  [O] up")
 	if operating:
 		bits.append("crane: %.0f° slew, %.0f m boom, hoist %.0f / %.0f kg%s  [A/D] swing [W/S] boom up/down [R/T] out/in [Shift/Ctrl] hoist [F] %s [Q] done" % [
 			rad_to_deg(slew), boom_length, hoist_tension / 9.8, crane_power_kg,
@@ -553,6 +576,27 @@ func _build() -> void:
 	_boom.visible = false
 	_boom.top_level = true
 	add_child(_boom)
+	# Outrigger legs, out to each side at front and back, shown while down.
+	if vehicle != null and vehicle.get("body_size") != null:
+		var size: Vector3 = vehicle.get("body_size")
+		for zf in [-0.35, 0.35]:
+			for side in [-1.0, 1.0]:
+				var leg := MeshInstance3D.new()
+				var lm := BoxMesh.new()
+				lm.size = Vector3(1.4, 0.2, 0.3)
+				leg.mesh = lm
+				leg.material_override = bmat
+				leg.position = Vector3(side * (size.x * 0.5 + 0.5), -size.y * 0.5 + 0.05, zf * size.z)
+				leg.visible = false
+				vehicle.add_child.call_deferred(leg)
+				var foot := MeshInstance3D.new()
+				var fm := BoxMesh.new()
+				fm.size = Vector3(0.5, 0.9, 0.5)
+				foot.mesh = fm
+				foot.material_override = bmat
+				foot.position = Vector3(side * 0.6, -0.45, 0)
+				leg.add_child(foot)
+				_outriggers.append(leg)
 	if not has_crane():
 		return
 	hook = RigidBody3D.new()
@@ -586,28 +630,6 @@ func _build() -> void:
 	if vehicle != null:
 		hook.add_collision_exception_with(vehicle)
 	_stow_hook.call_deferred()
-	# Outrigger legs, out to each side at front and back, shown while working.
-	if vehicle != null and vehicle.get("body_size") != null:
-		var size: Vector3 = vehicle.get("body_size")
-		for zf in [-0.35, 0.35]:
-			for side in [-1.0, 1.0]:
-				var leg := MeshInstance3D.new()
-				var lm := BoxMesh.new()
-				lm.size = Vector3(1.4, 0.2, 0.3)
-				leg.mesh = lm
-				leg.material_override = bmat
-				leg.position = Vector3(side * (size.x * 0.5 + 0.5), -size.y * 0.5 + 0.05, zf * size.z)
-				leg.visible = false
-				vehicle.add_child.call_deferred(leg)
-				var foot := MeshInstance3D.new()
-				var fm := BoxMesh.new()
-				fm.size = Vector3(0.5, 0.9, 0.5)
-				foot.mesh = fm
-				foot.material_override = bmat
-				foot.position = Vector3(side * 0.6, -0.45, 0)
-				leg.add_child(foot)
-				_outriggers.append(leg)
-
 func _line_mesh(color: Color) -> MeshInstance3D:
 	var m := MeshInstance3D.new()
 	var cm := CylinderMesh.new()
