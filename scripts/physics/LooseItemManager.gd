@@ -112,6 +112,10 @@ func spawn(item_id: StringName, xform: Transform3D, plot_id: int = 0,
 		stat_recycled += 1
 
 	var item: LooseItem = _acquire()
+	# A piece recycled out of a truck's fixed load comes back a whole body.
+	item.process_mode = Node.PROCESS_MODE_INHERIT
+	item.collision_layer = Layers.LOOSE
+	item.collision_mask = Layers.MASK_LOOSE
 	item.configure(def, dims)
 	item.owned = owned
 	item.plot_id = plot_id
@@ -139,7 +143,8 @@ func despawn(item: LooseItem) -> void:
 	# Detaching removes the body from the physics space entirely: a pooled
 	# item costs nothing in broadphase.
 	if item.get_parent() != null:
-		remove_child(item)
+		# Usually here, but a piece fixed into a truck's load is the truck's.
+		item.get_parent().remove_child(item)
 	_pool.append(item)
 
 ## Cuts a piece in two across its long axis, conserving volume exactly. The

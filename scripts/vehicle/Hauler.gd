@@ -82,6 +82,14 @@ var _front_z: float = -1.7
 
 ## Pieces lying in the bed right now, refreshed by the bed poll.
 var _load: Array[LooseItem] = []
+## Settled pieces fixed into the truck while it is driven: each is part of the
+## truck - its shape in the truck's collision, its weight in the truck's mass
+## - lying exactly as it settled. {item: {shapes, mass}}
+var _fixed: Dictionary = {}
+## How long each piece in the bed has lain still, relative to the truck.
+var _still_for: Dictionary = {}
+const FIX_SPEED := 0.25          ## m/s relative to the bed, and rad/s of spin
+const FIX_SECONDS := 0.4
 var _tailgate: CollisionShape3D
 var _tailgate_mesh: Node3D
 ## Unloading: seconds left of the bed floor walking the load out the back,
@@ -468,7 +476,7 @@ func _poll_bed() -> void:
 			inside.append(item)
 	var before := _load.size()
 	for item in _load.duplicate():
-		if not inside.has(item):
+		if not inside.has(item) and not _fixed.has(item):
 			_load.erase(item)
 			if is_instance_valid(item) and item.carrier == self:
 				item.carrier = null
@@ -492,10 +500,95 @@ func _poll_bed() -> void:
 			item.continuous_cd = fast
 			item.ccd_active = fast
 
+# --- A load fixed in place -------------------------------------------------------
+
+## With someone in the seat, the load that has settled in the bed becomes part
+## of the truck, exactly as it lies: nothing in it shifts, slides or bounces
+## out however the truck is driven. It comes loose again when the driver gets
+## out, the crane goes to work, or the load is tipped or dropped off.
+func _update_fixed(delta: float) -> void:
+	var may_fix := driver != null and not _crane_busy() and _tipping_items().is_empty() \
+		and _tub_angle < 0.001 and _tub_target < 0.001
+	if not may_fix:
+		if not _fixed.is_empty():
+			release_load()
+		_still_for.clear()
+		return
+	for item in _load:
+		if _fixed.has(item) or not is_instance_valid(item) or item.state != LooseItem.State.FREE:
+			continue
+		var at := item.global_position
+		var carried := linear_velocity + angular_velocity.cross(at - global_position)
+		var still := (item.linear_velocity - carried).length() < FIX_SPEED \
+			and (item.angular_velocity - angular_velocity).length() < FIX_SPEED
+		_still_for[item] = float(_still_for.get(item, 0.0)) + delta if still else 0.0
+		if float(_still_for[item]) >= FIX_SECONDS:
+			_fix(item)
+
+func _crane_busy() -> bool:
+	return rig != null and (rig.operating or rig.folding)
+
+## Whatever is being walked out of the back right now.
+func _tipping_items() -> Array:
+	return _tipping
+
+## Makes one settled piece part of the truck.
+func _fix(item: LooseItem) -> void:
+	item.set_state(LooseItem.State.CAPTURED)
+	item.collision_layer = 0
+	item.collision_mask = 0
+	item.reparent(self, true)
+	# Out of the physics world altogether: it is only the truck's shape and
+	# the truck's weight now, carried exactly where it lies.
+	item.disable_mode = CollisionObject3D.DISABLE_MODE_REMOVE
+	item.process_mode = Node.PROCESS_MODE_DISABLED
+	var shapes: Array[CollisionShape3D] = []
+	for c in item.get_children():
+		var cs := c as CollisionShape3D
+		if cs == null or cs.shape == null or cs.disabled:
+			continue
+		var copy := CollisionShape3D.new()
+		copy.shape = cs.shape
+		copy.transform = item.transform * cs.transform
+		add_child(copy)
+		shapes.append(copy)
+	_fixed[item] = {"shapes": shapes, "mass": item.mass}
+	mass += item.mass
+	_still_for.erase(item)
+
+## Lets every fixed piece loose again, where it lies and moving with the truck.
+func release_load() -> void:
+	for item: LooseItem in _fixed.keys():
+		var rec: Dictionary = _fixed[item]
+		for cs: CollisionShape3D in rec.shapes:
+			if is_instance_valid(cs):
+				cs.queue_free()
+		mass = maxf(1.0, mass - float(rec.mass))
+		if not is_instance_valid(item) or item.state != LooseItem.State.CAPTURED:
+			continue
+		var at := item.global_transform
+		if manager != null:
+			item.reparent(manager, true)
+		item.process_mode = Node.PROCESS_MODE_INHERIT
+		item.collision_layer = Layers.LOOSE
+		item.collision_mask = Layers.MASK_LOOSE
+		item.set_state(LooseItem.State.FREE)
+		item.teleport(at)
+		item.linear_velocity = linear_velocity + angular_velocity.cross(at.origin - global_position)
+	_fixed.clear()
+
+## How many pieces of the load are fixed in place.
+func fixed_count() -> int:
+	return _fixed.size()
+
+func is_fixed(item: LooseItem) -> bool:
+	return _fixed.has(item)
+
 ## Spec: unload. The tailgate drops and the bed floor walks the load out the
 ## back - it slides out under the push, and a piece that is wedged stays
 ## wedged. Returns how many pieces were aboard.
 func unload(_behind: bool = true) -> int:
+	release_load()
 	var n := _load.size()
 	if n == 0:
 		return 0
@@ -513,6 +606,7 @@ func unload(_behind: bool = true) -> int:
 func unload_one() -> bool:
 	if _load.is_empty():
 		return false
+	release_load()
 	var inverse := global_transform.affine_inverse()
 	var last: LooseItem = _load[0]
 	for item in _load:
@@ -606,6 +700,7 @@ func _physics_process(delta: float) -> void:
 		_poll_bed()
 	_update_unload(delta)
 	_update_tub(delta)
+	_update_fixed(delta)
 
 	if driver != null:
 		_read_input()
@@ -847,7 +942,8 @@ func move_to(after: Transform3D) -> void:
 	var before := global_transform
 	var riders: Array = []
 	for item in _load:
-		riders.append([item, before.affine_inverse() * item.global_transform])
+		if not _fixed.has(item):
+			riders.append([item, before.affine_inverse() * item.global_transform])
 	PhysicsServer3D.body_set_state(get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM, after)
 	global_transform = after
 	linear_velocity = Vector3.ZERO
@@ -888,6 +984,7 @@ func from_dict(d: Dictionary) -> void:
 	# A truck spawned for the load builds its wheels a frame late: they go
 	# under it once they exist.
 	_snap_wheels.call_deferred()
+	release_load()
 	if manager != null:
 		for item in _load:
 			manager.despawn(item)

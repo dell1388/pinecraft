@@ -97,6 +97,7 @@ func _run_all() -> void:
 	await _test(&"vehicles reach their rated top speed", test_top_speed)
 	await _test(&"store-bought buildings are counted copies", test_building_copies)
 	await _test(&"winch and crane respect their power ratings", test_vehicle_rig)
+	await _test(&"a driven truck's settled load is fixed as it lies", test_load_fixed_while_driven)
 	await _test(&"kill plane rescues fallen items", test_kill_plane)
 	await _test(&"per-plot cap is enforced", test_cap)
 	await _test(&"full automated base stays in budget", test_full_base)
@@ -3680,6 +3681,58 @@ func test_vehicle_rig() -> void:
 	truck.autopilot = false
 	check(jerk.consumed(), "a line snatched tight (%.0f kg) did not jerk out a chunk needing %.0f kg" % [rig.winch_load_kg(), jerk.pull_required()])
 	rig.release_winch()
+	done()
+
+## Spec: with someone in the seat, the load settled in the bed is part of the
+## truck exactly as it lies - driven hard, nothing in it moves - and it comes
+## loose again when the driver gets out.
+func test_load_fixed_while_driven() -> void:
+	_setup(false)
+	var truck := Hauler.new()
+	truck.setup(manager, 0)
+	world.add_child(truck)
+	truck.global_position = Vector3(0, truck.spawn_height(), 0)
+	await step(40)
+	for i in 3:
+		truck.load_item(&"wood_pine", Solid.cylinder(0.2, 0.18, 2.4))
+		await step(20)
+	await step(120)
+	var aboard := truck.cargo_count()
+	check(aboard >= 3, "the test load did not go in the bed (%d)" % aboard)
+	var mass_empty := truck.mass
+	check_eq(truck.fixed_count(), 0, "the load was fixed with nobody in the seat")
+	var driver := Node3D.new()
+	world.add_child(driver)
+	truck.driver = driver
+	await step(60)
+	check_eq(truck.fixed_count(), aboard, "the settled load was not fixed when a driver got in")
+	check(truck.mass > mass_empty + 50.0, "the fixed load's weight is not the truck's")
+	var was := {}
+	for item in truck.cargo_list():
+		was[item] = truck.global_transform.affine_inverse() * item.global_transform
+		check(item.get_parent() == truck and item.state == LooseItem.State.CAPTURED, "a fixed piece is still a loose body")
+	# Flat out and hard over, then a hard stop.
+	Input.action_press("move_forward")
+	Input.action_press("move_right")
+	await step(180)
+	Input.action_release("move_forward")
+	Input.action_release("move_right")
+	Input.action_press("jump")
+	await step(60)
+	Input.action_release("jump")
+	check(truck.linear_velocity.length() < 30.0, "sanity")
+	for item: LooseItem in was:
+		var now := truck.global_transform.affine_inverse() * item.global_transform
+		check(now.origin.distance_to((was[item] as Transform3D).origin) < 0.001, "a fixed piece shifted in the bed")
+	check_eq(truck.cargo_count(), aboard, "driving hard lost a piece of the fixed load")
+	truck.driver = null
+	await step(3)
+	check_eq(truck.fixed_count(), 0, "getting out did not let the load loose")
+	check_near(truck.mass, mass_empty, 0.5, "the load's weight stayed on the truck")
+	for item: LooseItem in was:
+		check(item.state == LooseItem.State.FREE and item.get_parent() == manager, "a released piece is not a loose body again")
+	await step(30)
+	check_eq(truck.cargo_count(), aboard, "the released load is not in the bed")
 	done()
 
 func _haulers_in(node: Node) -> int:
