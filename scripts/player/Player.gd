@@ -344,7 +344,7 @@ func _on_driving_key(event: InputEventKey) -> bool:
 				interacted.emit("this vehicle has no crane")
 			else:
 				r.set_operating(not r.operating)
-				interacted.emit("crane: you move the log - W/S along the truck, A/D across, Shift/Ctrl up and down, Q/E turn it, F grab"
+				interacted.emit("crane: you move the log - W/S along the truck (W toward the tail), A/D across, Shift/Ctrl up and down, Q/E turn it, F grab"
 					if r.operating else "crane folding away")
 			return true
 		KEY_F:
@@ -484,7 +484,7 @@ func _update_chase_camera(_delta: float) -> void:
 
 ## The winch (reel in, let out) whenever there is one, and in crane operator
 ## mode the log itself, in the truck's frame: W/S along the truck (W toward
-## the cab), A/D across it, Shift/Ctrl up and down, Q/E turn it. Holding the
+## the tail, S toward the cab), A/D across it, Shift/Ctrl up and down, Q/E turn it. Holding the
 ## right mouse button is the slow, fine speed for setting it down.
 func _update_vehicle_controls(delta: float) -> void:
 	var r := rig()
@@ -493,8 +493,9 @@ func _update_vehicle_controls(delta: float) -> void:
 	work_winch(r, delta)
 	if not r.operating:
 		return
+	# W takes the log toward the tail, S toward the cab.
 	var move := Vector3(Input.get_axis("move_left", "move_right"), Input.get_axis("lower", "sprint"),
-		Input.get_axis("move_forward", "move_back"))
+		Input.get_axis("move_back", "move_forward"))
 	var turn := (1.0 if Input.is_physical_key_pressed(KEY_Q) else 0.0) \
 		- (1.0 if Input.is_physical_key_pressed(KEY_E) else 0.0)
 	r.drive(move, turn, Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT), delta)

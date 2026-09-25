@@ -52,7 +52,7 @@ const GROUPS := [
 		[["K", "/", "L"], "Winch: reel in / let out"],
 		[["O"], "Outriggers out or in: locks the truck where it stands (seated or standing by it)"],
 		[["R"], "Crane: operator mode (outriggers down) or fold it away"],
-		[["W", "S"], "Crane: log along the truck (W toward the cab)"],
+		[["W", "S"], "Crane: log along the truck (W toward the tail, S toward the cab)"],
 		[["A", "D"], "Crane: log across the truck"],
 		[["Shift", "/", "Ctrl"], "Crane: log up / down"],
 		[["Q", "/", "E"], "Crane: turn the log"],

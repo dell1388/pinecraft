@@ -909,7 +909,7 @@ func _build_aids() -> void:
 	_footprint.material_override = foot_mat
 	_footprint.top_level = true
 	_aids.add_child(_footprint)
-	# The truck-axis gizmo: W toward the cab, S toward the tail, A and D
+	# The truck-axis gizmo: W toward the tail, S toward the cab, A and D
 	# across - whichever way the camera is looking.
 	_gizmo = Node3D.new()
 	_gizmo.top_level = true
@@ -917,7 +917,7 @@ func _build_aids() -> void:
 	var arrow_mat := line_mat.duplicate() as StandardMaterial3D
 	arrow_mat.albedo_color = Color(1.0, 0.85, 0.3, 0.8)
 	arrow_mat.no_depth_test = true
-	for spec in [["W", Vector3(0, 0, -1)], ["S", Vector3(0, 0, 1)], ["A", Vector3(-1, 0, 0)], ["D", Vector3(1, 0, 0)]]:
+	for spec in [["W", Vector3(0, 0, 1)], ["S", Vector3(0, 0, -1)], ["A", Vector3(-1, 0, 0)], ["D", Vector3(1, 0, 0)]]:
 		var dir: Vector3 = spec[1]
 		var arm := MeshInstance3D.new()
 		var am := BoxMesh.new()
