@@ -71,7 +71,7 @@ var road_paths: Array[Dictionary] = []
 ## meshing.
 var cache_path: String = ""
 ## Bumped whenever generation changes, so an old cache is not trusted.
-const GENERATOR_VERSION := 15
+const GENERATOR_VERSION := 16
 
 var _cells: int = 0
 var _heights: PackedFloat32Array = PackedFloat32Array()
@@ -103,23 +103,10 @@ var _hills := FastNoiseLite.new()
 var _ridge := FastNoiseLite.new()
 var _warp := FastNoiseLite.new()
 var _mesa := FastNoiseLite.new()
-var _ramps := FastNoiseLite.new()
-
-## The cartoon land (the region map): flat shelves STEP apart, each rising a
-## little, and between one shelf and the next a rock cliff - or, where the ramp
-## noise says so, a grass slope you can walk and drive up instead. `_levelq`
-## is each grid point's height in shelves (before banding) and `_cliff` how
-## much of the rise there is cliff, 1..255, with 0 marking a point that roads,
-## rivers or a site have reshaped by hand.
-const STEP := 12.0
-const SHELF_TILT := 0.1
-const RAMP_SPAN := 0.75
-const SHELF_BASE := 1.5
-var _levelq := PackedFloat32Array()
-var _cliff := PackedByteArray()
-## Each grid point's shelf height as a multiple of STEP: the mountains climb
-## in bigger steps than the woods.
-var _stepm := PackedFloat32Array()
+## Where the land comes down to the sea: the lowest ground above the water.
+const SHORE_BASE := 1.5
+## The land as welded plates (the region map), once built.
+var facets: Facets
 
 ## Flat ground, per biome: the tops of the terraces.
 const BIOME_COLORS := {
@@ -219,11 +206,6 @@ func _configure_noise() -> void:
 	_mesa.frequency = 0.004
 	_mesa.fractal_octaves = 2
 
-	_ramps.seed = noise_seed + 2323
-	_ramps.noise_type = FastNoiseLite.TYPE_SIMPLEX
-	_ramps.frequency = 0.011
-	_ramps.fractal_octaves = 2
-
 	_detail.seed = noise_seed + 5501
 	_detail.noise_type = FastNoiseLite.TYPE_SIMPLEX
 	_detail.frequency = 0.021
@@ -239,6 +221,16 @@ func _grid_coord(v: float) -> float:
 
 ## Ground height under a world position, interpolated across the quad.
 func height_at(x: float, z: float) -> float:
+	# On the region map the ground is the plates, which follow the grid
+	# closely but not exactly: what stands on the land stands on them.
+	if facets != null:
+		var y := facets.height(x, z)
+		if not is_nan(y):
+			return y
+	return grid_height(x, z)
+
+## The height grid itself, interpolated on the two triangles of each cell.
+func grid_height(x: float, z: float) -> float:
 	if _heights.is_empty():
 		return 0.0
 	var gx := _grid_coord(x)
@@ -247,43 +239,35 @@ func height_at(x: float, z: float) -> float:
 	var iz := int(floor(gz))
 	var fx := gx - float(ix)
 	var fz := gz - float(iz)
-	var i00 := _index(ix, iz)
-	var i10 := _index(ix + 1, iz)
-	var i01 := _index(ix, iz + 1)
-	var i11 := _index(ix + 1, iz + 1)
-	# A cell a cliff runs through: the shelf the point is on, not a slope
-	# from the foot of the cliff to its top.
-	if not _cliff.is_empty() and _cliff[i00] > 0 and _cliff[i10] > 0 and _cliff[i01] > 0 and _cliff[i11] > 0:
-		var q00 := _levelq[i00]
-		var q10 := _levelq[i10]
-		var q01 := _levelq[i01]
-		var q11 := _levelq[i11]
-		var lo := floorf(minf(minf(q00, q10), minf(q01, q11)))
-		var hi := floorf(maxf(maxf(q00, q10), maxf(q01, q11)))
-		if lo != hi:
-			var q := lerpf(lerpf(q00, q10, fx), lerpf(q01, q11, fx), fz)
-			var c := lerpf(lerpf(float(_cliff[i00]), float(_cliff[i10]), fx),
-				lerpf(float(_cliff[i01]), float(_cliff[i11]), fx), fz)
-			var m := lerpf(lerpf(_stepm[i00], _stepm[i10], fx), lerpf(_stepm[i01], _stepm[i11], fx), fz)
-			# Which side of the cliff line the point is on, as the mesh cuts
-			# it (the line wanders off the smooth one a little).
-			if hi - lo == 1.0:
-				var side := _cliff_side(ix, iz, x, z)
-				if side > 0:
-					q = maxf(q, hi)
-				elif side < 0:
-					q = minf(q, hi - 0.0001)
-			return SHELF_BASE + _shelf(q, (c - 1.0) / 254.0) * STEP * m
-	var h00 := _heights[i00]
-	var h10 := _heights[i10]
-	var h01 := _heights[i01]
-	var h11 := _heights[i11]
-	# On the same two triangles the mesh is built from, split corner to
-	# corner from (0,0) to (1,1). Blending all four corners instead reads a
-	# terrace edge as a slope the ground does not have.
+	var h00 := _heights[_index(ix, iz)]
+	var h10 := _heights[_index(ix + 1, iz)]
+	var h01 := _heights[_index(ix, iz + 1)]
+	var h11 := _heights[_index(ix + 1, iz + 1)]
 	if fx >= fz:
 		return h00 + (h10 - h00) * fx + (h11 - h10) * fz
 	return h00 + (h01 - h00) * fz + (h11 - h01) * fx
+
+## Whether a point is over a hole in the ground (a cave mouth).
+func _is_hole(x: float, z: float) -> bool:
+	if _holes.is_empty():
+		return false
+	var ix := int(floor(_grid_coord(x)))
+	var iz := int(floor(_grid_coord(z)))
+	if ix < 0 or iz < 0 or ix >= _cells or iz >= _cells:
+		return false
+	return _holes[iz * _cells + ix] != 0
+
+## Whether any cell touching a grid point is a hole.
+func _hole_near(ix: int, iz: int) -> bool:
+	if _holes.is_empty():
+		return false
+	for dz in [-1, 0]:
+		for dx in [-1, 0]:
+			var cx: int = ix + dx
+			var cz: int = iz + dz
+			if cx >= 0 and cz >= 0 and cx < _cells and cz < _cells and _holes[cz * _cells + cx] != 0:
+				return true
+	return false
 
 func height_at_point(point: Vector3) -> float:
 	return height_at(point.x, point.z)
@@ -337,28 +321,18 @@ func points_in_biomes(wanted: Array, step: int = 2, max_water: float = 0.0) -> P
 				continue
 			if _road_mask[index] != 0:
 				continue
-			var height := _heights[index]
-			if height <= WATER_LEVEL - max_water:
+			if _heights[index] <= WATER_LEVEL - max_water:
 				continue
 			var x := -half_extent + float(ix) * CELL
 			var z := -half_extent + float(iz) * CELL
 			if _in_build_site(x, z) or _in_crater(x, z) or is_blocked(x, z):
 				continue
-			# Not right at the lip or the foot of a cliff.
-			if _at_cliff(ix, iz):
+			# Not on a crag too steep to stand on.
+			if absf(_heights[_index(ix + 1, iz)] - _heights[_index(ix - 1, iz)]) > CELL * 2.2 \
+					or absf(_heights[_index(ix, iz + 1)] - _heights[_index(ix, iz - 1)]) > CELL * 2.2:
 				continue
-			out.append(Vector3(x, height, z))
+			out.append(Vector3(x, height_at(x, z), z))
 	return out
-
-## Whether a cliff runs through any cell touching a grid point.
-func _at_cliff(ix: int, iz: int) -> bool:
-	var level := floori(_levelq[_index(ix, iz)])
-	for dz in range(-1, 2):
-		for dx in range(-1, 2):
-			var i := _index(ix + dx, iz + dz)
-			if floori(_levelq[i]) != level and _cliff[i] > 60:
-				return true
-	return false
 
 ## Where something stands: the ground.
 func surface_at(x: float, z: float) -> float:
@@ -405,9 +379,6 @@ func generate() -> void:
 	_heights.resize(verts)
 	_biomes.resize(verts)
 	_road_mask.resize(verts)
-	_levelq.resize(verts)
-	_cliff.resize(verts)
-	_stepm.resize(verts)
 
 	if not _load_cache():
 		_fill_heights()
@@ -435,9 +406,6 @@ func generate() -> void:
 class RowBuf:
 	var heights := PackedFloat32Array()
 	var biomes := PackedByteArray()
-	var levels := PackedFloat32Array()
-	var cliffs := PackedByteArray()
-	var steps := PackedFloat32Array()
 
 ## Every grid point's height and biome, a row per task across the worker
 ## threads: on a big map this is the bulk of generation.
@@ -450,41 +418,24 @@ func _fill_heights() -> void:
 	WorkerThreadPool.wait_for_group_task_completion(task)
 	_heights = PackedFloat32Array()
 	_biomes = PackedByteArray()
-	_levelq = PackedFloat32Array()
-	_cliff = PackedByteArray()
-	_stepm = PackedFloat32Array()
 	for buf: RowBuf in bufs:
 		_heights.append_array(buf.heights)
 		_biomes.append_array(buf.biomes)
-		_levelq.append_array(buf.levels)
-		_cliff.append_array(buf.cliffs)
-		_stepm.append_array(buf.steps)
 
 func _fill_row(iz: int, bufs: Array) -> void:
 	var buf: RowBuf = bufs[iz]
 	buf.heights.resize(_cells + 1)
 	buf.biomes.resize(_cells + 1)
-	buf.levels.resize(_cells + 1)
-	buf.cliffs.resize(_cells + 1)
-	buf.steps.resize(_cells + 1)
 	var z := -half_extent + float(iz) * CELL
 	for ix in _cells + 1:
 		var sample := _sample(-half_extent + float(ix) * CELL, z)
 		buf.biomes[ix] = int(sample[0])
 		buf.heights[ix] = float(sample[1])
-		if sample.size() > 2:
-			buf.levels[ix] = float(sample[2])
-			buf.cliffs[ix] = 1 + int(clampf(float(sample[3]), 0.0, 1.0) * 254.0)
-			buf.steps[ix] = float(sample[4])
-		else:
-			buf.steps[ix] = 1.0
-			buf.levels[ix] = 0.0
-			buf.cliffs[ix] = 0
 
 # --- Cache -------------------------------------------------------------------
 
 func _cache_key() -> String:
-	var config := [GENERATOR_VERSION, STEP, SHELF_TILT, RAMP_SPAN, SHELF_BASE, half_extent, noise_seed, islands, regions, features, rivers,
+	var config := [GENERATOR_VERSION, half_extent, noise_seed, islands, regions, features, rivers,
 		roads, build_sites, site_requests, spur_sites, cave_count]
 	return str(hash(var_to_str(config)))
 
@@ -501,16 +452,13 @@ func _load_cache() -> bool:
 	_biomes = data.biomes
 	_road_mask = data.road_mask
 	_holes = data.holes
-	_levelq = data.get("levelq", PackedFloat32Array())
-	_cliff = data.get("cliff", PackedByteArray())
-	_stepm = data.get("stepm", PackedFloat32Array())
 	bridges.assign(data.bridges)
 	caves.assign(data.caves)
 	found_sites = data.found_sites
 	road_paths.assign(data.road_paths)
 	build_sites.assign(data.build_sites)
 	roads = data.roads
-	return _heights.size() == (_cells + 1) * (_cells + 1) and _cliff.size() == _heights.size() and _stepm.size() == _heights.size()
+	return _heights.size() == (_cells + 1) * (_cells + 1)
 
 func _save_cache() -> void:
 	if cache_path == "":
@@ -523,7 +471,7 @@ func _save_cache() -> void:
 	f.store_var({"key": _key_at_start, "heights": _heights, "biomes": _biomes,
 		"road_mask": _road_mask, "holes": _holes, "bridges": bridges, "caves": caves,
 		"found_sites": found_sites, "road_paths": road_paths, "build_sites": build_sites,
-		"roads": roads, "levelq": _levelq, "cliff": _cliff, "stepm": _stepm})
+		"roads": roads})
 
 var _key_at_start: String = ""
 
@@ -559,13 +507,11 @@ const REGION_BLEND := 160.0
 const SNOWLINE := 95.0
 
 ## The region map: whichever region centre is nearest (through the warp) owns
-## the point, and the land blends into its neighbour's near the border. The
-## height worked out is then banded into shelves (see `_shelf`): the answer is
-## [biome, height, height in shelves, cliffiness].
+## the point, and the land blends into its neighbour's near the border.
 func _sample_regions(x: float, z: float) -> Array:
 	var isle := _island_at(x, z)
 	if isle.x <= 0.0:
-		return [Biome.WOODLAND, SEA_FLOOR, (SEA_FLOOR - SHELF_BASE) / STEP, 0.0, 1.0]
+		return [Biome.WOODLAND, SEA_FLOOR]
 	var wx := x + _warp.get_noise_2d(x, z) * 240.0
 	var wz := z + _warp.get_noise_2d(x + 7000.0, z - 3000.0) * 240.0
 	var d1 := INF
@@ -585,15 +531,11 @@ func _sample_regions(x: float, z: float) -> Array:
 			r2 = i
 	var biome: Biome = regions[r1].biome
 	var h := _biome_height(biome, x, z)
-	var c := _cliffiness(biome, x, z)
-	var m: float = STEP_SCALE[biome]
 	if r2 >= 0 and r2 != r1 and d2 - d1 < REGION_BLEND:
 		var other: Biome = regions[r2].biome
 		if other != biome:
 			var t := 0.5 + 0.5 * smoothstep(0.0, 1.0, (d2 - d1) / REGION_BLEND)
 			h = lerpf(_biome_height(other, x, z), h, t)
-			c = lerpf(_cliffiness(other, x, z), c, t)
-			m = lerpf(float(STEP_SCALE[other]), m, t)
 	# Down to the beach and the sea bed round every island.
 	var coast := smoothstep(0.0, 1.0, isle.x)
 	h = lerpf(SEA_FLOOR, h, coast)
@@ -606,46 +548,7 @@ func _sample_regions(x: float, z: float) -> Array:
 	if feature.size() > 0:
 		biome = feature[1]
 		h = lerpf(h, float(feature[2]), float(feature[0]))
-		c *= 1.0 - float(feature[0])
-	# Near the sea the steps come down to the woods' size, so the shore is
-	# not a sheer drop.
-	m = lerpf(1.0, m, smoothstep(0.3, 0.8, isle.x))
-	var q := (h - SHELF_BASE) / (STEP * m)
-	return [biome, SHELF_BASE + _shelf(q, c) * STEP * m, q, c, m]
-
-## A height in shelves banded into the land: flat-ish for the shelf, then the
-## rise to the next - part of it a sheer step at the shelf's edge (`c`, the
-## cliff), the rest a slope just before it (the ramp). In steps above
-## SHELF_BASE.
-static func _shelf(q: float, c: float) -> float:
-	var level := floorf(q)
-	var f := q - level
-	return level + SHELF_TILT * f + (1.0 - SHELF_TILT) * (1.0 - c) * smoothstep(1.0 - RAMP_SPAN, 1.0, f)
-
-## How tall each kind of country's steps are, in STEPs.
-const STEP_SCALE := {
-	Biome.WOODLAND: 1.0,
-	Biome.TAIGA: 1.15,
-	Biome.SWAMP: 0.6,
-	Biome.DESERT: 1.2,
-	Biome.MOUNTAIN: 1.5,
-	Biome.SNOW: 1.4,
-}
-
-## How much of each rise is cliff: most of it, in every kind of country, but
-## broken where the ramp noise runs high into grass slopes up to the next shelf.
-const CLIFFINESS := {
-	Biome.WOODLAND: 1.0,
-	Biome.TAIGA: 1.0,
-	Biome.SWAMP: 0.45,
-	Biome.DESERT: 1.0,
-	Biome.MOUNTAIN: 1.0,
-	Biome.SNOW: 1.0,
-}
-
-func _cliffiness(biome: Biome, x: float, z: float) -> float:
-	var r := _ramps.get_noise_2d(x, z) * 0.5 + 0.5
-	return float(CLIFFINESS[biome]) * (1.0 - smoothstep(0.7, 0.74, r))
+	return [biome, h]
 
 ## A basin draws the land down toward the water line: the sheltered valley
 ## home sits in, low enough for the rivers, the yard and the store.
@@ -656,7 +559,7 @@ func _basins(x: float, z: float, h: float) -> float:
 		var d := Vector2(x, z).distance_to(f.centre) / float(f.radius)
 		var w := 1.0 - smoothstep(0.55, 1.35, d)
 		if w > 0.0:
-			h = lerpf(h, SHELF_BASE + 1.2 + maxf(0.0, h - 8.0) * 0.12, w)
+			h = lerpf(h, SHORE_BASE + 1.2 + maxf(0.0, h - 8.0) * 0.12, w)
 	return h
 
 ## The shape of each kind of country. Every one has real relief - the woods
@@ -855,9 +758,7 @@ func _carve_rivers() -> void:
 			var t: float = clampf(d / maxf(0.5, width), 0.0, 1.0)
 			# Flat bed in the channel, then a bank up to the old ground.
 			var carved: float = lerpf(bed, _heights[index], smoothstep(0.0, 1.0, t))
-			if carved < _heights[index]:
-				_heights[index] = carved
-				_cliff[index] = 0
+			_heights[index] = minf(_heights[index], carved)
 
 ## Every grid point within `reach` of a polyline, as index -> Vector2(distance,
 ## distance along). Walks each segment's own bounding box rather than the whole
@@ -930,7 +831,6 @@ func _grade_roads(list: Array) -> void:
 				target = minf(target, -0.35)
 			# Flat a cell beyond the carriageway too, so no triangle that
 			# reaches onto the road has a corner up a bank.
-			_cliff[index] = 0
 			if d <= ROAD_HALF_WIDTH + CELL:
 				_heights[index] = target
 				_road_mask[index] = 1
@@ -1194,7 +1094,6 @@ func _flatten_sites() -> void:
 				var t: float = clampf((d - radius) / maxf(0.01, margin), 0.0, 1.0)
 				var index := _index(ix, iz)
 				_heights[index] = lerpf(centre.y, _heights[index], smoothstep(0.0, 1.0, t))
-				_cliff[index] = 0
 				if d <= radius:
 					_road_mask[index] = _road_mask[index]
 
@@ -1234,10 +1133,14 @@ func _build_mesh() -> void:
 		mat.vertex_color_use_as_albedo = true
 		mat.roughness = 1.0
 	else:
-		# Both sides drawn: a seam at the edge of a rock face shows rock
-		# rather than a hole.
+		# Sheet metal: a touch of sheen on every plate, so the panels catch
+		# the light differently as you move.
 		mat = Textures.material("grass", 6.0).duplicate()
-		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		mat.roughness = 0.62
+		mat.metallic_specular = 0.6
+	if not regions.is_empty():
+		_build_plates(mat)
+		return
 	var chunks := int(ceil(float(_cells) / float(CHUNK)))
 	var bufs: Array = []
 	for i in chunks * chunks:
@@ -1277,6 +1180,69 @@ func _build_mesh() -> void:
 		cs.shape = shape
 		add_child(cs)
 	_build_sheets(sea, water)
+
+## The region map's land: welded plates (see Facets), a mesh and a collision
+## shape per tile, and the water over every wet cell.
+func _build_plates(mat: Material) -> void:
+	facets = Facets.new(self)
+	facets.build()
+	for t: Facets.TileBuf in facets.tiles:
+		if t.tris.is_empty():
+			continue
+		var arrays := []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = t.tris
+		arrays[Mesh.ARRAY_NORMAL] = t.normals
+		arrays[Mesh.ARRAY_COLOR] = t.colors
+		var mesh := ArrayMesh.new()
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		var mi := MeshInstance3D.new()
+		mi.name = "Plates_%d_%d" % [t.x0, t.z0]
+		mi.mesh = mesh
+		mi.material_override = mat
+		add_child(mi)
+		var cs := CollisionShape3D.new()
+		var shape := ConcavePolygonShape3D.new()
+		shape.set_faces(t.tris)
+		cs.shape = shape
+		add_child(cs)
+	var water := PackedVector3Array()
+	var chunks := int(ceil(float(_cells) / float(CHUNK)))
+	for cz in chunks:
+		for cx in chunks:
+			var x0 := cx * CHUNK
+			var z0 := cz * CHUNK
+			var x1 := mini(_cells, x0 + CHUNK)
+			var z1 := mini(_cells, z0 + CHUNK)
+			var wet := 0
+			for iz in range(z0, z1):
+				for ix in range(x0, x1):
+					wet += int(_wet(ix, iz))
+			if wet == (x1 - x0) * (z1 - z0):
+				_quad_into(water, x0, z0, x1, z1, WATER_LEVEL - 0.02)
+			elif wet > 0:
+				for iz in range(z0, z1):
+					for ix in range(x0, x1):
+						if _wet(ix, iz):
+							_quad_into(water, ix, iz, ix + 1, iz + 1, WATER_LEVEL - 0.02)
+	_build_sheets(PackedVector3Array(), water)
+
+## One plate's colour, from where it is and which way it faces: grass, sand,
+## snow, bare rock on the steep, with a small difference plate to plate so
+## the seams read.
+func panel_color(centre: Vector3, normal: Vector3, seed: int) -> Color:
+	var ix := clampi(int(_grid_coord(centre.x)), 0, _cells)
+	var iz := clampi(int(_grid_coord(centre.z)), 0, _cells)
+	var biome := _biomes[_index(ix, iz)] as Biome
+	var color: Color
+	if normal.y < 0.62:
+		color = TOON_ROCK[biome]
+	else:
+		color = _toon_ground(ix, iz, centre.y, biome)
+		# Getting steeper, the grass wears to rock.
+		color = color.lerp(TOON_ROCK[biome], smoothstep(0.86, 0.64, normal.y) * 0.6)
+	var j := float(posmod(hash(seed), 1000)) / 1000.0 - 0.5
+	return color.lightened(j * 0.10) if j > 0.0 else color.darkened(-j * 0.10)
 
 class ChunkBuf:
 	var verts := PackedVector3Array()
@@ -1401,16 +1367,6 @@ func _chunk_arrays(buf: ChunkBuf, x0: int, z0: int, x1: int, z1: int) -> void:
 					_quad_into(buf.water, ix, iz, ix + 1, iz + 1, WATER_LEVEL - 0.02)
 	if count == 0:
 		return
-	if not regions.is_empty():
-		var out := CellOut.new()
-		for iz in range(z0, z1):
-			for ix in range(x0, x1):
-				if _drawn(ix, iz):
-					_cartoon_cell(ix, iz, out)
-		buf.verts = out.verts
-		buf.normals = out.normals
-		buf.colors = out.colors
-		return
 	verts.resize(count * 6)
 	normals.resize(verts.size())
 	colors.resize(verts.size())
@@ -1450,249 +1406,6 @@ func _chunk_arrays(buf: ChunkBuf, x0: int, z0: int, x1: int, z1: int) -> void:
 	buf.normals = normals
 	buf.colors = colors
 
-## Triangles for one chunk of the cartoon land, gathered in place.
-class CellOut:
-	var verts := PackedVector3Array()
-	var normals := PackedVector3Array()
-	var colors := PackedColorArray()
-
-	## One triangle, wound to face `facing` (front faces are clockwise from
-	## the side they face).
-	func tri(a: Vector3, b: Vector3, c: Vector3, facing: Vector3, color: Color) -> void:
-		var n := (c - a).cross(b - a)
-		if n.length_squared() < 0.000001:
-			return
-		if n.dot(facing) < 0.0:
-			var t := b
-			b = c
-			c = t
-			n = -n
-		n = n.normalized()
-		verts.append(a)
-		verts.append(b)
-		verts.append(c)
-		normals.append(n)
-		normals.append(n)
-		normals.append(n)
-		colors.append(color)
-		colors.append(color)
-		colors.append(color)
-
-## One grid cell of the cartoon land. A cell no shelf edge crosses is two flat
-## triangles. A cell a shelf edge crosses is cut along that edge: the shelf
-## above and the shelf below each drawn flat to the line, and a rock face
-## between them - bulging out a little and uneven, keyed off where it crosses
-## each cell side so the cells either side agree. A cell with more going on
-## than one edge is drawn as a fan round its middle.
-func _cartoon_cell(ix: int, iz: int, out: CellOut) -> void:
-	var xa := -half_extent + float(ix) * CELL
-	var za := -half_extent + float(iz) * CELL
-	var ids := [_index(ix, iz), _index(ix + 1, iz), _index(ix + 1, iz + 1), _index(ix, iz + 1)]
-	var pos := [Vector3(xa, _heights[ids[0]], za), Vector3(xa + CELL, _heights[ids[1]], za),
-		Vector3(xa + CELL, _heights[ids[2]], za + CELL), Vector3(xa, _heights[ids[3]], za + CELL)]
-	var lv := [floori(_levelq[ids[0]]), floori(_levelq[ids[1]]), floori(_levelq[ids[2]]), floori(_levelq[ids[3]])]
-	var biome := _biomes[ids[0]] as Biome
-	if lv[0] == lv[1] and lv[1] == lv[2] and lv[2] == lv[3]:
-		_ground_tri(out, pos[0], pos[2], pos[3], ix, iz, biome)
-		_ground_tri(out, pos[0], pos[1], pos[2], ix, iz, biome)
-		return
-	# Round the cell: each corner, then wherever a shelf edge crosses the side
-	# to the next corner.
-	var loop: Array = []          # [is_corner, a, b, k]
-	var reshaped := false
-	for i in 4:
-		var j := (i + 1) % 4
-		loop.append([true, pos[i], pos[i], lv[i]])
-		var found := _crossings(ids[i], ids[j], pos[i], pos[j])
-		# A side that changes shelf with no crossing on it was reshaped by
-		# hand: the cell cannot be cut cleanly, so it is fanned.
-		if found.is_empty() and lv[i] != lv[j]:
-			reshaped = true
-		for x: Array in found:
-			loop.append([false, x[0], x[1], x[2]])
-	# Each shelf the cell holds is the part of the rim on it, in order round;
-	# each shelf edge crossing the cell once is a rock face.
-	var by_k: Dictionary = {}
-	for e: Array in loop:
-		if not e[0]:
-			if not by_k.has(e[3]):
-				by_k[e[3]] = []
-			(by_k[e[3]] as Array).append(e)
-	var clean := not reshaped
-	for k2 in by_k:
-		if (by_k[k2] as Array).size() != 2:
-			clean = false
-	if clean:
-		var shelves: Dictionary = {}
-		for e: Array in loop:
-			if e[0]:
-				var l0: int = e[3]
-				if not shelves.has(l0):
-					shelves[l0] = []
-				(shelves[l0] as Array).append(e[1])
-			else:
-				var kk: int = e[3]
-				if not shelves.has(kk - 1):
-					shelves[kk - 1] = []
-				if not shelves.has(kk):
-					shelves[kk] = []
-				(shelves[kk - 1] as Array).append(e[1])
-				(shelves[kk] as Array).append(e[2])
-		for l1 in shelves:
-			var poly: Array = shelves[l1]
-			for t in range(1, poly.size() - 1):
-				_ground_tri(out, poly[0], poly[t], poly[t + 1], ix, iz, biome)
-		for k3 in by_k:
-			_rock_face(out, by_k[k3][0], by_k[k3][1], biome)
-		return
-	# The fan: every step round the rim to the middle of the cell.
-	var mid: Vector3 = ((pos[0] as Vector3) + (pos[1] as Vector3) + (pos[2] as Vector3) + (pos[3] as Vector3)) * 0.25
-	var rim: Array = []
-	for e: Array in loop:
-		if e[0]:
-			rim.append(e[1])
-		else:
-			# Low then high or high then low, as the walk round meets them.
-			var a: Vector3 = e[1]
-			var b: Vector3 = e[2]
-			var prev: Vector3 = rim[rim.size() - 1] if not rim.is_empty() else pos[0]
-			if absf(prev.y - a.y) <= absf(prev.y - b.y):
-				rim.append(a)
-				rim.append(b)
-			else:
-				rim.append(b)
-				rim.append(a)
-	for i in rim.size():
-		var a2: Vector3 = rim[i]
-		var b2: Vector3 = rim[(i + 1) % rim.size()]
-		var steep := Vector2(a2.x - b2.x, a2.z - b2.z).length() < 0.01
-		if steep:
-			var away := Vector3(a2.x - mid.x, 0.0, a2.z - mid.z).normalized()
-			out.tri(mid, a2, b2, away + Vector3.UP * 0.2, _rock_color(biome, a2))
-		else:
-			_ground_tri(out, mid, a2, b2, ix, iz, biome)
-
-## Where the shelf edges cross the side from grid point `ia` to `ib`, in order
-## from `ia`: [foot (top of the shelf below), top (the shelf above), level].
-## None on a side one of whose ends was reshaped by hand.
-func _crossings(ia: int, ib: int, pa: Vector3, pb: Vector3) -> Array:
-	var qa := _levelq[ia]
-	var qb := _levelq[ib]
-	var la := floori(qa)
-	var lb := floori(qb)
-	if la == lb or _cliff[ia] == 0 or _cliff[ib] == 0:
-		return []
-	var ca := (float(_cliff[ia]) - 1.0) / 254.0
-	var cb := (float(_cliff[ib]) - 1.0) / 254.0
-	var ma := _stepm[ia]
-	var mb := _stepm[ib]
-	var out: Array = []
-	var single := absi(lb - la) == 1
-	var key_a := mini(ia, ib)
-	var key_b := maxi(ia, ib)
-	var ks: Array = range(la + 1, lb + 1) if lb > la else range(la, lb, -1)
-	for k: int in ks:
-		var t := (float(k) - qa) / (qb - qa)
-		if single:
-			# The line wanders a little, so the cliffs are not ruled.
-			var jig := float(hash(Vector3i(key_a, key_b, k)) % 1000) / 1000.0 - 0.5
-			# Nudged the same way whichever cell is asking, or the two
-			# cells either side of this edge would disagree and leave a crack.
-			t = clampf(t + (jig if ia < ib else -jig) * 0.35, 0.08, 0.92)
-		var p := pa.lerp(pb, t)
-		var c := lerpf(ca, cb, t)
-		var m := lerpf(ma, mb, t) * STEP
-		var top := SHELF_BASE + float(k) * m
-		var foot := SHELF_BASE + (float(k - 1) + SHELF_TILT + (1.0 - SHELF_TILT) * (1.0 - c)) * m
-		out.append([Vector3(p.x, foot, p.z), Vector3(p.x, top, p.z), k])
-	return out
-
-## Whether a point in a cell one cliff line crosses is above that line (1),
-## below it (-1), or the cell is not cut that way (0).
-func _cliff_side(ix: int, iz: int, x: float, z: float) -> int:
-	var ids := [_index(ix, iz), _index(ix + 1, iz), _index(ix + 1, iz + 1), _index(ix, iz + 1)]
-	var xa := -half_extent + float(ix) * CELL
-	var za := -half_extent + float(iz) * CELL
-	var pos := [Vector3(xa, 0, za), Vector3(xa + CELL, 0, za), Vector3(xa + CELL, 0, za + CELL), Vector3(xa, 0, za + CELL)]
-	var pts: Array = []
-	var high := Vector2.ZERO
-	for i in 4:
-		var j := (i + 1) % 4
-		for x2: Array in _crossings(ids[i], ids[j], pos[i], pos[j]):
-			pts.append(Vector2((x2[0] as Vector3).x, (x2[0] as Vector3).z))
-		if floori(_levelq[ids[i]]) > floori(_levelq[ids[(i + 2) % 4]]):
-			high = Vector2(pos[i].x, pos[i].z)
-	if pts.size() != 2:
-		return 0
-	if high == Vector2.ZERO:
-		for i in 4:
-			var lv := floori(_levelq[ids[i]])
-			var others := floori(minf(minf(_levelq[ids[0]], _levelq[ids[1]]), minf(_levelq[ids[2]], _levelq[ids[3]])))
-			if lv > others:
-				high = Vector2(pos[i].x, pos[i].z)
-	var a: Vector2 = pts[0]
-	var b: Vector2 = pts[1]
-	var ref := signf((b - a).cross(high - a))
-	var here := signf((b - a).cross(Vector2(x, z) - a))
-	if ref == 0.0 or here == 0.0:
-		return 0
-	return 1 if here == ref else -1
-
-## Height in shelves anywhere, from the grid.
-func _q_at(x: float, z: float) -> float:
-	var gx := clampf(_grid_coord(x), 0.0, float(_cells) - 0.001)
-	var gz := clampf(_grid_coord(z), 0.0, float(_cells) - 0.001)
-	var ix := int(gx)
-	var iz := int(gz)
-	var fx := gx - float(ix)
-	var fz := gz - float(iz)
-	return lerpf(lerpf(_levelq[_index(ix, iz)], _levelq[_index(ix + 1, iz)], fx),
-		lerpf(_levelq[_index(ix, iz + 1)], _levelq[_index(ix + 1, iz + 1)], fx), fz)
-
-## The rock between two crossings of a shelf edge: from the lip of the shelf
-## above, bulging out toward the low side, down into the ground below.
-func _rock_face(out: CellOut, x1: Array, x2: Array, biome: Biome) -> void:
-	var rows: Array = []
-	for x: Array in [x1, x2]:
-		var foot: Vector3 = x[1]
-		var top: Vector3 = x[2]
-		var gap := top.y - foot.y
-		var down := Vector2(_q_at(foot.x - 1.0, foot.z) - _q_at(foot.x + 1.0, foot.z),
-			_q_at(foot.x, foot.z - 1.0) - _q_at(foot.x, foot.z + 1.0))
-		down = down.normalized() if down.length() > 0.0001 else Vector2.ZERO
-		var k := Vector3i(int(round(foot.x * 10.0)), int(round(foot.z * 10.0)), int(x[3]))
-		var r1 := _detail.get_noise_2d(foot.x * 3.0, foot.z * 3.0) * 0.5 + 0.5
-		var r2 := float(hash(k) % 1000) / 1000.0
-		var bulge := (0.08 + 0.2 * r1) * gap
-		var out3 := Vector3(down.x, 0.0, down.y)
-		var mid := Vector3(foot.x, lerpf(foot.y, top.y, 0.4 + 0.3 * r2), foot.z) + out3 * bulge
-		var base := Vector3(foot.x, foot.y - 0.8, foot.z) + out3 * bulge * 0.7
-		rows.append([top, mid, base, out3])
-	var a: Array = rows[0]
-	var b: Array = rows[1]
-	var facing: Vector3 = ((a[3] as Vector3) + (b[3] as Vector3)).normalized()
-	if facing.length() < 0.5:
-		facing = Vector3.UP
-	var upper := facing + Vector3.UP * 0.4
-	out.tri(a[0], b[0], b[1], upper, _rock_color(biome, a[1]))
-	out.tri(a[0], b[1], a[1], upper, _rock_color(biome, a[0]))
-	out.tri(a[1], b[1], b[2], facing, _rock_color(biome, b[1]).darkened(0.08))
-	out.tri(a[1], b[2], a[2], facing, _rock_color(biome, a[2]).darkened(0.08))
-
-func _ground_tri(out: CellOut, a: Vector3, b: Vector3, c: Vector3, ix: int, iz: int, biome: Biome) -> void:
-	var n := (c - a).cross(b - a).normalized()
-	if n.y < 0.0:
-		n = -n
-	var height := (a.y + b.y + c.y) / 3.0
-	# Ramps stay grass, a shade darker the steeper; only what is near sheer
-	# is rock.
-	var color: Color
-	if n.y < 0.4:
-		color = _rock_color(biome, a)
-	else:
-		color = _toon_ground(ix, iz, height, biome).darkened(clampf((0.95 - n.y) * 0.35, 0.0, 0.15))
-	out.tri(a, b, c, Vector3.UP, color)
-
 ## Bright, simple ground: grass, sand, snow, a shade apart shelf to shelf.
 const TOON_GROUND := {
 	Biome.WOODLAND: Color(0.42, 0.74, 0.36),
@@ -1716,7 +1429,8 @@ func _toon_ground(ix: int, iz: int, height: float, biome: Biome) -> Color:
 	var color: Color = TOON_GROUND[biome]
 	if height < WATER_LEVEL - 0.3:
 		return TOON_BEACH.darkened(0.2)
-	if height < SHELF_BASE - 0.1 and biome != Biome.SWAMP and biome != Biome.SNOW:
+	# Sand only right at the water's edge.
+	if height < 0.9 and biome != Biome.SWAMP and biome != Biome.SNOW:
 		return TOON_BEACH
 	if biome == Biome.MOUNTAIN and height > 60.0:
 		color = color.lerp(Color(0.56, 0.62, 0.46), smoothstep(60.0, 90.0, height))
@@ -1727,9 +1441,6 @@ func _toon_ground(ix: int, iz: int, height: float, biome: Biome) -> Color:
 		var r: float = float(f.radius)
 		if d < r * 1.35 and height >= WATER_LEVEL - 0.2:
 			return Color(0.26, 0.22, 0.26).lerp(Color(0.50, 0.38, 0.36), clampf(d / (r * 1.35), 0.0, 1.0))
-	# Every other shelf a touch lighter, so the steps read from afar.
-	if int(floorf((height - SHELF_BASE) / STEP + 0.05)) % 2 == 1:
-		color = color.lightened(0.04)
 	return color
 
 func _rock_color(biome: Biome, at: Vector3) -> Color:
@@ -2017,15 +1728,11 @@ func map_image(px_per_cell: int = 2) -> Image:
 		img.resize(_cells * px_per_cell, _cells * px_per_cell, Image.INTERPOLATE_NEAREST)
 	return img
 
-## A cell's colour on the map: its ground, or rock where a cliff runs
-## through it.
+## A cell's colour on the map: its ground, or rock where it is steep.
 func _map_color(ix: int, iz: int, height: float) -> Color:
 	var biome := _biomes[_index(ix, iz)] as Biome
-	var i00 := _index(ix, iz)
-	var i11 := _index(ix + 1, iz + 1)
-	var lo := minf(_heights[i00], _heights[i11])
-	var hi := maxf(_heights[i00], _heights[i11])
-	if hi - lo > STEP * 0.5 and _cliff[i00] > 40 and _cliff[i11] > 40:
+	var rise := absf(_heights[_index(ix + 1, iz + 1)] - _heights[_index(ix, iz)])
+	if rise > CELL * 1.6:
 		return TOON_ROCK[biome]
 	return _toon_ground(ix, iz, height, biome)
 

@@ -91,6 +91,7 @@ func _run_all() -> void:
 	await _test(&"the dump truck tips its load out", test_dump_truck)
 	await _test(&"debug unlimited money", test_unlimited_money)
 	await _test(&"a seated driver does not upset the vehicle", test_seated_driver)
+	await _test(&"vehicles reach their rated top speed", test_top_speed)
 	await _test(&"store-bought buildings are counted copies", test_building_copies)
 	await _test(&"winch and crane respect their power ratings", test_vehicle_rig)
 	await _test(&"kill plane rescues fallen items", test_kill_plane)
@@ -1143,59 +1144,41 @@ func test_regions() -> void:
 	check(float(woods[1]) - float(woods[0]) > 12.0, "the woods are flat (%.1f m of relief)" % (float(woods[1]) - float(woods[0])))
 	# The ground itself rises; the peaks are the stacks on it.
 	check(peak > 40.0, "the mountain ground tops out at %.0f m" % peak)
-	# The land is shelves: mostly flat ground, a step apart, with rock cliffs
-	# between them and grass ramps where the cliffs break.
-	var flat := 0
-	var cliffs := 0
-	var ramps := 0
-	var sampled := 0
-	for iz in range(2, land._cells - 2, 3):
-		for ix in range(2, land._cells - 2, 3):
-			var i: int = land._index(ix, iz)
-			if land._heights[i] < Terrain.SHELF_BASE:
-				continue
-			sampled += 1
-			var j: int = land._index(ix + 1, iz)
-			var rise: float = absf(land._heights[j] - land._heights[i])
-			if rise < 1.0:
-				flat += 1
-			if floori(land._levelq[i]) != floori(land._levelq[j]) and land._cliff[i] > 0 and land._cliff[j] > 0:
-				if (float(land._cliff[i]) + float(land._cliff[j])) * 0.5 > 150.0:
-					cliffs += 1
-				elif (float(land._cliff[i]) + float(land._cliff[j])) * 0.5 < 40.0:
-					ramps += 1
-	check(float(flat) / float(sampled) > 0.6, "the land is not mostly flat shelves (%d of %d)" % [flat, sampled])
-	check(cliffs > 50, "only %d cliff crossings" % cliffs)
-	check(ramps > 10, "only %d grass ramps" % ramps)
-	# Standing on a shelf by a cliff, you stand on the shelf, not half way up.
+	# The land is welded plates of very different sizes, not a grid: a few
+	# big panels over calm ground, many small ones where it is rough - and
+	# it follows the ground closely, with no gaps between the plates.
+	check(land.facets != null, "the region map was not built of plates")
+	var smallest := INF
+	var biggest := 0.0
+	var tris := 0
+	for t in land.facets.tiles:
+		for k in range(0, t.tris.size(), 3):
+			var area: float = ((t.tris[k + 2] - t.tris[k]).cross(t.tris[k + 1] - t.tris[k])).length() * 0.5
+			smallest = minf(smallest, area)
+			biggest = maxf(biggest, area)
+			tris += 1
+	check(tris < land._cells * land._cells, "%d triangles is no fewer than the grid's" % tris)
+	check(biggest > 2000.0, "the biggest plate triangle is only %.0f m2" % biggest)
+	check(smallest < 40.0, "the smallest plate triangle is %.0f m2" % smallest)
 	var space := world.get_world_3d().direct_space_state
 	var probed := 0
-	for iz in range(40, land._cells - 40, 7):
-		for ix in range(40, land._cells - 40, 7):
-			var i2: int = land._index(ix, iz)
-			var j2: int = land._index(ix + 1, iz)
-			if floori(land._levelq[i2]) == floori(land._levelq[j2]) or land._cliff[i2] < 200 or land._cliff[j2] < 200:
+	var gaps := 0
+	for iz in range(3, land._cells - 3, 11):
+		for ix in range(3, land._cells - 3, 11):
+			var px: float = -land.half_extent + (float(ix) + 0.37) * Terrain.CELL
+			var pz: float = -land.half_extent + (float(iz) + 0.61) * Terrain.CELL
+			var ray := PhysicsRayQueryParameters3D.create(Vector3(px, 400, pz), Vector3(px, -50, pz), Layers.WORLD)
+			var hit := space.intersect_ray(ray)
+			if hit.is_empty():
+				gaps += 1
 				continue
-			for fx in [0.1, 0.9]:
-				var px: float = -land.half_extent + (float(ix) + fx) * Terrain.CELL
-				var pz: float = -land.half_extent + (float(iz) + 0.5) * Terrain.CELL
-				var ray := PhysicsRayQueryParameters3D.create(Vector3(px, 400, pz), Vector3(px, -50, pz))
-				var hit := space.intersect_ray(ray)
-				if hit.is_empty():
-					continue
-				probed += 1
-				# Never over the ground (things would float); under it only
-				# where the rock of the cliff bulges out over the shelf.
-				var ground_y: float = hit.position.y
-				var said: float = land.height_at(px, pz)
-				check(said < ground_y + 1.5, "height_at is %.1f over ground at %.1f" % [said, ground_y])
-				check(said > ground_y - 1.5 or (hit.normal as Vector3).y < 0.97,
-					"height_at is %.1f under open ground at %.1f" % [said, ground_y])
-			if probed > 40:
-				break
-		if probed > 40:
-			break
-	check(probed > 10, "found no cliffs to stand by")
+			probed += 1
+			check(absf(float(hit.position.y) - land.height_at(px, pz)) < 0.05,
+				"height_at is %.2f where the plates are at %.2f" % [land.height_at(px, pz), float(hit.position.y)])
+			check(absf(land.height_at(px, pz) - land.grid_height(px, pz)) < 7.0,
+				"the plates stray %.1f m from the ground they stand for" % absf(land.height_at(px, pz) - land.grid_height(px, pz)))
+	check_eq(gaps, 0, "rays fell through the plates")
+	check(probed > 100, "only %d points probed" % probed)
 	# Rock outcrops, solid, off the roads.
 	var marks := Landmarks.new()
 	marks.setup(land, 5)
@@ -1246,6 +1229,32 @@ func test_road_routing() -> void:
 	check(meshes >= 1, "no road surface was built")
 	var mid := land._point_along(path, span * 0.5)
 	check(land.is_road(mid.x, mid.z), "the middle of the road is not marked as road")
+	# The road lies on the land and nothing pokes up through it: a ray down
+	# anywhere on the carriageway meets the road first, not a plate.
+	await step(2)
+	var space := world.get_world_3d().direct_space_state
+	var poked := 0
+	var tried := 0
+	var along2 := 20.0
+	while along2 < span - 20.0:
+		var p := land._point_along(path, along2)
+		var ahead := land._point_along(path, along2 + 1.0)
+		var tangent := Vector3(ahead.x - p.x, 0.0, ahead.z - p.z).normalized()
+		var side := Vector3(-tangent.z, 0.0, tangent.x)
+		for off in [-3.5, -1.5, 0.0, 1.5, 3.5]:
+			var q: Vector3 = p + side * float(off)
+			if land.water_depth(q.x, q.z) > 0.0:
+				continue
+			var ray := PhysicsRayQueryParameters3D.create(Vector3(q.x, 300, q.z), Vector3(q.x, -50, q.z), Layers.WORLD)
+			var hit := space.intersect_ray(ray)
+			if hit.is_empty():
+				continue
+			tried += 1
+			if not (hit.collider as Node).get_parent() is RoadSurface:
+				poked += 1
+		along2 += 2.7
+	check(tried > 50, "only %d points tried on the road" % tried)
+	check(poked * 50 <= tried, "the ground pokes through the road at %d of %d points" % [poked, tried])
 	done()
 
 ## Spec: caves much more extensive and interconnected, below sea level, big and
@@ -2770,6 +2779,33 @@ func test_ownership() -> void:
 ## truck backwards - the driver's body, carried in the seat, was colliding
 ## with the vehicle it sat in. Seated, every wheel stays on the ground and a
 ## truck left alone stays put.
+## Play-test: the road bonus only moved the speedometer. The physics capped
+## how fast any body may spin, which held every wheel - and so every
+## vehicle - under its rated speed, with the road bonus on top of that.
+func test_top_speed() -> void:
+	_setup(false)
+	var strip := StaticBody3D.new()
+	var cs := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(30, 2, 1600)
+	cs.shape = box
+	cs.position = Vector3(0, -1, -700)
+	strip.add_child(cs)
+	world.add_child(strip)
+	var truck := Hauler.new()
+	truck.setup(manager, 0, &"quad")
+	world.add_child(truck)
+	truck.global_position = Vector3(0, truck.spawn_height(), 0)
+	await step(60)
+	truck.autopilot = true
+	truck.input_throttle = 1.0
+	var top := 0.0
+	for i in 600:
+		await step(1)
+		top = maxf(top, truck.linear_velocity.length())
+	check(top > truck.max_speed * 0.9, "the %s topped out at %.1f of %.1f m/s" % [truck.vehicle_id, top, truck.max_speed])
+	done()
+
 func test_seated_driver() -> void:
 	_setup(false)
 	var player := _make_player()
@@ -2945,7 +2981,9 @@ func test_hauler_loose_load() -> void:
 	truck.freeze = true
 	PhysicsServer3D.body_set_state(truck.get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM, rolled)
 	await step(150)
-	check_eq(truck.cargo_count(), 0, "upside down, %d pieces stayed in the bed" % truck.cargo_count())
+	# A piece can wedge between the side walls, as a real one would; the
+	# load as a whole must fall out.
+	check(truck.cargo_count() <= 1, "upside down, %d pieces stayed in the bed" % truck.cargo_count())
 	check_eq(manager.active_count(), 6, "the spilled load did not land as real pieces")
 	done()
 

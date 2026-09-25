@@ -12,7 +12,7 @@ extends Node3D
 
 const HALF := 4.8                   ## half the carriageway
 const VERGE := 1.5                  ## gravel each side of that
-const LIFT := 0.07
+const LIFT := 0.14
 const STEP := 3.0                   ## metres between cross-sections
 const PIECE := 360.0                ## metres of road per mesh, for culling
 const POST_EVERY := 40.0
@@ -65,10 +65,11 @@ func _build_road(path: Array, style: String) -> void:
 			for k in [-(half + verge + 0.01), -half, half, half + verge + 0.01]:
 				var q: Vector3 = p + side * float(k)
 				section.append(Vector3(q.x, terrain.height_at(q.x, q.z) + LIFT, q.z))
-			# The carriageway is graded flat across, so it rides at the
-			# centre's height; only the verges follow the land down.
-			section[1].y = ground + LIFT
-			section[2].y = ground + LIFT
+			# The carriageway is graded flat across; it rides at whichever is
+			# higher, the centre or the plate under each edge, so the land
+			# never shows through it.
+			section[1].y = maxf(ground, terrain.height_at(section[1].x, section[1].z)) + LIFT
+			section[2].y = maxf(ground, terrain.height_at(section[2].x, section[2].z)) + LIFT
 			section[0].y = minf(section[0].y, ground + LIFT - 0.01)
 			section[3].y = minf(section[3].y, ground + LIFT - 0.01)
 		if not prev.is_empty() and not section.is_empty():
@@ -87,9 +88,7 @@ func _build_road(path: Array, style: String) -> void:
 			uvs = PackedVector2Array()
 			colors = PackedColorArray()
 			piece_start = along
-		# Plain roads are laid in long straight pieces, so their edges are
-		# lines and corners, like the ground they sit on.
-		along += STEP * (4.0 if plain else 1.0)
+		along += STEP
 	_flush(verts, uvs, colors, dirt)
 	if not posts.is_empty():
 		add_child(posts.instance("RoadPosts", false))
