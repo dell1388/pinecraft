@@ -26,8 +26,15 @@ static func dress(v: Hauler) -> void:
 			_quad(v, g)
 		&"buggy":
 			_buggy(v, g)
+		&"trailer":
+			_trailer(v, g)
 		_:
 			_truck(v, g)
+	if v.has_hitch():
+		# A receiver under the back with a ball on it.
+		var h := v.hitch_offset
+		g.block(Vector3(0.14, 0.12, absf(h.z) - v.body_size.z * 0.5 + 0.2), Vector3(h.x, h.y, (h.z + v.body_size.z * 0.5) * 0.5), DARK)
+		g.prism(8, 0.07, 0.05, 0.1, Transform3D(Basis(), h + Vector3(0, 0.05, 0)), STEEL)
 	match v.bed_kind:
 		&"sides", &"rack":
 			_walled_bed(v, g)
@@ -141,6 +148,38 @@ static func _buggy(v: Hauler, g: Greeble) -> void:
 	# Spare wheel on the engine cover.
 	g.prism(10, v.wheel_radius * 0.8, v.wheel_radius * 0.8, 0.22, Transform3D(Basis(Vector3.RIGHT, PI * 0.5), Vector3(0, top + 0.5, size.z * 0.5 - 0.1)), Color(0.10, 0.10, 0.11))
 	_mudguards(v, g)
+
+## A trailer: a chassis with side rails, an A-frame drawbar out to the
+## coupling, mudguards, tail lights and reflectors. Its leg is its own part,
+## so it can fold away when the trailer is hitched.
+static func _trailer(v: Hauler, g: Greeble) -> void:
+	var size := v.body_size
+	var paint := v.paint
+	var top := size.y * 0.5
+	g.block(size, Vector3.ZERO, paint.darkened(0.1))
+	for side in [-1.0, 1.0]:
+		g.block(Vector3(0.12, 0.2, size.z), Vector3(side * (size.x * 0.5 - 0.06), -top + 0.08, 0), DARK)
+		g.block(Vector3(0.16, 0.1, 0.05), Vector3(side * (size.x * 0.5 - 0.15), 0.0, size.z * 0.5 + 0.02), TAIL, true)
+		g.block(Vector3(0.1, 0.1, 0.04), Vector3(side * (size.x * 0.5 + 0.01), 0.0, -size.z * 0.5 + 0.3), AMBER, true)
+	# The A-frame: from the front corners in to the coupling.
+	var t := v.tongue_offset
+	for side in [-1.0, 1.0]:
+		var from := Vector3(side * (size.x * 0.5 - 0.2), t.y, -size.z * 0.5 + 0.1)
+		g.pipe(from, t + Vector3(side * 0.08, 0, 0.25), 0.07, DARK, 6)
+	g.block(Vector3(0.22, 0.16, 0.5), t + Vector3(0, 0, 0.2), DARK)
+	g.prism(8, 0.1, 0.1, 0.12, Transform3D(Basis(), t + Vector3(0, -0.05, 0)), STEEL)
+	_mudguards(v, g)
+	# The leg, on its own so it can fold away.
+	var leg := Greeble.new()
+	leg.layer_step = LAYER
+	var ride := v.wheel_radius - v._lowest_wheel_y() + Hauler.SAG
+	var height := ride + t.y
+	leg.block(Vector3(0.12, height, 0.12), Vector3(0, t.y - height * 0.5, t.z + 0.4), STEEL.darkened(0.2))
+	leg.block(Vector3(0.3, 0.05, 0.3), Vector3(0, t.y - height + 0.025, t.z + 0.4), DARK)
+	leg.block(Vector3(0.08, 0.2, 0.08), Vector3(0.1, t.y + 0.05, t.z + 0.4), DARK)
+	var mi := leg.instance("Stand")
+	v.add_child(mi)
+	v._stand_mesh = mi
 
 static func _mudguards(v: Hauler, g: Greeble) -> void:
 	for offset in v.wheel_offsets:

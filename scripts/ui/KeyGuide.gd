@@ -41,6 +41,7 @@ const GROUPS := [
 	]},
 	{"title": "Vehicles", "rows": [
 		[["F"], "Get in (look at it or stand by it) / get out"],
+		[["T"], "Hitch the trailer behind you, or let it go (seated or standing by it)"],
 		[["W", "S"], "Throttle and reverse"],
 		[["A", "D"], "Steer"],
 		[["Space"], "Brake"],
@@ -99,7 +100,7 @@ static func hints_for(state: String) -> Array:
 				[["Wheel"], "Choose"], [["Z", "X", "C"], "Rotate"], [["Shift", "/", "Ctrl"], "Up / down"], [["B"], "Done"]]
 		"drive":
 			return [[["W", "S"], "Drive"], [["Space"], "Brake"], [["X"], "Unload"],
-				[["Y"], "Winch"], [["K", "/", "L"], "Reel"], [["R"], "Crane"], [["F"], "Get out"]]
+				[["Y"], "Winch"], [["K", "/", "L"], "Reel"], [["R"], "Crane"], [["T"], "Hitch"], [["F"], "Get out"]]
 		"crane":
 			return [[["W", "S"], "Along"], [["A", "D"], "Across"], [["Shift", "/", "Ctrl"], "Up / down"],
 				[["Q", "/", "E"], "Turn"], [["F"], "Grab / let go"], [["RMB"], "Fine"], [["R"], "Done"]]

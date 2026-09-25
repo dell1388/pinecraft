@@ -365,6 +365,45 @@
       "blurb": "Spawns your crane truck. Brings it back when it is lost."
     },
     {
+      "id": "pad_trailer",
+      "display_name": "Utility Trailer Pad",
+      "kind": "pad",
+      "vehicle": "trailer",
+      "cost": 1500,
+      "size": [
+        3,
+        1,
+        6
+      ],
+      "blurb": "Spawns your utility trailer. Brings it back when it is lost."
+    },
+    {
+      "id": "pad_log_trailer",
+      "display_name": "Logging Trailer Pad",
+      "kind": "pad",
+      "vehicle": "log_trailer",
+      "cost": 4500,
+      "size": [
+        4,
+        1,
+        10
+      ],
+      "blurb": "Spawns your logging trailer. Brings it back when it is lost."
+    },
+    {
+      "id": "pad_dump_trailer",
+      "display_name": "Dump Trailer Pad",
+      "kind": "pad",
+      "vehicle": "dump_trailer",
+      "cost": 5500,
+      "size": [
+        4,
+        1,
+        8
+      ],
+      "blurb": "Spawns your dump trailer. Brings it back when it is lost."
+    },
+    {
       "id": "conveyor_ramp",
       "display_name": "Belt Ramp",
       "kind": "conveyor",

@@ -47,6 +47,21 @@ var input_steer: float = 0.0
 var input_brake: bool = false
 var autopilot: bool = false
 
+## Towing. A truck with a hitch can pull a trailer; a trailer is a vehicle
+## with no engine, no seat and no steering, that rolls on free wheels and
+## brakes when whatever pulls it brakes. They are joined by a ball joint at
+## the hitch, so the trailer follows round corners and over bumps by itself.
+var is_trailer: bool = false
+var hitch_offset: Vector3 = Vector3.ZERO       ## a truck's hitch, in its frame
+var tongue_offset: Vector3 = Vector3.ZERO      ## a trailer's coupling, in its frame
+var towing: Hauler = null
+var towed_by: Hauler = null
+var _hitch_joint: PinJoint3D
+var _stand: CollisionShape3D
+var _stand_mesh: Node3D
+## How close a trailer's coupling has to be to a hitch to be hooked on.
+const HITCH_REACH := 2.5
+
 ## Which vehicle this is, and its row from vehicles.json.
 var vehicle_id: StringName = &"hauler"
 var display_name: String = "Flatbed Hauler"
@@ -165,6 +180,12 @@ func _apply_spec() -> void:
 		bed_floor += 0.15       # the tub has its own floor plate on the chassis
 	bed_length = bed_back - bed_front
 	bed_mid_z = (bed_front + bed_back) * 0.5
+	is_trailer = bool(spec.get("trailer", false))
+	hitch_offset = _vec(spec.get("hitch", [0, 0, 0]))
+	tongue_offset = _vec(spec.get("tongue", [0, 0, 0]))
+	if is_trailer:
+		# No axle steers; nothing drives.
+		_front_z = -INF
 
 static func _vec(a: Variant) -> Vector3:
 	var arr: Array = a
@@ -197,6 +218,24 @@ func _build() -> void:
 	box.size = body_size
 	chassis.shape = box
 	add_child(chassis)
+	if is_trailer:
+		# The drawbar out to the coupling, and a leg under it that holds the
+		# front up when it is not hitched.
+		var bar := CollisionShape3D.new()
+		var bb := BoxShape3D.new()
+		var from_z := -body_size.z * 0.5
+		bb.size = Vector3(0.3, 0.2, absf(tongue_offset.z - from_z))
+		bar.shape = bb
+		bar.position = Vector3(0, tongue_offset.y, (tongue_offset.z + from_z) * 0.5)
+		add_child(bar)
+		var ride := wheel_radius - _lowest_wheel_y() + SAG
+		var leg_height := ride + tongue_offset.y
+		_stand = CollisionShape3D.new()
+		var sb := BoxShape3D.new()
+		sb.size = Vector3(0.3, leg_height, 0.3)
+		_stand.shape = sb
+		_stand.position = Vector3(0, tongue_offset.y - leg_height * 0.5, tongue_offset.z + 0.4)
+		add_child(_stand)
 	# A cab is solid: loads fetch up against it and it keeps logs out of it.
 	var cab: Dictionary = spec.get("cab", {})
 	if not cab.is_empty():
@@ -358,8 +397,10 @@ func _is_front(index: int) -> bool:
 	return absf((wheel_offsets[index] as Vector3).z - _front_z) < 0.1
 
 ## Whether a point on the vehicle is where you would climb in: the cab, or
-## close to the seat on an open vehicle.
+## close to the seat on an open vehicle. A trailer has nowhere to sit.
 func is_seat_point(world_point: Vector3) -> bool:
+	if is_trailer:
+		return false
 	var local := global_transform.affine_inverse() * world_point
 	var seat := _vec(spec.get("seat", [0, 1.2, -1.9]))
 	var cab: Dictionary = spec.get("cab", {})
@@ -507,7 +548,8 @@ func _poll_bed() -> void:
 ## out however the truck is driven. It comes loose again when the driver gets
 ## out, the crane goes to work, or the load is tipped or dropped off.
 func _update_fixed(delta: float) -> void:
-	var may_fix := driver != null and not _crane_busy() and _tipping_items().is_empty() \
+	var manned := driver != null or (towed_by != null and is_instance_valid(towed_by) and towed_by.driver != null)
+	var may_fix := manned and not _crane_busy() and _tipping_items().is_empty() \
 		and _tub_angle < 0.001 and _tub_target < 0.001
 	if not may_fix:
 		if not _fixed.is_empty():
@@ -589,6 +631,9 @@ func is_fixed(item: LooseItem) -> bool:
 ## wedged. Returns how many pieces were aboard.
 func unload(_behind: bool = true) -> int:
 	release_load()
+	# A trailer behind tips with it.
+	if towing != null and is_instance_valid(towing):
+		towing.unload(_behind)
 	var n := _load.size()
 	if n == 0:
 		return 0
@@ -702,8 +747,17 @@ func _physics_process(delta: float) -> void:
 	_update_tub(delta)
 	_update_fixed(delta)
 
+	if towed_by != null and not is_instance_valid(towed_by):
+		towed_by = null
+	if towing != null and not is_instance_valid(towing):
+		towing = null
 	if driver != null:
 		_read_input()
+	elif towed_by != null:
+		# Towed: it brakes when the truck does, and otherwise rolls.
+		input_throttle = 0.0
+		input_steer = 0.0
+		input_brake = towed_by.input_brake or towed_by.parked()
 	elif parked():
 		# No driver and no autopilot: the controls are nobody's, so they are
 		# cleared rather than left holding whatever was last pressed.
@@ -759,7 +813,82 @@ func on_road() -> bool:
 ## True when nobody is at the wheel. A parked truck has its brakes on: it stays
 ## where it was left rather than being shoved about by whatever walks into it.
 func parked() -> bool:
-	return driver == null and not autopilot
+	return driver == null and not autopilot and towed_by == null
+
+func _lowest_wheel_y() -> float:
+	var low := 0.0
+	for o in wheel_offsets:
+		low = minf(low, (o as Vector3).y)
+	return low
+
+# --- Towing ---------------------------------------------------------------------
+
+func has_hitch() -> bool:
+	return not is_trailer and hitch_offset != Vector3.ZERO
+
+func hitch_point() -> Vector3:
+	return global_transform * hitch_offset
+
+func tongue_point() -> Vector3:
+	return global_transform * tongue_offset
+
+## Hooks `trailer` on behind. Its coupling has to be within reach of the
+## hitch; it is set on the ball, keeping the way it faces. Returns "" or why
+## not.
+func hitch(trailer: Hauler) -> String:
+	if not has_hitch():
+		return "the %s has no hitch" % display_name.to_lower()
+	if trailer == null or not trailer.is_trailer:
+		return "that is not a trailer"
+	if towing != null:
+		return "already towing the %s" % towing.display_name.to_lower()
+	if trailer.towed_by != null:
+		return "that trailer is hitched to something else"
+	var gap := trailer.tongue_point().distance_to(hitch_point())
+	if gap > HITCH_REACH:
+		return "back up to it: the hitch is %.1f m from the coupling" % gap
+	trailer.release_load()
+	# Level, facing the way it faced, with its coupling on the ball.
+	var yaw := trailer.global_rotation.y
+	var basis := Basis.from_euler(Vector3(0, yaw, 0))
+	var at := hitch_point() - basis * trailer.tongue_offset + Vector3(0, 0.02, 0)
+	trailer.move_to(Transform3D(basis, at))
+	trailer.sleeping = false
+	_hitch_joint = PinJoint3D.new()
+	_hitch_joint.name = "Hitch"
+	add_child(_hitch_joint)
+	_hitch_joint.global_position = hitch_point()
+	_hitch_joint.node_a = _hitch_joint.get_path_to(self)
+	_hitch_joint.node_b = _hitch_joint.get_path_to(trailer)
+	add_collision_exception_with(trailer)
+	for w in trailer.wheel_bodies:
+		add_collision_exception_with(w)
+	towing = trailer
+	trailer.towed_by = self
+	trailer.set_stand(false)
+	return ""
+
+## Lets the trailer go, where it stands, down on its leg.
+func unhitch() -> Hauler:
+	var trailer := towing
+	if _hitch_joint != null and is_instance_valid(_hitch_joint):
+		_hitch_joint.queue_free()
+	_hitch_joint = null
+	towing = null
+	if trailer != null and is_instance_valid(trailer):
+		remove_collision_exception_with(trailer)
+		for w in trailer.wheel_bodies:
+			remove_collision_exception_with(w)
+		trailer.towed_by = null
+		trailer.set_stand(true)
+	return trailer
+
+## The front leg: down when it stands alone, up when it is hitched.
+func set_stand(down: bool) -> void:
+	if _stand != null:
+		_stand.disabled = not down
+	if _stand_mesh != null:
+		_stand_mesh.visible = down
 
 # --- Wheels -------------------------------------------------------------------
 

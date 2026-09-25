@@ -104,6 +104,7 @@ func _run_all() -> void:
 	await _test(&"store-bought buildings are counted copies", test_building_copies)
 	await _test(&"winch and crane respect their power ratings", test_vehicle_rig)
 	await _test(&"a driven truck's settled load is fixed as it lies", test_load_fixed_while_driven)
+	await _test(&"trucks tow trailers on a hitch", test_trailers)
 	await _test(&"kill plane rescues fallen items", test_kill_plane)
 	await _test(&"per-plot cap is enforced", test_cap)
 	await _test(&"full automated base stays in budget", test_full_base)
@@ -3096,6 +3097,9 @@ func test_seated_driver() -> void:
 	world.add_child(player)
 	var x := -12.0
 	for id in GameData.vehicles:
+		# Trailers have no engine and no seat: they are towed, tested elsewhere.
+		if bool(GameData.vehicle(id).get("trailer", false)):
+			continue
 		var truck := Hauler.new()
 		truck.setup(manager, 0, id)
 		truck.position = Vector3(x, truck.spawn_height() + 0.2, -10)
@@ -3394,6 +3398,7 @@ func test_vehicle_catalogue() -> void:
 	for entry in GameData.store_products():
 		sold.append(String(entry.get("target", "")))
 	var x := -12
+	var row := -12
 	for id in GameData.vehicles:
 		var pad_def: BuildingDef = null
 		for b: BuildingDef in GameData.buildings.values():
@@ -3405,7 +3410,11 @@ func test_vehicle_catalogue() -> void:
 		check(sold.has(String(pad_def.id)), "the store does not sell the %s" % pad_def.display_name)
 		check(pad_def.cost > 0, "the %s is free" % id)
 		PlayerState.add_copy(pad_def.id)
-		var pad := plot.place(pad_def, Vector2i(x, -12), 0) as VehiclePad
+		# Two rows: ten pads do not fit in one across the plot.
+		if x > 12:
+			x = -12
+			row += 11
+		var pad := plot.place(pad_def, Vector2i(x, row), 0) as VehiclePad
 		x += 5
 		check(pad != null, "could not place the %s" % pad_def.display_name)
 		if pad == null:
@@ -3422,6 +3431,9 @@ func test_vehicle_catalogue() -> void:
 ## tipping over, and - if it has a bed - holds what is put in it.
 func test_vehicle_fleet() -> void:
 	for id in GameData.vehicles:
+		# Trailers have no engine and no seat: they are towed, tested elsewhere.
+		if bool(GameData.vehicle(id).get("trailer", false)):
+			continue
 		_setup(false)
 		var truck := Hauler.new()
 		truck.setup(manager, 0, id)
@@ -3876,6 +3888,58 @@ func test_load_fixed_while_driven() -> void:
 		check(item.state == LooseItem.State.FREE and item.get_parent() == manager, "a released piece is not a loose body again")
 	await step(30)
 	check_eq(truck.cargo_count(), aboard, "the released load is not in the bed")
+	done()
+
+## Spec: trucks with a hitch tow trailers. A trailer is hooked on at the
+## ball, follows the truck round corners by itself, brakes when it brakes,
+## stays upright, and stands on its leg once let go.
+func test_trailers() -> void:
+	for pair in [[&"hauler", &"trailer"], [&"log_truck", &"log_trailer"], [&"dump_truck", &"dump_trailer"]]:
+		_setup(false)
+		var truck := Hauler.new()
+		truck.setup(manager, 0, pair[0])
+		world.add_child(truck)
+		truck.global_position = Vector3(0, truck.spawn_height(), 0)
+		var trailer := Hauler.new()
+		trailer.setup(manager, 0, pair[1])
+		world.add_child(trailer)
+		await step(2)
+		# Parked just behind, its coupling a little way off the ball.
+		var behind := truck.hitch_point() + Vector3(0.4, 0, 1.0) - trailer.tongue_offset
+		trailer.global_position = Vector3(behind.x, trailer.spawn_height(), behind.z)
+		await step(90)
+		check(trailer.is_trailer and not trailer.is_seat_point(trailer.global_position), "a %s has a seat" % pair[1])
+		# Standing alone, it is on its leg: level-ish, not nose-down in the dirt.
+		check(absf(trailer.global_transform.basis.z.y) < 0.25, "the unhitched %s is not standing on its leg" % pair[1])
+		check_eq(truck.hitch(trailer), "", "the %s would not hitch the %s" % pair)
+		check(truck.towing == trailer and trailer.towed_by == truck, "the hitch did not join them")
+		await step(30)
+		check(trailer.tongue_point().distance_to(truck.hitch_point()) < 0.15, "the coupling is not on the ball")
+		# Drive off, then round a bend.
+		truck.autopilot = true
+		truck.input_throttle = 1.0
+		await step(150)
+		truck.input_steer = 1.0
+		await step(150)
+		truck.input_steer = 0.0
+		await step(60)
+		var moved := Vector2(trailer.global_position.x, trailer.global_position.z).length()
+		check(moved > 15.0, "the %s was not towed (moved %.1f m)" % [pair[1], moved])
+		check(trailer.tongue_point().distance_to(truck.hitch_point()) < 0.3,
+			"the %s came off the hitch (%.2f m)" % [pair[1], trailer.tongue_point().distance_to(truck.hitch_point())])
+		check(trailer.global_transform.basis.y.dot(Vector3.UP) > 0.8, "the %s rolled over" % pair[1])
+		# Braking: it stops with the truck, still hitched.
+		truck.input_throttle = 0.0
+		truck.input_brake = true
+		await step(180)
+		check(trailer.linear_velocity.length() < 1.0, "the %s did not stop with the truck" % pair[1])
+		check(trailer.tongue_point().distance_to(truck.hitch_point()) < 0.3, "braking pulled the %s off" % pair[1])
+		truck.autopilot = false
+		var let_go := truck.unhitch()
+		check(let_go == trailer and truck.towing == null and trailer.towed_by == null, "unhitching left them joined")
+		await step(90)
+		check(trailer.parked() and absf(trailer.global_transform.basis.z.y) < 0.25,
+			"the let-go %s is not standing on its leg" % pair[1])
 	done()
 
 func _haulers_in(node: Node) -> int:

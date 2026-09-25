@@ -1629,6 +1629,9 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		KEY_V:
 			if not building:
 				_toggle_vehicle()
+		KEY_T:
+			if not building:
+				hud.log_message(_toggle_hitch())
 		KEY_F:
 			# In and out: seated, F gets out (unless it is working the crane's
 			# grapple); on foot, it gets into the vehicle looked at or stood by.
@@ -1640,7 +1643,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 					_toggle_vehicle()
 			else:
 				var v := _vehicle_looked_at()
-				if v == null:
+				if v == null or v.is_trailer:
 					v = vehicle_at_hand(3.0)
 					if v != null and _distance_to(v) > 3.0:
 						v = null
@@ -1719,9 +1722,53 @@ func _toggle_vehicle() -> void:
 		return
 	hud.log_message("look at a vehicle, or stand by it, and press [F] to get in")
 
+## Hitches the trailer behind the truck you are in (or stand by), or lets it
+## go. Returns what happened.
+func _toggle_hitch() -> String:
+	var truck: Hauler = null
+	if player.driving():
+		truck = player.vehicle as Hauler
+	else:
+		# Standing by: the truck with a hitch, or the truck a trailer near you
+		# is hitched to.
+		var near := vehicle_at_hand(6.0)
+		if near != null and near.is_trailer:
+			if near.towed_by != null:
+				truck = near.towed_by
+			else:
+				for v in vehicles():
+					if v.has_hitch() and v.towing == null \
+							and v.hitch_point().distance_to(near.tongue_point()) <= Hauler.HITCH_REACH:
+						truck = v
+						break
+		elif near != null:
+			truck = near
+	if truck == null:
+		return "stand by a truck and a trailer to hitch them [T]"
+	if not truck.has_hitch():
+		return "the %s has no hitch" % truck.display_name.to_lower()
+	if truck.towing != null:
+		var t := truck.unhitch()
+		return "unhitched the %s" % t.display_name.to_lower()
+	var best: Hauler = null
+	var best_d := INF
+	for v in vehicles():
+		if v.is_trailer and v.towed_by == null:
+			var d := v.tongue_point().distance_to(truck.hitch_point())
+			if d < best_d:
+				best_d = d
+				best = v
+	if best == null:
+		return "no trailer to hitch - they are sold at the Store"
+	var err := truck.hitch(best)
+	return err if err != "" else "hitched the %s - [T] to let it go" % best.display_name.to_lower()
+
 ## Into the driving seat of `v`.
 func drive(v: Hauler) -> void:
 	if v == null or player.driving():
+		return
+	if v.is_trailer:
+		hud.log_message("a trailer has no seat - back a truck up to it and hitch it [T]")
 		return
 	hauler = v
 	player.enter_vehicle(v)

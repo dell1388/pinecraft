@@ -46,6 +46,7 @@
       "paint": [0.20, 0.42, 0.72],
       "capacity": 2.5,
       "bed": {"kind": "sides", "front": 0.12, "back": 2.02, "half_width": 0.88, "wall": 0.55, "head": 0.9},
+      "hitch": [0, -0.22, 2.45],
       "rig": {"winch": 2500, "crane": 0, "reach": 12, "head": [0, 0.1, -2.3]}
     },
     {
@@ -93,6 +94,7 @@
       "paint": [0.62, 0.20, 0.16],
       "capacity": 8,
       "bed": {"kind": "sides", "front": -0.72, "back": 2.26, "half_width": 1.15, "wall": 1.1, "head": 1.45},
+      "hitch": [0, -0.3, 2.75],
       "rig": {"winch": 4000, "crane": 1200, "reach": 14, "head": [0, 1.1, -1.2]}
     },
     {
@@ -117,6 +119,7 @@
       "paint": [0.86, 0.70, 0.18],
       "capacity": 18,
       "bed": {"kind": "stakes", "front": -1.85, "back": 4.12, "half_width": 1.15, "wall": 1.5, "head": 1.9},
+      "hitch": [0, -0.33, 4.45],
       "rig": {"winch": 8000, "crane": 2500, "reach": 16, "head": [0, 2.3, -1.4]}
     },
     {
@@ -141,6 +144,7 @@
       "paint": [0.92, 0.60, 0.12],
       "capacity": 14,
       "bed": {"kind": "tub", "front": -1.15, "back": 3.05, "half_width": 1.2, "wall": 1.3, "head": 1.75},
+      "hitch": [0, -0.35, 3.45],
       "rig": {"winch": 6000, "crane": 0, "reach": 12, "head": [0, 0.2, -3.3]}
     },
     {
@@ -165,7 +169,83 @@
       "paint": [0.86, 0.30, 0.10],
       "capacity": 10,
       "bed": {"kind": "sides", "front": -0.4, "back": 3.35, "half_width": 1.2, "wall": 0.55, "head": 0.55},
+      "hitch": [0, -0.33, 3.75],
       "rig": {"winch": 12000, "crane": 6000, "reach": 22, "head": [0, 3.1, -1.1], "mast": true}
+    },
+    {
+      "id": "trailer",
+      "display_name": "Utility Trailer",
+      "blurb": "A walled trailer on a pair of axles. Hitch it behind a truck [T] for more room.",
+      "style": "trailer",
+      "trailer": true,
+      "mass": 380,
+      "engine": 0,
+      "max_speed": 30,
+      "grip": 1.5,
+      "steer": 0,
+      "body": [2.0, 0.4, 3.4],
+      "wheels": [[-0.95, -0.2, 0.3], [0.95, -0.2, 0.3], [-0.95, -0.2, 1.1], [0.95, -0.2, 1.1]],
+      "wheel_radius": 0.36,
+      "wheel_width": 0.26,
+      "suspension_rest": 0.55,
+      "com_y": -0.2,
+      "tongue": [0, -0.1, -2.6],
+      "seat": [0, 0, 0],
+      "camera": 8.0,
+      "paint": [0.52, 0.54, 0.56],
+      "capacity": 5,
+      "bed": {"kind": "sides", "front": -1.6, "back": 1.65, "half_width": 0.9, "wall": 0.55, "head": 0.7},
+      "rig": null
+    },
+    {
+      "id": "log_trailer",
+      "display_name": "Logging Trailer",
+      "blurb": "A long stake trailer on a tandem axle for whole trunks. Hitch it behind a truck [T].",
+      "style": "trailer",
+      "trailer": true,
+      "mass": 900,
+      "engine": 0,
+      "max_speed": 30,
+      "grip": 1.6,
+      "steer": 0,
+      "body": [2.4, 0.5, 7.0],
+      "wheels": [[-1.05, -0.25, 1.5], [1.05, -0.25, 1.5], [-1.05, -0.25, 2.6], [1.05, -0.25, 2.6]],
+      "wheel_radius": 0.48,
+      "wheel_width": 0.36,
+      "suspension_rest": 0.7,
+      "com_y": -0.3,
+      "tongue": [0, -0.15, -4.4],
+      "seat": [0, 0, 0],
+      "camera": 12.0,
+      "paint": [0.28, 0.4, 0.26],
+      "capacity": 16,
+      "bed": {"kind": "stakes", "front": -3.3, "back": 3.4, "half_width": 1.1, "wall": 1.4, "head": 1.6},
+      "rig": null
+    },
+    {
+      "id": "dump_trailer",
+      "display_name": "Dump Trailer",
+      "blurb": "A steel tub on a tandem axle that tips its load out the back [X]. Hitch it behind a truck [T].",
+      "style": "trailer",
+      "trailer": true,
+      "mass": 1100,
+      "engine": 0,
+      "max_speed": 30,
+      "grip": 1.6,
+      "steer": 0,
+      "body": [2.5, 0.55, 5.0],
+      "wheels": [[-1.1, -0.275, 0.5], [1.1, -0.275, 0.5], [-1.1, -0.275, 1.6], [1.1, -0.275, 1.6]],
+      "wheel_radius": 0.5,
+      "wheel_width": 0.38,
+      "suspension_rest": 0.75,
+      "com_y": -0.35,
+      "tongue": [0, -0.15, -3.4],
+      "seat": [0, 0, 0],
+      "camera": 10.0,
+      "paint": [0.9, 0.46, 0.12],
+      "capacity": 10,
+      "bed": {"kind": "tub", "front": -2.3, "back": 2.4, "half_width": 1.1, "wall": 1.1, "head": 1.3},
+      "rig": null
     }
   ]
 }

@@ -72,6 +72,18 @@
             {
               "kind": "unlock",
               "target": "vehicle_pad"
+            },
+            {
+              "kind": "unlock",
+              "target": "pad_trailer"
+            },
+            {
+              "kind": "unlock",
+              "target": "pad_log_trailer"
+            },
+            {
+              "kind": "unlock",
+              "target": "pad_dump_trailer"
             }
           ]
         },
