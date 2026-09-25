@@ -2676,7 +2676,8 @@ func test_store() -> void:
 	var sections := {}
 	for slot in shop.slots:
 		sections[slot.section] = true
-	for want in ["TOOLS", "VEHICLES", "CONVEYORS", "MACHINERY", "DOODADS"]:
+	# Belts are built in build mode, not bought in boxes.
+	for want in ["TOOLS", "VEHICLES", "MACHINERY", "DOODADS"]:
 		check(sections.has(want), "the store has no %s section" % want)
 	var stocked := 0
 	for slot in shop.slots:
