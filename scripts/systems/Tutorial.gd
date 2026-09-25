@@ -23,7 +23,7 @@ const STEPS := [
 	{"id": &"build", "title": "Open build mode",
 		"hint": "On your plot, press [B]. Fly with [WASD] and pick a building with the wheel."},
 	{"id": &"place", "title": "Place a building",
-		"hint": "A Planker turns a log into one big plank, which sells for more. [LMB] places it."},
+		"hint": "A Planker turns a sanded log into one big plank, which sells for more - sand logs first. [LMB] places it."},
 	{"id": &"order", "title": "Fill an order",
 		"hint": "Orders pay a bonus on top of the sale. See them any time with [Tab]."},
 ]

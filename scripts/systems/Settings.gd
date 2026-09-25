@@ -31,6 +31,7 @@ const DEFAULTS := {
 	# Interface
 	&"ui_scale": 1.0,
 	&"show_hints": true,
+	&"minimap": true,
 	&"show_compass": true,
 	&"show_tutorial": true,
 	&"show_fps": false,

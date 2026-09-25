@@ -937,7 +937,14 @@ func test_planker() -> void:
 	var m := _inline(&"sawmill")
 	await step(3)
 	check(m.canopy_length() > 2.0, "the planker has no tunnel")
-	var log_piece := _feed(m, &"wood_pine", Solid.cylinder(0.26, 0.22, 3.0))
+	# Unsanded, a log goes through untouched: there are no rough planks.
+	var rough := _feed(m, &"wood_pine", Solid.cylinder(0.26, 0.22, 3.0))
+	rough = await _through(m, rough)
+	check(rough != null and rough.item_id == &"wood_pine", "the planker planked an unsanded log")
+	check_eq(m.total_processed, 0, "the planker counted an unsanded log as work")
+	if rough != null:
+		manager.despawn(rough)
+	var log_piece := _feed(m, &"wood_pine", Solid.with_finish(Solid.cylinder(0.26, 0.22, 3.0), &"sanded"))
 	var log_volume := log_piece.volume()
 	log_piece = await _through(m, log_piece)
 	check(log_piece != null, "the log never came out of the far end")
@@ -952,7 +959,7 @@ func test_planker() -> void:
 	check(size.x > 0.35 and size.z > 0.15, "the plank is thin: %s" % str(size))
 	check(size.x > size.z * 1.5, "that is a beam, not a plank: %s" % str(size))
 	check(log_piece.volume() < log_volume, "milling made wood out of nothing")
-	check(Economy.price_of(&"lumber_pine", log_piece.dims) > Economy.price_of(&"wood_pine", Solid.cylinder(0.26, 0.22, 3.0)),
+	check(Economy.price_of(&"lumber_pine", log_piece.dims) > Economy.price_of(&"wood_pine", Solid.with_finish(Solid.cylinder(0.26, 0.22, 3.0), &"sanded")),
 		"a plank is worth less than the log it came from")
 	check(not log_piece.freeze and log_piece.state == LooseItem.State.FREE, "the plank is not a free body")
 	done()
@@ -1475,7 +1482,7 @@ func test_tunnel_mouth() -> void:
 	belt.position = Vector3(0, 0, m.length * 0.5 + 3.0)
 	world.add_child(belt)
 	await step(3)
-	var fat := Solid.cylinder(m.hole.y * 0.62, m.hole.y * 0.6, 3.0)
+	var fat := Solid.with_finish(Solid.cylinder(m.hole.y * 0.62, m.hole.y * 0.6, 3.0), &"sanded")
 	var trunk := manager.spawn(&"wood_pine", Transform3D(LooseItem.lying_basis(0.0),
 		belt.global_position + Vector3(0, 0.8, 1.2)), 0, Vector3.ZERO, fat, true)
 	await step(300)
@@ -1590,7 +1597,7 @@ func test_conveyor_to_machine() -> void:
 	world.add_child(belt)
 	await step(3)
 	var log_piece := manager.spawn(&"wood_pine", Transform3D(LooseItem.lying_basis(0.0),
-		belt.global_position + Vector3(0, 0.6, 1.2)), 0, Vector3.ZERO, Solid.cylinder(0.2, 0.18, 2.0))
+		belt.global_position + Vector3(0, 0.6, 1.2)), 0, Vector3.ZERO, Solid.with_finish(Solid.cylinder(0.2, 0.18, 2.0), &"sanded"))
 	log_piece = await _through(m, log_piece, 900)
 	check(log_piece != null, "the belt did not carry the log through the planker")
 	check_eq(log_piece.item_id, &"lumber_pine", "the log was not planked")
@@ -2887,7 +2894,7 @@ func test_ownership() -> void:
 	var mill := _inline(&"sawmill", Vector3(0, 0, -12))
 	await step(4)
 	var wild_log := manager.spawn(&"wood_pine", Transform3D(LooseItem.lying_basis(0.0),
-		Vector3(0, 0.6, -12 + mill.length * 0.5 - 0.35)), 0, Vector3.ZERO, Solid.cylinder(0.2, 0.2, 1.0))
+		Vector3(0, 0.6, -12 + mill.length * 0.5 - 0.35)), 0, Vector3.ZERO, Solid.with_finish(Solid.cylinder(0.2, 0.2, 1.0), &"sanded"))
 	check(not wild_log.owned, "a log dropped on the belt should start unowned")
 	wild_log = await _through(mill, wild_log)
 	check(mill.total_processed > 0, "the planker produced nothing")
@@ -3808,6 +3815,9 @@ func test_full_base() -> void:
 				var wood := m.machine_def.accepts.has(&"wood")
 				var feed: StringName = &"wood_pine" if wood else (&"ingot_iron" if m.machine_def.id == &"refiner" else &"ore_iron")
 				var dims := Solid.cylinder(0.2, 0.17, randf_range(1.2, 2.6)) if wood else Solid.cube(0.25)
+				# The planker only planks sanded logs.
+				if wood and m.machine_def.id == &"sawmill":
+					dims = Solid.with_finish(dims, &"sanded")
 				manager.spawn(feed, Transform3D(m.global_transform.basis * LooseItem.lying_basis(0.0),
 					m.global_transform * Vector3(0, 0.6, m.length * 0.5 - 0.35)), 0, Vector3.ZERO, dims, true)
 		await get_tree().physics_frame

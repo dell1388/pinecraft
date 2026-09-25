@@ -93,6 +93,9 @@ func _build_mesh(color: Color) -> void:
 	if _mesh == null:
 		_mesh = MeshInstance3D.new()
 		add_child(_mesh)
+	if _is_rough_stone():
+		_build_rock_mesh(color)
+		return
 	if dims.get("shape", Solid.BOX) == Solid.CYLINDER:
 		var cm := _mesh.mesh as CylinderMesh
 		if cm == null:
@@ -135,6 +138,52 @@ func _build_mesh(color: Color) -> void:
 	elif category == &"gem":
 		mat.roughness = minf(mat.roughness, 0.5)
 	_mesh.material_override = mat
+
+## Ore, and gems not yet polished, as they come out of the ground: rock, not
+## a block of colour.
+func _is_rough_stone() -> bool:
+	if dims.get("shape", Solid.BOX) != Solid.BOX:
+		return false
+	if category == &"ore":
+		return true
+	return category == &"gem" and not Solid.has_finish(dims, &"polished")
+
+## A lump of the ore's host rock - the same stone its chunk sat in - with small
+## flecks and crystals of the ore itself set into its faces, glinting for the
+## ores that do. The collider stays the plain box.
+func _build_rock_mesh(color: Color) -> void:
+	var size: Vector3 = dims.size
+	var stone: Color = OreRock.HOST_STONE.get(item_id, Color(0.47, 0.45, 0.42))
+	var glint := OreRock.GLOWING_ORES.has(item_id) or category == &"gem"
+	var form := RandomNumberGenerator.new()
+	form.seed = hash([item_id, size.snapped(Vector3.ONE * 0.001)])
+	var g := Greeble.new()
+	g.box(size, Transform3D(), stone)
+	# A couple of knobbly shoulders so it does not read as a brick.
+	for i in 3:
+		var s := size * form.randf_range(0.4, 0.6)
+		var at := Vector3(form.randf_range(-0.4, 0.4) * size.x, form.randf_range(-0.3, 0.45) * size.y,
+			form.randf_range(-0.4, 0.4) * size.z)
+		g.box(s, Transform3D(Basis(Vector3.UP, form.randf() * PI), at), stone.lightened(form.randf_range(0.02, 0.1)))
+	# Flecks of ore on the faces: more on a bigger lump, never many.
+	var smallest := minf(size.x, minf(size.y, size.z))
+	var area := 2.0 * (size.x * size.y + size.y * size.z + size.x * size.z)
+	var flecks := clampi(int(area / maxf(smallest * smallest, 0.0001) * 1.5), 8, 22)
+	for i in flecks:
+		var axis := form.randi() % 3
+		var side := -1.0 if form.randf() < 0.5 else 1.0
+		var normal := Vector3.ZERO
+		normal[axis] = side
+		var at := Vector3(form.randf_range(-0.4, 0.4) * size.x, form.randf_range(-0.4, 0.4) * size.y,
+			form.randf_range(-0.4, 0.4) * size.z)
+		at[axis] = side * size[axis] * 0.5
+		var f := smallest * form.randf_range(0.1, 0.2)
+		var fleck := Vector3(f, f, f)
+		fleck[axis] = f * 0.5
+		g.box(fleck, Transform3D(Basis(Vector3.UP, form.randf() * PI) if axis == 1 else Basis(), at),
+			color.lightened(form.randf_range(0.0, 0.15)), glint and form.randf() < 0.5)
+	_mesh.mesh = g.commit()
+	_mesh.material_override = null
 
 ## The corners of an eight-sided log, matching CylinderMesh's own vertices:
 ## `r0` at the bottom (-Y), `r1` at the top.

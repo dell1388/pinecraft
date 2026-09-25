@@ -22,6 +22,8 @@ extends Resource
 ## Which tier this copy is. Every copy of a machine is bought on its own, at
 ## its own tier, and keeps it.
 @export var tier: int = 1
+## Taken out of the game for now: not sold, not in the build bar.
+@export var hidden: bool = false
 
 static func from_dict(d: Dictionary) -> BuildingDef:
 	var b := BuildingDef.new()
@@ -37,6 +39,7 @@ static func from_dict(d: Dictionary) -> BuildingDef:
 	b.capacity = float(d.get("capacity", 6.0))
 	b.rise = float(d.get("rise", 0.0))
 	b.railed = bool(d.get("railed", true))
+	b.hidden = bool(d.get("hidden", false))
 	b.vehicle = StringName(d.get("vehicle", "hauler" if b.kind == &"pad" else ""))
 	return b
 

@@ -473,7 +473,10 @@ func work(entry: Dictionary) -> Array[Dictionary]:
 	match machine_def.mode:
 		MachineDef.MODE_PLANK:
 			var to := machine_def.output_for(entry.id)
-			if category == &"wood" and dims.get("shape", Solid.BOX) == Solid.CYLINDER and to != &"":
+			# Planks are only ever cut from sanded logs: an unsanded log goes
+			# through untouched - sand it first.
+			if category == &"wood" and dims.get("shape", Solid.BOX) == Solid.CYLINDER and to != &"" \
+					and Solid.has_finish(dims, &"sanded"):
 				var r := (float(dims.r0) + float(dims.r1)) * 0.5
 				_change(entry, to, Solid.keep_finish(dims, Solid.box(Vector3(r * 1.8, Solid.length_of(dims), r * 0.8))))
 		MachineDef.MODE_SAND:

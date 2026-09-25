@@ -126,7 +126,8 @@ func _physics_process(_delta: float) -> void:
 		# the way a belt would.
 		for m in world.plot.inline_machines():
 			var item_id: StringName = &"wood_pine" if m.def.machine == &"sawmill" else &"ore_iron"
-			var dims := Solid.cylinder(0.2, 0.17, randf_range(1.4, 3.0)) if item_id == &"wood_pine" else Solid.cube(0.25)
+			var dims := Solid.with_finish(Solid.cylinder(0.2, 0.17, randf_range(1.4, 3.0)), &"sanded") \
+				if item_id == &"wood_pine" else Solid.cube(0.25)
 			world.manager.spawn(item_id, Transform3D(m.global_transform.basis * LooseItem.lying_basis(0.0),
 				m.global_transform * Vector3(0, 0.6, m.length * 0.5 - 0.35)), 0, Vector3.ZERO, dims, true)
 	if frames == 420:

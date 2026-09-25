@@ -20,6 +20,8 @@ var player: Player
 var plot: Plot
 var manager: LooseItemManager
 var world: Node
+var minimap: Minimap
+var _status_card: Control
 var build_system: BuildSystem
 var quests: QuestLog
 var tutorial: Tutorial
@@ -178,6 +180,14 @@ func _build_status() -> void:
 	card.custom_minimum_size.x = 290
 	_root.add_child(card)
 	card.position = Vector2(18, 16)
+	_status_card = card
+	# The minimap sits under the status card, kept there as the card grows.
+	minimap = Minimap.new()
+	minimap.world = world
+	_root.add_child(minimap)
+	minimap.position = Vector2(18, 150)
+	card.resized.connect(func() -> void:
+		minimap.position = Vector2(18, card.position.y + card.size.y + 10))
 	var col := UIKit.vbox(4)
 	card.add_child(col)
 
@@ -404,6 +414,7 @@ func _build_misc() -> void:
 func _apply_settings() -> void:
 	_compass.visible = Settings.flag(&"show_compass")
 	_hints_card.visible = Settings.flag(&"show_hints")
+	minimap.visible = Settings.flag(&"minimap")
 	_update_tutorial()
 
 # --- Messages --------------------------------------------------------------

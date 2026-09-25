@@ -56,6 +56,7 @@ func show_page(i: int) -> void:
 		"Interface":
 			_slider(&"ui_scale", "Interface scale", 0.75, 1.5, 0.05, "%d%%", 100.0)
 			_toggle(&"show_hints", "Key hints in the corner")
+			_toggle(&"minimap", "Minimap")
 			_toggle(&"show_compass", "Compass")
 			_toggle(&"show_tutorial", "Getting-started checklist")
 			_toggle(&"show_fps", "Frame rate")

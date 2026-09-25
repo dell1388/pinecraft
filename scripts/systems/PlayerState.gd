@@ -50,7 +50,7 @@ func reset() -> void:
 	# bought a copy at a time there, and everything else is built from the
 	# start at its price.
 	for def: BuildingDef in GameData.buildings.values():
-		if not GameData.sold_copy(def.id, 1):
+		if not GameData.sold_copy(def.id, 1) and not def.hidden:
 			unlocked_buildings.append(def.id)
 
 func level(track: StringName) -> int:
@@ -117,6 +117,8 @@ func try_unlock(building_id: StringName) -> bool:
 func available_buildings() -> Array[BuildingDef]:
 	var out: Array[BuildingDef] = []
 	for def: BuildingDef in GameData.buildings.values():
+		if def.hidden:
+			continue
 		if def.kind == &"schematic" or (is_unlocked(def.id) and not GameData.sold_copy(def.id, 1)):
 			out.append(def)
 	out.sort_custom(func(a, b): return a.cost < b.cost)

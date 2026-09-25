@@ -61,7 +61,7 @@
         7
       ],
       "machine": "sawmill",
-      "blurb": "A saw tunnel on a belt: a log goes in, one big plank as long as the log comes out."
+      "blurb": "A saw tunnel on a belt: a sanded log goes in, one big plank as long as the log comes out. Unsanded logs pass through - sand them first."
     },
     {
       "id": "sander",
@@ -126,7 +126,8 @@
         4
       ],
       "machine": "workbench",
-      "blurb": "Builds crates and toolkits from lumber and billets."
+      "blurb": "Builds crates and toolkits from lumber and billets.",
+      "hidden": true
     },
     {
       "id": "storage",
