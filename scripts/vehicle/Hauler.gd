@@ -839,13 +839,15 @@ func _clamp_motion() -> void:
 ## Whatever is still in the bed is lifted with it, rather than left where the
 ## truck was and dropped through the deck.
 func recover() -> void:
+	move_to(Transform3D(Basis.from_euler(Vector3(0, global_rotation.y, 0)), global_position + Vector3(0, 1.2, 0)))
+
+## Puts the truck at `after`, stopped, its wheels under it and its load still
+## in the bed.
+func move_to(after: Transform3D) -> void:
 	var before := global_transform
 	var riders: Array = []
 	for item in _load:
 		riders.append([item, before.affine_inverse() * item.global_transform])
-	var pos := global_position + Vector3(0, 1.2, 0)
-	var yaw := global_rotation.y
-	var after := Transform3D(Basis.from_euler(Vector3(0, yaw, 0)), pos)
 	PhysicsServer3D.body_set_state(get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM, after)
 	global_transform = after
 	linear_velocity = Vector3.ZERO
@@ -872,13 +874,20 @@ func to_dict() -> Dictionary:
 
 func from_dict(d: Dictionary) -> void:
 	var p: Array = d.get("position", [0, 2, 0])
-	var xform := Transform3D(Basis.from_euler(Vector3(0, float(d.get("yaw", 0.0)), 0)),
-		Vector3(p[0], p[1], p[2]))
+	var at := Vector3(p[0], p[1], p[2])
+	# Never back under the land: saved mid-bounce, or sunk, it comes back
+	# stood on top.
+	if terrain != null:
+		at.y = maxf(at.y, terrain.height_at(at.x, at.z) + spawn_height())
+	var xform := Transform3D(Basis.from_euler(Vector3(0, float(d.get("yaw", 0.0)), 0)), at)
 	PhysicsServer3D.body_set_state(get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM, xform)
 	global_transform = xform
 	linear_velocity = Vector3.ZERO
 	angular_velocity = Vector3.ZERO
 	_snap_wheels()
+	# A truck spawned for the load builds its wheels a frame late: they go
+	# under it once they exist.
+	_snap_wheels.call_deferred()
 	if manager != null:
 		for item in _load:
 			manager.despawn(item)

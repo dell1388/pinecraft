@@ -27,6 +27,15 @@ static func save_game(plot: Plot, player: Node3D = null, path: String = SAVE_PAT
 		doc["vehicle"] = vehicle.call("to_dict")
 	if player != null:
 		var p := player.global_position
+		# Seated, the body is inside the cab: saved there, it would come back
+		# standing inside the truck and shove it down through the ground. It
+		# is saved by the driver's door instead.
+		var seat: Variant = player.get("vehicle")
+		if seat is Node3D and is_instance_valid(seat):
+			var truck := seat as Node3D
+			var size: Variant = truck.get("body_size")
+			var out := (size as Vector3).x * 0.5 + 1.3 if size is Vector3 else 2.5
+			p = truck.global_position + truck.global_transform.basis.x * out + Vector3(0, 1.0, 0)
 		doc["player_position"] = [p.x, p.y, p.z]
 		doc["player_yaw"] = player.rotation.y
 	var file := FileAccess.open(path, FileAccess.WRITE)

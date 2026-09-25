@@ -3698,6 +3698,14 @@ func test_kill_plane() -> void:
 	check(item.global_position.y > Tuning.KILL_PLANE_Y,
 		"item below the kill plane was not rescued (y=%.1f)" % item.global_position.y)
 	check(manager.stat_killplane > 0, "kill-plane rescue was not counted")
+	# With land under it, it goes back on the surface right above where it
+	# fell, not off to its plot.
+	manager.ground_height = func(_p: Vector3) -> float: return 3.0
+	var lost := spawn(&"wood_pine", Vector3(40, 2, -30))
+	lost.teleport(Transform3D(Basis(), Vector3(40, Tuning.KILL_PLANE_Y - 5.0, -30)))
+	await step(6)
+	check(lost.global_position.y > 3.0 and Vector2(lost.global_position.x, lost.global_position.z).distance_to(Vector2(40, -30)) < 1.5,
+		"a piece under the kill plane was not put back on the surface above it (%s)" % str(lost.global_position))
 	done()
 
 func test_cap() -> void:

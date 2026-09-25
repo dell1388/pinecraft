@@ -300,9 +300,16 @@ func _resurface() -> void:
 		item.teleport(Transform3D(item.global_transform.basis,
 			Vector3(p.x, ground + item.get_aabb_half_height() + 0.3, p.z)))
 
+## Below the kill plane: put back on the surface right above where it fell,
+## or at its plot if there is no ground there (off the map).
 func _rescue(item: LooseItem) -> void:
 	stat_killplane += 1
-	var spawn: Vector3 = _plot_spawns.get(item.plot_id, Vector3(0, 4, 0))
 	# Small scatter so rescued items do not spawn inside each other.
 	var jitter := Vector3(randf_range(-0.6, 0.6), randf_range(0.0, 1.5), randf_range(-0.6, 0.6))
+	var p := item.global_position
+	var ground: float = ground_height.call(Vector3(p.x, 0.0, p.z)) if ground_height.is_valid() else -INF
+	if ground != -INF:
+		item.teleport(Transform3D(Basis(), Vector3(p.x, ground + item.resting_half_height() + 0.6, p.z) + jitter))
+		return
+	var spawn: Vector3 = _plot_spawns.get(item.plot_id, Vector3(0, 4, 0))
 	item.teleport(Transform3D(Basis(), spawn + jitter))

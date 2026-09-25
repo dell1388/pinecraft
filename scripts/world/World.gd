@@ -177,13 +177,33 @@ func _lap(what: String) -> void:
 		print("load: %-16s %5d ms" % [what, now - _lap_ms])
 	_lap_ms = now
 
+## Set by the boot screen: build in stages, a frame apart, with the world held
+## still until it is done, so the loading screen can show how far along it is.
+var staged_load: bool = false
+signal load_progress(stage: String, fraction: float)
+signal finished_loading()
+
+## Between build stages: says how far along it is and, loading behind the boot
+## screen, gives it a frame to draw.
+func _stage(next: String, fraction: float) -> void:
+	if not staged_load:
+		return
+	load_progress.emit(next, fraction)
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 func _ready() -> void:
 	_lap_ms = Time.get_ticks_msec()
+	if staged_load:
+		# Nothing moves or falls until the whole world is there.
+		process_mode = Node.PROCESS_MODE_DISABLED
+	await _stage("Raising the land", 0.02)
 	_rng.seed = 20260921
 	InputSetup.ensure()
 	_build_environment()
 	_build_terrain()
 	_lap("terrain")
+	await _stage("Planting the forests", 0.55)
 	decor = Decor.new()
 	decor.name = "Decor"
 	decor.setup(terrain, 7331)
@@ -212,11 +232,14 @@ func _ready() -> void:
 	_lap("terrain+decor")
 	_build_forest()
 	_lap("forest")
+	await _stage("Laying the rock", 0.7)
 	_build_quarry()
 	_build_crater()
 	_lap("rocks")
+	await _stage("Digging the caves", 0.82)
 	_build_caves()
 	_lap("cave fields")
+	await _stage("Opening the shops", 0.94)
 	_build_outposts()
 	_build_depot()
 	_build_store()
@@ -249,6 +272,10 @@ func _ready() -> void:
 	if SaveSystem.has_save():
 		loaded = SaveSystem.load_game(plot, player, SaveSystem.SAVE_PATH, manager,
 			_spawn_vehicle_for_load, quests)
+		if loaded:
+			_unstick_player()
+			# Trucks on their pads may come a frame later.
+			_unstick_player.call_deferred()
 	if not loaded:
 		# A starting float, so the first sawmill is a few tree-loads away
 		# rather than an hour of hauling.
@@ -269,6 +296,10 @@ func _ready() -> void:
 	_apply_all_settings()
 	_build_menus()
 	set_physics_process(true)
+	if staged_load:
+		process_mode = Node.PROCESS_MODE_INHERIT
+		load_progress.emit("Ready", 1.0)
+	finished_loading.emit()
 
 # --- World construction ----------------------------------------------------
 
@@ -1290,8 +1321,14 @@ func quick_save() -> bool:
 	return ok
 
 func quick_load() -> void:
+	# Out of the seat first: the truck being sat in is replaced by the one in
+	# the save.
+	if player.driving():
+		_toggle_vehicle()
 	if SaveSystem.load_game(plot, player, SaveSystem.SAVE_PATH, manager,
 			_spawn_vehicle_for_load, quests):
+		_unstick_player()
+		_unstick_player.call_deferred()
 		hud.toast("Loaded your last save", UITheme.ACCENT)
 	else:
 		hud.toast("No save to load", UITheme.BAD)
@@ -1509,6 +1546,31 @@ func _update_underground(delta: float) -> void:
 
 ## Below every cave: anyone down here has fallen out of the world.
 const FELL_OUT_Y := -160.0
+## How far under the land a truck or the player has to be before they are
+## taken to have fallen through it.
+const UNDER_GROUND := 3.0
+var _rescue_timer: float = 0.0
+
+## Anything that has fallen through the land - or out of the world - is put
+## back on the surface right above where it went: trucks (with their load)
+## and the player on foot. Loose pieces are the item manager's to rescue.
+func _rescue_fallen() -> void:
+	for v in vehicles():
+		var p := v.global_position
+		var ground := _ground_for_items(p)
+		var fell := p.y < FELL_OUT_Y or (ground != -INF and p.y < ground - UNDER_GROUND)
+		if not fell:
+			continue
+		var at := Vector3(clampf(p.x, -MAP_HALF, MAP_HALF), 0.0, clampf(p.z, -MAP_HALF, MAP_HALF))
+		at.y = terrain.height_at(at.x, at.z) + v.spawn_height()
+		v.move_to(Transform3D(Basis.from_euler(Vector3(0, v.global_rotation.y, 0)), at))
+		hud.log_message("the %s fell through the ground - put back on top" % v.display_name.to_lower())
+	if not player.driving():
+		var pp := player.global_position
+		var under := _ground_for_items(pp)
+		if under != -INF and pp.y < under - UNDER_GROUND:
+			player.global_position = Vector3(pp.x, under + 1.0, pp.z)
+			player.velocity = Vector3.ZERO
 
 ## Back to where the game starts, by the plot: for when you are stuck out
 ## somewhere, or have fallen through the world. The truck stays where it is.
@@ -1525,6 +1587,10 @@ func return_to_base() -> void:
 func _physics_process(delta: float) -> void:
 	if player != null and player.global_position.y < FELL_OUT_Y:
 		return_to_base()
+	_rescue_timer -= delta
+	if _rescue_timer <= 0.0 and player != null:
+		_rescue_timer = 0.5
+		_rescue_fallen()
 	# Standing by a truck, its winch answers the reel keys too.
 	if player != null and not player.driving() and playing:
 		var wv := vehicle_at_hand(10.0)
@@ -1596,6 +1662,19 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			if v != null and not building:
 				v.recover()
 				hud.toast("%s recovered" % v.display_name, UITheme.ACCENT)
+
+## A save made in the driver's seat (before saves knew better) puts the
+## player inside the truck: out by the driver's door instead, before the
+## body can shove the truck down through the ground.
+func _unstick_player() -> void:
+	for v in vehicles():
+		var local := v.global_transform.affine_inverse() * player.global_position
+		var half := v.body_size * 0.5 + Vector3(0.6, 0.0, 0.6)
+		if absf(local.x) < half.x and absf(local.z) < half.z and local.y > -2.5 and local.y < 3.5:
+			player.global_position = v.global_position \
+				+ v.global_transform.basis.x * (v.body_size.x * 0.5 + 1.3) + Vector3(0, 1.0, 0)
+			player.velocity = Vector3.ZERO
+			return
 
 func _toggle_vehicle() -> void:
 	if player.driving():
