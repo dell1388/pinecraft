@@ -90,6 +90,7 @@ func _run_all() -> void:
 	await _test(&"every vehicle settles, drives and carries", test_vehicle_fleet)
 	await _test(&"the dump truck tips its load out", test_dump_truck)
 	await _test(&"debug unlimited money", test_unlimited_money)
+	await _test(&"a seated driver does not upset the vehicle", test_seated_driver)
 	await _test(&"store-bought buildings are counted copies", test_building_copies)
 	await _test(&"winch and crane respect their power ratings", test_vehicle_rig)
 	await _test(&"kill plane rescues fallen items", test_kill_plane)
@@ -2762,6 +2763,39 @@ func test_ownership() -> void:
 	if typeof(doc) == TYPE_DICTIONARY:
 		check_eq((doc["loose"] as Array).size(), owned_before, "wrong number of pieces written")
 	SaveSystem.delete_save(path)
+	done()
+
+## Play-test: getting in used to crush the front suspension and send the
+## truck backwards - the driver's body, carried in the seat, was colliding
+## with the vehicle it sat in. Seated, every wheel stays on the ground and a
+## truck left alone stays put.
+func test_seated_driver() -> void:
+	_setup(false)
+	var player := _make_player()
+	world.add_child(player)
+	var x := -12.0
+	for id in GameData.vehicles:
+		var truck := Hauler.new()
+		truck.setup(manager, 0, id)
+		truck.position = Vector3(x, truck.spawn_height() + 0.2, -10)
+		x += 8.0
+		world.add_child(truck)
+		await step(60)
+		var start := truck.global_position
+		var wheels: int = truck.wheel_offsets.size()
+		player.enter_vehicle(truck)
+		truck.driver = player
+		for i in 150:
+			player.global_position = truck.seat_transform().origin
+			await step(1)
+		check_eq(truck._grounded, wheels, "the %s lifted wheels with a driver in" % id)
+		var drift := Vector2(truck.global_position.x - start.x, truck.global_position.z - start.z).length()
+		check(drift < 0.5, "the %s rolled %.1f m with a driver sat still" % [id, drift])
+		player.exit_vehicle()
+		truck.driver = null
+		truck.queue_free()
+		await step(1)
+	check_eq(player.collision_layer, Layers.PLAYER, "getting out did not make the driver solid again")
 	done()
 
 func test_hauler() -> void:

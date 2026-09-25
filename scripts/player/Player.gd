@@ -949,6 +949,10 @@ func enter_vehicle(v: Node3D) -> void:
 	_release_dragged()
 	vehicle = v
 	velocity = Vector3.ZERO
+	# Seated, the body is carried in the cab: it must not collide with the
+	# vehicle it sits in, or it shoves the chassis down onto its own wheels.
+	collision_layer = 0
+	collision_mask = 0
 
 func exit_vehicle() -> void:
 	var r := rig()
@@ -956,6 +960,8 @@ func exit_vehicle() -> void:
 		r.drop()
 		r.release_winch()
 	vehicle = null
+	collision_layer = Layers.PLAYER
+	collision_mask = Layers.MASK_PLAYER
 	camera.position = Vector3(0, 1.65, 0)
 	camera.rotation.y = 0.0
 	camera.rotation.z = 0.0
