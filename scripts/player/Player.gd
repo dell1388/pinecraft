@@ -38,6 +38,8 @@ const SWIM_SPEED_FACTOR := 0.38
 const MIN_BUCK_LENGTH := 0.35
 ## Axe work required per square metre of cut face.
 const BUCK_WORK_PER_M2 := 700.0
+## The smallest piece a hammer will split a loose chunk into.
+const MIN_CRACK_VOLUME := 0.004
 ## How hard the grabbed point is pulled toward the hold point (per second),
 ## and how strong the player is: the most force the hand can put on it.
 const DRAG_GAIN := 9.0
@@ -647,6 +649,8 @@ func _update_prompt() -> void:
 		var verbs: Array[String] = []
 		if _tool_kind() == "axe" and i.is_wood() and i.length() > MIN_BUCK_LENGTH:
 			verbs.append("[LMB] buck")
+		elif _tool_kind() == "hammer" and i.is_rough_stone() and i.volume() >= MIN_CRACK_VOLUME * 2.0:
+			verbs.append("[LMB] crack (%d%%)" % int(i.cut_progress * 100.0))
 		elif selected_slot < 0:
 			verbs.append("[LMB] drag" if i.mass <= move_limit_kg() else "too heavy to move")
 		if i.mass <= lift_limit_kg() and i.length() <= max_piece_length():
@@ -721,6 +725,8 @@ func _swing() -> void:
 		var said := (target as OreRock).strike(_tool_stat("head_kg", 3.0))
 		if said != "":
 			interacted.emit(said)
+	elif target is LooseItem and kind == "hammer" and (target as LooseItem).is_rough_stone():
+		_crack(target as LooseItem)
 	elif target is LooseItem and kind == "axe":
 		var piece := target as LooseItem
 		var limb := piece.limb_at(hit.position)
@@ -787,6 +793,38 @@ func _buck(item: LooseItem, at: Vector3) -> void:
 	if pieces.size() < 2:
 		return
 	interacted.emit("cut: %.2f m and %.2f m" % [pieces[0].length(), pieces[1].length()])
+
+## Cracking a loose chunk of ore or rough stone in two, so a piece too big
+## for a machine's mouth can be broken down to fit. Like cracking it in the
+## ground: a heavier hammer gets through in fewer blows, a bigger chunk takes
+## more. The two halves hold exactly what the chunk did.
+func _crack(item: LooseItem) -> void:
+	if item.state != LooseItem.State.FREE:
+		return
+	_swing_cd = _tool_stat("cooldown", 0.55)
+	var v := item.volume()
+	if v < MIN_CRACK_VOLUME * 2.0:
+		interacted.emit("too small to crack - it will go through any machine")
+		return
+	item.cut_progress += _tool_stat("head_kg", 3.0) * OreRock.CRACK_GAIN / pow(maxf(0.05, v), 2.0 / 3.0)
+	if item.cut_progress < 1.0:
+		interacted.emit("cracking: %d%%" % int(item.cut_progress * 100.0))
+		return
+	var at := item.global_transform
+	var id := item.item_id
+	var dims := item.dims
+	var plot := item.plot_id
+	var owned := item.owned
+	var velocity := item.linear_velocity
+	manager.despawn(item)
+	var half := Solid.keep_finish(dims, Solid.cube(v * 0.5))
+	var side := pow(v * 0.5, 1.0 / 3.0)
+	for s in [-1.0, 1.0]:
+		var piece := manager.spawn(id, Transform3D(at.basis, at.origin + at.basis.x.normalized() * s * side * 0.55),
+			plot, velocity + at.basis.x.normalized() * s * 0.8 + Vector3.UP * 0.6, half.duplicate(true), owned)
+		if piece != null:
+			piece.owned = owned
+	interacted.emit("cracked in two: %.3f m3 each (%.2f m across)" % [v * 0.5, side])
 
 # --- Carry rack ------------------------------------------------------------
 

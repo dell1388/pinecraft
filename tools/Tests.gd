@@ -30,6 +30,7 @@ func _run_all() -> void:
 	await _test(&"felling drops the trunk as it grew", test_chop)
 	await _test(&"branches and trunk are cut separately", test_limb_cutting)
 	await _test(&"wood is cut wherever the axe lands", test_cut_anywhere)
+	await _test(&"a hammer cracks loose chunks down to fit a machine", test_crack_loose)
 	await _test(&"resource fields fill to a quota and stop", test_resource_field)
 	await _test(&"terrain has biomes, rivers and roads", test_terrain)
 	await _test(&"you can stand on the terrain anywhere", test_terrain_collision)
@@ -846,6 +847,50 @@ func test_cut_anywhere() -> void:
 		limbs_after += p.limbs.size()
 	check_eq(limbs_after, limbs_on, "branches were lost bucking the trunk")
 	check_near(loose_volume(), total, 0.0001, "bucking with branches on lost wood")
+	done()
+
+## A rough stone too big for the gem cutter's mouth is hammered in two, and
+## the halves again, until the pieces fit - and the stone is conserved.
+func test_crack_loose() -> void:
+	_setup()
+	var player := _make_player()
+	world.add_child(player)
+	await step(2)
+	player.select_slot(1)   # the club hammer
+	var cutter := _inline(&"gem_cutter", Vector3(8, 0, 0))
+	await step(2)
+	var stone := spawn(&"gem_quartz", Vector3(0, 0.6, -2), Solid.cube(0.5))
+	var total := stone.volume()
+	await step(10)
+	var mouth := minf(cutter.hole.x, cutter.hole.y)
+	var guard := 0
+	while guard < 4000:
+		guard += 1
+		var big: LooseItem = null
+		for item in manager.free_items():
+			var b := Solid.bounds(item.dims)
+			if maxf(b.x, maxf(b.y, b.z)) > mouth * 0.9 and item.is_rough_stone():
+				big = item
+		if big == null:
+			break
+		player._swing_cd = 0.0
+		player._crack(big)
+		if guard % 20 == 0:
+			await step(1)
+	await step(10)
+	check(manager.active_count() >= 2, "the stone was never cracked")
+	check_near(loose_volume(), total, 0.0001, "cracking the stone lost some of it")
+	for item in manager.free_items():
+		var b := Solid.bounds(item.dims)
+		check(maxf(b.x, maxf(b.y, b.z)) <= mouth * 0.9, "a piece is still too big for the cutter")
+	# Tiny bits are left alone.
+	var bit := spawn(&"gem_quartz", Vector3(3, 0.6, -2), Solid.cube(0.004))
+	await step(2)
+	var count := manager.active_count()
+	for i in 200:
+		player._swing_cd = 0.0
+		player._crack(bit)
+	check_eq(manager.active_count(), count, "a tiny bit was cracked")
 	done()
 
 func test_bucking() -> void:

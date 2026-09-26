@@ -96,7 +96,7 @@ func _build_mesh(color: Color) -> void:
 	if _mesh == null:
 		_mesh = MeshInstance3D.new()
 		add_child(_mesh)
-	if _is_rough_stone():
+	if is_rough_stone():
 		_build_rock_mesh(color)
 		return
 	if dims.get("shape", Solid.BOX) == Solid.CYLINDER:
@@ -144,7 +144,7 @@ func _build_mesh(color: Color) -> void:
 
 ## Ore, and gems not yet polished, as they come out of the ground: rock, not
 ## a block of colour.
-func _is_rough_stone() -> bool:
+func is_rough_stone() -> bool:
 	if dims.get("shape", Solid.BOX) != Solid.BOX:
 		return false
 	if category == &"ore":
