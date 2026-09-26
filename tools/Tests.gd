@@ -1683,6 +1683,31 @@ func test_front_loader() -> void:
 		if item.global_position.y > 2.0:
 			high += 1
 	check(high >= 4, "only %d pieces lifted above 2 m" % high)
+	# Locked: the load is clamped in, the thumb shuts, and even tipped right
+	# over and driven about nothing falls out.
+	var before := held.size()
+	check(l.set_locked(true) != "", "the bucket would not lock")
+	check_eq(l.locked_items().size(), before, "not everything in the bucket was clamped")
+	for i in 120:
+		l.drive(0.0, -1.0, 1.0 / 60.0)
+		await step(1)
+	check_near(l.thumb_angle, LoaderArm.THUMB_CLOSED, 0.01, "the thumb did not close over the load")
+	v.input_brake = false
+	v.input_throttle = -0.5
+	await step(90)
+	v.input_throttle = 0.0
+	v.input_brake = true
+	await step(60)
+	check_eq(l.held().size(), before, "pieces fell out of the locked bucket")
+	for item in l.locked_items():
+		check(item.global_position.y > 1.5, "a locked piece is not up in the bucket")
+	check(l.locked, "the lock let go with a driver in")
+	v.autopilot = false
+	await step(2)
+	check(not l.locked and l.locked_items().is_empty(), "the lock held with nobody at the controls")
+	await step(60)
+	check(l.thumb_angle > 1.0, "the thumb did not open")
+	v.autopilot = true
 	# Tip it out.
 	for i in 120:
 		l.drive(0.0, -1.0, 1.0 / 60.0)
@@ -2999,6 +3024,25 @@ func test_drag_at_point() -> void:
 	check(point.distance_to(target) < 0.6, "the grabbed end is %.2f m from the hand" % point.distance_to(target))
 	check(log_piece.global_position.y > point.y - 0.3, "a held log sagged %.2f m from the end it was grabbed by" % (point.y - log_piece.global_position.y))
 	check(log_piece.global_position.distance_to(target) > 0.6, "the log was pulled by its middle, not the point grabbed")
+	# Held at its angle to the player: turning, it swings round with them and
+	# keeps that angle.
+	var rel := (Basis(Vector3.UP, player.global_rotation.y).inverse() * log_piece.global_transform.basis).orthonormalized()
+	var offset := Basis(Vector3.UP, player.global_rotation.y).inverse() * (log_piece.global_position - player.global_position)
+	player.rotation.y += PI * 0.5
+	for i in 120:
+		await step(1)
+	var now := Basis(Vector3.UP, player.global_rotation.y)
+	var rel_now := (now.inverse() * log_piece.global_transform.basis).orthonormalized()
+	check(rel_now.y.dot(rel.y) > 0.97, "the held log did not keep its angle to the player as they turned")
+	var offset_now := now.inverse() * (log_piece.global_position - player.global_position)
+	check(offset_now.distance_to(offset) < 0.5, "the held log did not swing round with the player (%.2f m off)" % offset_now.distance_to(offset))
+	# Turning it by hand (as Shift + WASDQE does) turns it and it stays turned.
+	player._drag_turn = Basis(Vector3.UP, PI * 0.5) * player._drag_turn
+	for i in 120:
+		await step(1)
+	var turned := (now.inverse() * log_piece.global_transform.basis).orthonormalized()
+	check(turned.y.dot(rel.y) < 0.3, "turning the held log did not turn it")
+	check(turned.y.dot(player._drag_turn.y) > 0.97, "the held log did not settle at the angle it was turned to")
 	player._release_dragged()
 	check_eq(log_piece.state, LooseItem.State.FREE, "letting go did not free the log")
 

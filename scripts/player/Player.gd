@@ -59,6 +59,10 @@ var dragged: LooseItem = null
 ## far in front of the eye it is held.
 var _drag_point: Vector3 = Vector3.ZERO
 var _drag_distance: float = 2.2
+## The piece's turn relative to the player's facing, held while it is in hand.
+var _drag_turn: Basis = Basis()
+const DRAG_TURN_RATE := 1.6          ## rad/s, Shift + WASDQE
+const DRAG_SPIN_GAIN := 10.0
 ## The hotbar slot in hand, or -1 for an empty hand.
 var selected_slot: int = -1
 var last_prompt: String = ""
@@ -318,6 +322,9 @@ func _on_key(event: InputEventKey) -> void:
 		elif not driving():
 			select_slot(int(event.keycode - KEY_1))
 		return
+	# Shift and Q/E roll whatever is in hand.
+	if turning_held() and (event.keycode == KEY_Q or event.keycode == KEY_E):
+		return
 	match event.keycode:
 		KEY_E:
 			_interact()
@@ -343,6 +350,9 @@ func _on_key(event: InputEventKey) -> void:
 func _on_driving_key(event: InputEventKey) -> bool:
 	# In a loader Q and E work the bucket (held, in _update_vehicle_controls).
 	if loader() != null and (event.keycode == KEY_Q or event.keycode == KEY_E):
+		return true
+	if loader() != null and event.keycode == KEY_G:
+		interacted.emit(loader().set_locked(not loader().locked))
 		return true
 	var r := rig()
 	if r == null:
@@ -455,6 +465,9 @@ func _physics_process(delta: float) -> void:
 	var input := Vector2(
 		Input.get_axis("move_left", "move_right"),
 		Input.get_axis("move_forward", "move_back"))
+	# Holding Shift with something in hand, WASD turn it instead.
+	if turning_held():
+		input = Vector2.ZERO
 	var dir := (transform.basis * Vector3(input.x, 0.0, input.y)).normalized()
 	if dir != Vector3.ZERO:
 		velocity.x = dir.x * speed
@@ -880,6 +893,7 @@ func _grab_drag_item(item: LooseItem, point: Variant = null) -> bool:
 	dragged = item
 	_drag_point = item.global_transform.affine_inverse() * at
 	_drag_distance = clampf(camera.global_position.distance_to(at), DRAG_MIN_DISTANCE, reach)
+	_drag_turn = (_facing().inverse() * item.global_transform.basis).orthonormalized()
 	item.set_state(LooseItem.State.CARRIED)
 	return true
 
@@ -907,11 +921,24 @@ func drag_point() -> Vector3:
 func drag_target() -> Vector3:
 	return camera.global_position - camera.global_transform.basis.z * _drag_distance
 
-## Pulls the grabbed point toward the hold point with an impulse applied *at
-## that point*, sized with the body's real mass and inertia as seen from there
-## (so a long log grabbed by the end swings rather than snapping straight),
-## and capped at the player's strength. Heavy things come slowly; a light
-## thing comes at once.
+## The player's facing: yaw only, so looking up and down does not tip what
+## is in hand.
+func _facing() -> Basis:
+	return Basis(Vector3.UP, global_rotation.y)
+
+## Shift held with something in hand: WASDQE turn it rather than walk.
+func turning_held() -> bool:
+	return dragged != null and not driving() and Input.is_action_pressed("sprint")
+
+## The turn the piece is held at: its angle to the player, kept as the player
+## turns, so it swings round with them like something gripped in both hands.
+func drag_basis() -> Basis:
+	return (_facing() * _drag_turn).orthonormalized()
+
+## Holds the piece where the hand is and at the angle it was picked up at
+## (relative to the player). The grabbed point is put on the hold point, the
+## piece turned to its held angle - both as velocity changes at its centre,
+## capped at the player's strength, so heavy things come round slowly.
 func _update_drag() -> void:
 	if dragged == null:
 		return
@@ -921,31 +948,44 @@ func _update_drag() -> void:
 	if not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and _mouse_captured and not _hold_for_tests:
 		_release_dragged()
 		return
-	var point := drag_point()
-	var to_target := drag_target() - point
-	if to_target.length() > reach * 2.0:
+	var dt := get_physics_process_delta_time()
+	if turning_held():
+		# In the player's frame: W/S tip it over away/toward, A/D turn it
+		# about the vertical, Q/E roll it about the line of sight.
+		var pitch := Input.get_axis("move_back", "move_forward")
+		var yaw := Input.get_axis("move_right", "move_left")
+		var roll := (1.0 if Input.is_physical_key_pressed(KEY_Q) else 0.0) \
+			- (1.0 if Input.is_physical_key_pressed(KEY_E) else 0.0)
+		var spin := Vector3(-pitch, yaw, roll) * DRAG_TURN_RATE * dt
+		if spin.length() > 0.0:
+			_drag_turn = (Basis(spin.normalized(), spin.length()) * _drag_turn).orthonormalized()
+	var want := drag_basis()
+	var centre := drag_target() - want * _drag_point
+	if centre.distance_to(dragged.global_position) > reach * 2.0 + dragged.length():
 		_release_dragged()
 		return
-	var dt := get_physics_process_delta_time()
-	var arm := point - dragged.global_position
-	var state := PhysicsServer3D.body_get_direct_state(dragged.get_rid())
-	var inv_inertia: Basis = state.inverse_inertia_tensor if state != null else Basis()
-	var point_velocity := dragged.linear_velocity + dragged.angular_velocity.cross(arm)
-	var wanted := to_target * DRAG_GAIN
+	# Heavy things are turned more slowly.
+	var heft := clampf(DRAG_STRENGTH_KG / maxf(dragged.mass, 1.0) * 0.1, 0.15, 1.0)
+	var wanted := (centre - dragged.global_position) * DRAG_GAIN
 	if wanted.length() > carry_max_speed:
 		wanted = wanted.normalized() * carry_max_speed
 	# No gravity to fight: a held thing weighs nothing (see LooseItem).
-	var change := wanted - point_velocity
-	# K maps an impulse at the point to the velocity change of the point.
-	var skew := Basis(Vector3(0, arm.z, -arm.y), Vector3(-arm.z, 0, arm.x), Vector3(arm.y, -arm.x, 0))
-	var m: Basis = skew * inv_inertia * skew
-	var inv_mass := 1.0 / dragged.mass
-	var k := Basis(Vector3(inv_mass, 0, 0) - m.x, Vector3(0, inv_mass, 0) - m.y, Vector3(0, 0, inv_mass) - m.z)
-	var impulse: Vector3 = k.inverse() * change * 0.8
+	var impulse := (wanted - dragged.linear_velocity) * dragged.mass * 0.8
 	var most := DRAG_STRENGTH_KG * 9.8 * 1.4 * dt
 	if impulse.length() > most:
 		impulse = impulse.normalized() * most
-	dragged.apply_impulse(impulse, arm)
+	dragged.apply_central_impulse(impulse)
+	var q := (want * dragged.global_transform.basis.orthonormalized().inverse()).get_rotation_quaternion()
+	if q.w < 0.0:
+		q = -q
+	var angle := 2.0 * acos(clampf(q.w, -1.0, 1.0))
+	var spin_to := Vector3.ZERO
+	if angle > 0.0001:
+		spin_to = Vector3(q.x, q.y, q.z).normalized() * angle * DRAG_SPIN_GAIN
+	var spin_top := 8.0 * heft
+	if spin_to.length() > spin_top:
+		spin_to = spin_to.normalized() * spin_top
+	dragged.angular_velocity = spin_to
 
 ## Tests hold the mouse button in code.
 var _hold_for_tests: bool = false

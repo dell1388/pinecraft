@@ -1111,7 +1111,10 @@ func move_to(after: Transform3D) -> void:
 func to_dict() -> Dictionary:
 	var entries: Array = []
 	var inverse := global_transform.affine_inverse()
-	for item in _load:
+	var aboard: Array[LooseItem] = _load.duplicate()
+	if loader != null:
+		aboard.append_array(loader.locked_items())
+	for item in aboard:
 		var t := inverse * item.global_transform
 		entries.append({"id": String(item.item_id), "dims": Solid.to_dict(item.dims),
 			"local": [t.origin.x, t.origin.y, t.origin.z,
@@ -1120,7 +1123,8 @@ func to_dict() -> Dictionary:
 				t.basis.z.x, t.basis.z.y, t.basis.z.z]})
 	return {"vehicle": String(vehicle_id),
 		"position": [global_position.x, global_position.y, global_position.z],
-		"yaw": global_rotation.y, "cargo": entries}
+		"yaw": global_rotation.y, "cargo": entries,
+		"loader": [loader.lift, loader.tilt] if loader != null else []}
 
 func from_dict(d: Dictionary) -> void:
 	var p: Array = d.get("position", [0, 2, 0])
@@ -1135,6 +1139,11 @@ func from_dict(d: Dictionary) -> void:
 	linear_velocity = Vector3.ZERO
 	angular_velocity = Vector3.ZERO
 	_snap_wheels()
+	var arms: Array = d.get("loader", [])
+	if loader != null and arms.size() == 2:
+		loader.lift = clampf(float(arms[0]), loader.lift_min, loader.lift_max)
+		loader.tilt = clampf(float(arms[1]), LoaderArm.TILT_MIN, LoaderArm.TILT_MAX)
+		loader.snap()
 	# A truck spawned for the load builds its wheels a frame late: they go
 	# under it once they exist.
 	_snap_wheels.call_deferred()

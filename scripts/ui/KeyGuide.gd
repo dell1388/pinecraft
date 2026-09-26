@@ -15,6 +15,7 @@ const GROUPS := [
 		[["LMB"], "Empty hand: hold to drag by the point you grab"],
 		[["LMB"], "Axe: chop and buck. Hammer: crack rock"],
 		[["Wheel"], "While dragging: pull it closer or push it away"],
+		[["Shift", "+", "WASDQE"], "While dragging: turn it (it keeps its angle to you as you turn)"],
 		[["RMB"], "Pick up onto your carry rack (while dragging: throw)"],
 		[["I"], "Inventory: put tools on the hotbar"],
 		[["Q"], "Drop one piece from the rack"],
@@ -61,6 +62,7 @@ const GROUPS := [
 		[["Wheel"], "Crane: zoom the camera (the mouse orbits the log)"],
 		[["Shift", "/", "Ctrl"], "Loader: raise / lower the arms"],
 		[["Q", "/", "E"], "Loader: tip the bucket forward / curl it back"],
+		[["G"], "Loader: lock what is in the bucket in place, or let it go"],
 	]},
 	{"title": "Game", "rows": [
 		[["Esc"], "Pause menu"],
@@ -105,12 +107,13 @@ static func hints_for(state: String) -> Array:
 				[["Y"], "Winch"], [["K", "/", "L"], "Reel"], [["R"], "Crane"], [["T"], "Hitch"], [["F"], "Get out"]]
 		"loader":
 			return [[["W", "S"], "Drive"], [["Space"], "Brake"], [["Shift", "/", "Ctrl"], "Arms up / down"],
-				[["Q", "/", "E"], "Tip / curl"], [["F"], "Get out"]]
+				[["Q", "/", "E"], "Tip / curl"], [["G"], "Lock bucket"], [["F"], "Get out"]]
 		"crane":
 			return [[["W", "S"], "Along"], [["A", "D"], "Across"], [["Shift", "/", "Ctrl"], "Up / down"],
 				[["Q", "/", "E"], "Turn"], [["F"], "Grab / let go"], [["RMB"], "Fine"], [["R"], "Done"]]
 		"dragging":
-			return [[["LMB"], "Hold to keep hold"], [["Wheel"], "Closer / further"], [["RMB"], "Throw"]]
+			return [[["LMB"], "Hold to keep hold"], [["Wheel"], "Closer / further"],
+				[["Shift", "+", "WASDQE"], "Turn it"], [["RMB"], "Throw"]]
 		"carrying":
 			return [[["E"], "Deposit / sell"], [["Q"], "Drop one"], [["G"], "Drop all"],
 				[["RMB"], "Pick up more"], [["B"], "Build"]]

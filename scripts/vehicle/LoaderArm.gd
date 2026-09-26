@@ -39,6 +39,17 @@ var vehicle: Hauler
 var bucket: AnimatableBody3D
 var _arms: Array[MeshInstance3D] = []
 
+## Locked: what is in the bucket is clamped in it, part of the bucket exactly
+## as it lies, until it is unlocked (or the driver gets out). The thumb - a
+## clamp hinged on the top of the back plate - swings down over the load.
+var locked: bool = false
+var _locked: Dictionary = {}          ## LooseItem -> [its shapes on the bucket]
+var _thumb: Node3D
+var thumb_angle: float = THUMB_OPEN
+const THUMB_OPEN := 2.0               ## rad, folded up and back
+const THUMB_CLOSED := 0.0             ## flat over the bucket mouth
+const THUMB_SPEED := 3.0
+
 func setup(v: Hauler, spec: Dictionary) -> void:
 	vehicle = v
 	pivot = Hauler._vec(spec.get("pivot", [0, 0.6, -0.4]))
@@ -69,6 +80,11 @@ func _ready() -> void:
 	for side in [-1.0, 1.0]:
 		_plate(Vector3(PLATE, height, depth), Vector3(side * (width + PLATE) * 0.5, height * 0.5, -depth * 0.5))
 	bucket.add_child(_dress_bucket())
+	_thumb = Node3D.new()
+	_thumb.name = "Thumb"
+	_thumb.position = Vector3(0, height + PLATE * 0.5, PLATE * 0.5)
+	_thumb.add_child(_dress_thumb())
+	bucket.add_child(_thumb)
 	add_child(bucket)
 	for side in [-1.0, 1.0]:
 		var arm := MeshInstance3D.new()
@@ -104,6 +120,82 @@ func _dress_bucket() -> MeshInstance3D:
 	g.box(Vector3(width + PLATE * 2.0, 0.05, 0.14), Transform3D(Basis(), Vector3(0, -PLATE * 0.5, -depth - 0.05)), VehicleModel.STEEL)
 	return g.instance("BucketMesh")
 
+## The thumb, drawn in its closed pose: tines out along the top of the
+## bucket, hooked down at their tips, on a cross tube at the hinge.
+func _dress_thumb() -> MeshInstance3D:
+	var g := Greeble.new()
+	g.layer_step = VehicleModel.LAYER
+	var steel := VehicleModel.DARK
+	g.box(Vector3(width * 0.9, 0.12, 0.12), Transform3D(), steel)
+	var tines := 4
+	for i in tines:
+		var x := lerpf(-width * 0.38, width * 0.38, float(i) / float(tines - 1))
+		g.box(Vector3(0.1, 0.1, depth * 0.95), Transform3D(Basis(), Vector3(x, 0, -depth * 0.475)), vehicle.paint.darkened(0.2))
+		g.box(Vector3(0.1, 0.28, 0.1), Transform3D(Basis(), Vector3(x, -0.12, -depth * 0.95)), steel)
+	return g.instance("ThumbMesh")
+
+## Clamps what is in the bucket, or lets it go. Returns what happened.
+func set_locked(on: bool) -> String:
+	if on == locked:
+		return ""
+	locked = on
+	if on:
+		for item in held():
+			_lock(item)
+		return "bucket locked - %d piece%s clamped in" % [_locked.size(), "" if _locked.size() == 1 else "s"]
+	var n := _locked.size()
+	_release()
+	return "bucket unlocked - %d piece%s loose" % [n, "" if n == 1 else "s"]
+
+func _lock(item: LooseItem) -> void:
+	if item.state != LooseItem.State.FREE or _locked.has(item):
+		return
+	item.set_state(LooseItem.State.CAPTURED)
+	item.collision_layer = 0
+	item.collision_mask = 0
+	item.reparent(bucket, true)
+	item.disable_mode = CollisionObject3D.DISABLE_MODE_REMOVE
+	item.process_mode = Node.PROCESS_MODE_DISABLED
+	# Saved with the vehicle, not as a piece lying about.
+	item.carrier = vehicle
+	var shapes: Array[CollisionShape3D] = []
+	for c in item.get_children():
+		var cs := c as CollisionShape3D
+		if cs == null or cs.shape == null or cs.disabled:
+			continue
+		var copy := CollisionShape3D.new()
+		copy.shape = cs.shape
+		copy.transform = item.transform * cs.transform
+		bucket.add_child(copy)
+		shapes.append(copy)
+	_locked[item] = shapes
+
+func _release() -> void:
+	for item: LooseItem in _locked.keys():
+		for cs: CollisionShape3D in _locked[item]:
+			if is_instance_valid(cs):
+				cs.queue_free()
+		if not is_instance_valid(item) or item.state != LooseItem.State.CAPTURED:
+			continue
+		var at := item.global_transform
+		if vehicle.manager != null:
+			item.reparent(vehicle.manager, true)
+		item.process_mode = Node.PROCESS_MODE_INHERIT
+		item.collision_layer = Layers.LOOSE
+		item.collision_mask = Layers.MASK_LOOSE
+		item.carrier = null
+		item.set_state(LooseItem.State.FREE)
+		item.teleport(at)
+		item.linear_velocity = vehicle.linear_velocity + vehicle.angular_velocity.cross(at.origin - vehicle.global_position)
+	_locked.clear()
+
+func locked_items() -> Array[LooseItem]:
+	var out: Array[LooseItem] = []
+	for item: LooseItem in _locked.keys():
+		if is_instance_valid(item):
+			out.append(item)
+	return out
+
 ## Works the arms and bucket: `raise` and `curl` in -1..1.
 func drive(raise: float, curl: float, delta: float) -> void:
 	lift = clampf(lift + raise * LIFT_SPEED * delta, lift_min, lift_max)
@@ -118,6 +210,12 @@ func bucket_local() -> Transform3D:
 	return Transform3D(Basis(Vector3.RIGHT, tilt), tip())
 
 func _physics_process(delta: float) -> void:
+	# Nobody at the controls: the clamp lets go, as a truck's load does.
+	if locked and vehicle.parked():
+		set_locked(false)
+	thumb_angle = move_toward(thumb_angle, THUMB_CLOSED if locked else THUMB_OPEN, THUMB_SPEED * delta)
+	if _thumb != null:
+		_thumb.rotation = Vector3(thumb_angle, 0, 0)
 	_pose(false, delta)
 
 ## Puts the bucket where the arms hold it. The vehicle moves in the step that
@@ -159,9 +257,13 @@ func held() -> Array[LooseItem]:
 		var item := hit.collider as LooseItem
 		if item != null and not out.has(item):
 			out.append(item)
+	for item in locked_items():
+		if not out.has(item):
+			out.append(item)
 	return out
 
 func status_line() -> String:
-	return "loader: arms %d%%, bucket %s  [Shift/Ctrl] raise/lower  [Q/E] tip/curl" % [
+	return "loader: arms %d%%, bucket %s%s  [Shift/Ctrl] raise/lower  [Q/E] tip/curl  [G] %s" % [
 		roundi(100.0 * (lift - lift_min) / (lift_max - lift_min)),
-		"curled" if tilt > 0.15 else ("tipped" if tilt < -0.15 else "flat")]
+		"curled" if tilt > 0.15 else ("tipped" if tilt < -0.15 else "flat"),
+		", locked" if locked else "", "unlock" if locked else "lock"]
