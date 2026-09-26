@@ -366,7 +366,7 @@ func _on_driving_key(event: InputEventKey) -> bool:
 			interacted.emit("crane back to its starting spot")
 			return true
 		return false
-	if loader() != null and event.keycode == KEY_G:
+	if loader() != null and event.keycode == KEY_SPACE:
 		interacted.emit(loader().set_locked(not loader().locked))
 		return true
 	var r := rig()

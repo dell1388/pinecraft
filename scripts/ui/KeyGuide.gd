@@ -61,7 +61,7 @@ const GROUPS := [
 		[["Wheel"], "Crane: zoom the camera (the mouse orbits the log)"],
 		[["Shift", "/", "Ctrl"], "Loader: raise / lower the arms"],
 		[["Q", "/", "E"], "Loader: tip the bucket forward / curl it back"],
-		[["G"], "Loader: lock what is in the bucket in place, or let it go"],
+		[["Space"], "Loader: lock what is in the bucket in place, or let it go"],
 		[["N"], "Crane or loader: back to the default position"],
 	]},
 	{"title": "Game", "rows": [
@@ -106,8 +106,8 @@ static func hints_for(state: String) -> Array:
 			return [[["W", "S"], "Drive"], [["Space"], "Brake"], [["X"], "Unload"],
 				[["Y"], "Winch"], [["K", "/", "L"], "Reel"], [["R"], "Crane"], [["T"], "Hitch"], [["F"], "Get out"]]
 		"loader":
-			return [[["W", "S"], "Drive"], [["Space"], "Brake"], [["Shift", "/", "Ctrl"], "Arms up / down"],
-				[["Q", "/", "E"], "Tip / curl"], [["G"], "Lock bucket"], [["N"], "Reset"], [["F"], "Get out"]]
+			return [[["W", "S"], "Drive"], [["Shift", "/", "Ctrl"], "Arms up / down"],
+				[["Q", "/", "E"], "Tip / curl"], [["Space"], "Lock bucket"], [["N"], "Reset"], [["F"], "Get out"]]
 		"crane":
 			return [[["W", "S"], "Along"], [["A", "D"], "Across"], [["Shift", "/", "Ctrl"], "Up / down"],
 				[["Q", "/", "E"], "Turn"], [["F"], "Grab / let go"], [["RMB"], "Fine"], [["N"], "Reset"], [["R"], "Done"]]

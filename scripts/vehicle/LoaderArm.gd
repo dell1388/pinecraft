@@ -284,7 +284,7 @@ func held() -> Array[LooseItem]:
 	return out
 
 func status_line() -> String:
-	return "loader: arms %d%%, bucket %s%s  [Shift/Ctrl] raise/lower  [Q/E] tip/curl  [G] %s  [N] reset" % [
+	return "loader: arms %d%%, bucket %s%s  [Shift/Ctrl] raise/lower  [Q/E] tip/curl  [Space] %s  [N] reset" % [
 		roundi(100.0 * (lift - lift_min) / (lift_max - lift_min)),
 		"curled" if tilt > 0.15 else ("tipped" if tilt < -0.15 else "flat"),
 		", locked" if locked else "", "unlock" if locked else "lock"]

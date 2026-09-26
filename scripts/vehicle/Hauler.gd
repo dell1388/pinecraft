@@ -859,7 +859,8 @@ func _read_input() -> void:
 		return
 	input_throttle = Input.get_axis("move_back", "move_forward")
 	input_steer = Input.get_axis("move_right", "move_left")
-	input_brake = Input.is_action_pressed("jump")
+	# In a loader Space works the bucket lock, not the brake.
+	input_brake = loader == null and Input.is_action_pressed("jump")
 
 ## Stood on its outriggers for the crane: it does not roll, rock or tip, and
 ## the crane's load is carried into the ground.
