@@ -112,6 +112,7 @@ func _run_all() -> void:
 	await _test(&"a seated driver does not upset the vehicle", test_seated_driver)
 	await _test(&"getting into a vehicle drops what you carry", test_enter_drops_load)
 	await _test(&"bridges give more speed than roads", test_bridge_speed)
+	await _test(&"a vehicle left alone stays put", test_parked_holds)
 	await _test(&"vehicles reach their rated top speed", test_top_speed)
 	await _test(&"store-bought buildings are counted copies", test_building_copies)
 	await _test(&"winch and crane respect their power ratings", test_vehicle_rig)
@@ -3620,6 +3621,40 @@ func test_enter_drops_load() -> void:
 		check((item as LooseItem).global_position.x > stood.x, "a dropped piece went toward the vehicle")
 	player.exit_vehicle()
 	truck.driver = null
+	done()
+
+## Out of the seat, a vehicle comes to rest and is held there: shoved, it
+## does not creep or skate. Someone gets in and it drives again.
+func test_parked_holds() -> void:
+	_setup(false)
+	var truck := Hauler.new()
+	truck.setup(manager, 0, &"hauler")
+	world.add_child(truck)
+	truck.global_position = Vector3(0, truck.spawn_height(), 0)
+	truck.autopilot = true
+	truck.input_throttle = 1.0
+	await step(90)
+	# Get out at speed: it stops, and is held.
+	truck.autopilot = false
+	var t := 0
+	while not truck.held and t < 600:
+		await step(1)
+		t += 1
+	check(truck.held, "a truck left alone was never held")
+	var at := truck.global_position
+	var yaw := truck.global_rotation.y
+	# A good shove from a loose log does not move it.
+	var log_piece := spawn(&"wood_pine", at + Vector3(3, 1.0, 0), Solid.cylinder(0.3, 0.3, 2.0))
+	log_piece.linear_velocity = Vector3(-8, 0, 0)
+	await step(120)
+	check(truck.global_position.distance_to(at) < 0.05, "a held truck moved %.2f m" % truck.global_position.distance_to(at))
+	check(absf(truck.global_rotation.y - yaw) < 0.01, "a held truck turned")
+	# In the seat again, it drives.
+	truck.autopilot = true
+	truck.input_throttle = 1.0
+	await step(90)
+	check(not truck.held, "the truck stayed held with someone driving")
+	check(truck.global_position.distance_to(at) > 2.0, "the truck would not drive off after being held")
 	done()
 
 func test_bridge_speed() -> void:

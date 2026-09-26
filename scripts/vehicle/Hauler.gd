@@ -792,8 +792,63 @@ func _physics_process(delta: float) -> void:
 		sleeping = false
 		for body in wheel_bodies:
 			body.sleeping = false
+	_update_hold(delta)
+	if held:
+		return
 	_drive_wheels()
 	_clamp_motion()
+
+# --- Parked and held ---------------------------------------------------------------
+
+## Left with nobody at the controls, a vehicle that has come (nearly) to rest
+## on its wheels is held exactly where it is - chassis and wheels frozen - so
+## getting out, a load settling or a bump does not send it creeping, rocking
+## or skating off. It lets go the moment someone drives it, tows it, or plants
+## it for the crane.
+var held: bool = false
+var _hold_time: float = 0.0
+const HOLD_SPEED := 1.2           ## m/s; slower than this and it is held
+const HOLD_AFTER := 0.3           ## seconds of being slow before it is
+
+func _may_hold() -> bool:
+	return parked() and not planted and towed_by == null and not wheel_bodies.is_empty()
+
+func _update_hold(delta: float) -> void:
+	if not _may_hold():
+		_hold_time = 0.0
+		if held:
+			release_hold()
+		return
+	if held:
+		return
+	var slow := linear_velocity.length() < HOLD_SPEED and angular_velocity.length() < 0.8
+	var grounded := _grounded * 2 >= wheel_bodies.size()
+	_hold_time = _hold_time + delta if slow and grounded else 0.0
+	if _hold_time >= HOLD_AFTER:
+		_hold()
+
+func _hold() -> void:
+	held = true
+	linear_velocity = Vector3.ZERO
+	angular_velocity = Vector3.ZERO
+	freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
+	freeze = true
+	for body in wheel_bodies:
+		body.linear_velocity = Vector3.ZERO
+		body.angular_velocity = Vector3.ZERO
+		body.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
+		body.freeze = true
+
+func release_hold() -> void:
+	if not held:
+		return
+	held = false
+	_hold_time = 0.0
+	if not planted:
+		freeze = false
+	for body in wheel_bodies:
+		body.freeze = false
+	sleeping = false
 
 func _read_input() -> void:
 	if planted:
@@ -811,6 +866,7 @@ func _read_input() -> void:
 var planted: bool = false
 
 func set_planted(on: bool) -> void:
+	release_hold()
 	planted = on
 	if on:
 		linear_velocity = Vector3.ZERO
@@ -903,6 +959,8 @@ func hitch(trailer: Hauler) -> String:
 	for w in trailer.wheel_bodies:
 		add_collision_exception_with(w)
 	towing = trailer
+	release_hold()
+	trailer.release_hold()
 	trailer.towed_by = self
 	trailer.set_stand(false)
 	return ""
@@ -1107,6 +1165,7 @@ func recover() -> void:
 ## Puts the truck at `after`, stopped, its wheels under it and its load still
 ## in the bed.
 func move_to(after: Transform3D) -> void:
+	release_hold()
 	var before := global_transform
 	var riders: Array = []
 	for item in _load:
@@ -1150,6 +1209,7 @@ func from_dict(d: Dictionary) -> void:
 	if terrain != null:
 		at.y = maxf(at.y, terrain.height_at(at.x, at.z) + spawn_height())
 	var xform := Transform3D(Basis.from_euler(Vector3(0, float(d.get("yaw", 0.0)), 0)), at)
+	release_hold()
 	PhysicsServer3D.body_set_state(get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM, xform)
 	global_transform = xform
 	linear_velocity = Vector3.ZERO
