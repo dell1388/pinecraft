@@ -23,8 +23,10 @@ const CCD_REVIEW_HZ := 10.0          # how often the manager re-evaluates CCD
 # cylinder at the full radius, so the mesh always sits inside its own collider.
 const ROUND_SIDES := 8
 
-# Anything below this plane is teleported back to its plot spawn point.
-const KILL_PLANE_Y := -25.0
+# Anything below this plane is teleported back to the surface. It sits under
+# the deepest cave (floors go down to about -90 m), so pieces worked loose in
+# a cave stay there.
+const KILL_PLANE_Y := -170.0
 
 # Sleep tuning is mirrored into the Jolt project settings; kept here so that
 # gameplay code can reason about it.

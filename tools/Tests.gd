@@ -121,6 +121,7 @@ func _run_all() -> void:
 	await _test(&"a driven truck's settled load is fixed as it lies", test_load_fixed_while_driven)
 	await _test(&"trucks tow trailers on a hitch", test_trailers)
 	await _test(&"kill plane rescues fallen items", test_kill_plane)
+	await _test(&"the kill plane is below every cave", test_kill_plane_below_caves)
 	await _test(&"per-plot cap is enforced", test_cap)
 	await _test(&"full automated base stays in budget", test_full_base)
 
@@ -4627,6 +4628,16 @@ func _haulers_in(node: Node) -> int:
 		if child is Hauler and not child.is_queued_for_deletion():
 			n += 1
 	return n
+
+func test_kill_plane_below_caves() -> void:
+	_setup(false)
+	check(Tuning.KILL_PLANE_Y < World.FELL_OUT_Y, "the kill plane is above where the world ends")
+	# A piece worked loose on a deep cave floor stays down there.
+	var deep := spawn(&"ore_iron", Vector3(0, -85.0, 0), Solid.cube(0.02))
+	deep.freeze = true
+	await step(10)
+	check(deep.global_position.y < -80.0, "a piece at cave depth was sent up to the surface")
+	done()
 
 func test_kill_plane() -> void:
 	_setup()
