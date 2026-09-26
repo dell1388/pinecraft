@@ -176,6 +176,11 @@ void fragment() {
 
 # --- Grid helpers ----------------------------------------------------------
 
+## Is this point on the plot's land (inside its kerb, at any height)?
+func contains_world(world_pos: Vector3, margin: float = 0.0) -> bool:
+	var local := to_local(world_pos)
+	return absf(local.x) <= half_extent + margin and absf(local.z) <= half_extent + margin
+
 func world_to_cell(world_pos: Vector3) -> Vector2i:
 	var local := to_local(world_pos)
 	return Vector2i(int(floor(local.x / CELL)), int(floor(local.z / CELL)))

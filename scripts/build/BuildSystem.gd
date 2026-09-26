@@ -151,6 +151,10 @@ func current() -> BuildingDef:
 func set_active(value: bool) -> void:
 	if active == value:
 		return
+	if value:
+		last_error = can_start()
+		if last_error != "":
+			return
 	active = value
 	_ghost.visible = value
 	if not value and _preview != null:
@@ -208,6 +212,14 @@ func _fly(delta: float) -> void:
 
 func toggle() -> void:
 	set_active(not active)
+
+## Build mode only opens on your own land. Returns why not, or "".
+func can_start() -> String:
+	if plot == null or player == null:
+		return ""
+	if not plot.contains_world(player.global_position, 1.0):
+		return "you can only build on your own land - head back to your plot"
+	return ""
 
 func cycle(step: int) -> void:
 	if palette.is_empty():

@@ -336,7 +336,10 @@ func _on_key(event: InputEventKey) -> void:
 			_drop(held.size())
 		KEY_B:
 			if build_system != null:
+				var was := build_system.active
 				build_system.toggle()
+				if not was and not build_system.active:
+					interacted.emit(build_system.last_error)
 		KEY_Z:
 			if build_system != null and build_system.active:
 				build_system.rotate_axis(0)

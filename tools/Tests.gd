@@ -95,6 +95,7 @@ func _run_all() -> void:
 	await _test(&"tools come from an inventory onto a hotbar", test_hotbar_tools)
 	await _test(&"build mode edits placed buildings", test_build_edit)
 	await _test(&"build mode previews the building itself", test_build_preview)
+	await _test(&"build mode only opens on your own land", test_build_territory)
 	await _test(&"crane and loader go back to their default pose", test_rig_home)
 	await _test(&"ownership is tracked and saved", test_ownership)
 	await _test(&"hauler drives, carries and stays upright", test_hauler)
@@ -3301,6 +3302,25 @@ func test_build_preview() -> void:
 		var placed_facing := plot.global_transform.basis * Plot.orientation_basis(bs.rot) * Vector3.FORWARD
 		check(facing.dot(placed_facing) > 0.99, "the preview does not face the way the building would")
 	bs.active = false
+	bs.free()
+	done()
+
+func test_build_territory() -> void:
+	_setup()
+	var player := _make_player()
+	world.add_child(player)
+	await step(2)
+	var bs := BuildSystem.new()
+	world.add_child(bs)
+	bs.setup(plot, player.camera, player)
+	player.global_position = plot.global_position + Vector3(plot.half_extent + 20.0, 1, 0)
+	bs.set_active(true)
+	check(not bs.active, "build mode opened off the plot")
+	check(bs.last_error != "", "no reason given for refusing build mode")
+	player.global_position = plot.global_position + Vector3(2, 1, 2)
+	bs.set_active(true)
+	check(bs.active, "build mode would not open on the plot")
+	bs.set_active(false)
 	bs.free()
 	done()
 
