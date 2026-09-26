@@ -31,6 +31,8 @@ const ROAD_HALF_WIDTH := 6.5
 ## bleeds back into it.
 const ROAD_SHOULDER := 10.0
 const ROAD_SPEED_BONUS := 0.18
+## Bridges are faster still: the road's bonus and this much more.
+const BRIDGE_SPEED_BONUS := ROAD_SPEED_BONUS + 0.10
 ## The steepest a road is graded, as rise over run.
 const MAX_GRADE := 0.1
 

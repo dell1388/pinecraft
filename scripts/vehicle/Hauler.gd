@@ -833,6 +833,21 @@ func on_road() -> bool:
 		return false
 	return terrain.is_road(global_position.x, global_position.z)
 
+## On a bridge deck.
+func on_bridge() -> bool:
+	if not is_inside_tree():
+		return false
+	for b in get_tree().get_nodes_in_group(&"bridges"):
+		if (b as Bridge).on_deck(global_position):
+			return true
+	return false
+
+## The extra top speed the surface gives: roads some, bridges more.
+func speed_bonus() -> float:
+	if on_bridge():
+		return Terrain.BRIDGE_SPEED_BONUS
+	return Terrain.ROAD_SPEED_BONUS if on_road() else 0.0
+
 ## True when nobody is at the wheel. A parked truck has its brakes on: it stays
 ## where it was left rather than being shoved about by whatever walks into it.
 func parked() -> bool:
@@ -1020,7 +1035,7 @@ func _drive_wheels() -> void:
 	var speed := linear_velocity.dot(forward)
 	# Steering softens with speed, so the truck is not twitchy at 20 m/s.
 	var steer: float = input_steer * max_steer_angle / (1.0 + absf(speed) * 0.07)
-	var bonus: float = 1.0 + (Terrain.ROAD_SPEED_BONUS if on_road() else 0.0)
+	var bonus: float = 1.0 + speed_bonus()
 	var throttle: float = 0.0 if (standing or flooded()) else input_throttle
 	var n := float(wheel_bodies.size())
 	var target := 0.0
@@ -1076,7 +1091,7 @@ func _still() -> bool:
 	return not unloading()
 
 func _clamp_motion() -> void:
-	var ceiling := max_speed * 1.4 * (1.0 + Terrain.ROAD_SPEED_BONUS)
+	var ceiling := max_speed * 1.4 * (1.0 + Terrain.BRIDGE_SPEED_BONUS)
 	if linear_velocity.length() > ceiling:
 		linear_velocity = linear_velocity.normalized() * ceiling
 	if angular_velocity.length() > 3.5:

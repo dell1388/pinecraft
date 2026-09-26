@@ -281,6 +281,10 @@ func toggle_select() -> void:
 	if editing():
 		deselect()
 		return
+	var hit := _aim_hit()
+	if not hit.is_empty():
+		select_building(plot.index_at_hit(hit))
+		return
 	var point: Variant = _aim_point()
 	if point == null:
 		return
@@ -379,7 +383,7 @@ func _press(mouse: Vector2) -> void:
 	if hit.is_empty():
 		deselect()
 		return
-	var index := plot.index_at_world(hit.position)
+	var index := plot.index_at_hit(hit)
 	if index < 0:
 		deselect()
 	else:
@@ -465,6 +469,14 @@ func edit_hint() -> String:
 		parts.append(("[%s]" % names[i]) if i == int(edit_mode) else names[i])
 	return "   ".join(parts) + "      aim at a handle, hold LMB and move the mouse   ·   [Del] remove   ·   [F] done"
 
+## What the crosshair is on: the ray hit against the ground and buildings.
+func _aim_hit() -> Dictionary:
+	var space := get_world_3d().direct_space_state
+	var from := camera.global_position
+	var q := PhysicsRayQueryParameters3D.create(from, from - camera.global_transform.basis.z * REACH,
+		Layers.WORLD | Layers.MACHINE)
+	return space.intersect_ray(q)
+
 ## Aim ray against the world layer, then snap the footprint so it is centred on
 ## the cell under the crosshair.
 func _aim_point() -> Variant:
@@ -529,6 +541,9 @@ func try_place() -> bool:
 func try_remove() -> bool:
 	if not active:
 		return false
+	var hit := _aim_hit()
+	if not hit.is_empty():
+		return plot.remove_at_hit(hit)
 	var point: Variant = _aim_point()
 	if point == null:
 		return false

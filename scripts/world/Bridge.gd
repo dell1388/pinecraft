@@ -29,6 +29,7 @@ func deck_height(t: float) -> float:
 	return lerpf(from_point.y, to_point.y, t) + arch * sin(PI * t)
 
 func _ready() -> void:
+	add_to_group(&"bridges")
 	collision_layer = Layers.WORLD
 	collision_mask = 0
 	var pm := PhysicsMaterial.new()
@@ -105,3 +106,14 @@ func over_deck(point: Vector3) -> bool:
 	var along := rel.dot(dir)
 	var across := absf(rel.dot(Vector3.UP.cross(dir).normalized()))
 	return along >= 0.0 and along <= span and across <= WIDTH * 0.5
+
+## On the deck: over it, and up at its level rather than down in the water
+## under it.
+func on_deck(point: Vector3) -> bool:
+	if not over_deck(point):
+		return false
+	var flat := Vector3(to_point.x - from_point.x, 0.0, to_point.z - from_point.z)
+	var span := flat.length()
+	var t := Vector3(point.x - from_point.x, 0.0, point.z - from_point.z).dot(flat / maxf(0.001, span)) / maxf(0.001, span)
+	var rise := point.y - deck_height(t)
+	return rise > -1.0 and rise < 4.0

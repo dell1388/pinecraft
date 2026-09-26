@@ -110,6 +110,7 @@ func _run_all() -> void:
 	await _test(&"debug unlimited money", test_unlimited_money)
 	await _test(&"a seated driver does not upset the vehicle", test_seated_driver)
 	await _test(&"getting into a vehicle drops what you carry", test_enter_drops_load)
+	await _test(&"bridges give more speed than roads", test_bridge_speed)
 	await _test(&"vehicles reach their rated top speed", test_top_speed)
 	await _test(&"store-bought buildings are counted copies", test_building_copies)
 	await _test(&"winch and crane respect their power ratings", test_vehicle_rig)
@@ -2396,11 +2397,19 @@ func test_building() -> void:
 	check_eq(plot.placed.size(), 1, "plot did not record the building")
 	check(plot.occupied.size() == def.size.x * def.size.z, "wrong number of cells reserved")
 
+	# Buildings may overlap: a second one goes in the same space, and taking
+	# it away leaves the first where it was.
+	Economy.from_dict({"money": 1000, "day": 1})
+	check_eq(plot.placement_error(def, Vector2i(1, 1), 0), "", "overlapping placement was refused")
 	var overlap := plot.place(def, Vector2i(1, 1), 0)
-	check(overlap == null, "overlapping placement was allowed")
+	check(overlap != null, "overlapping placement was refused")
+	check_eq(plot.index_at_world(overlap.global_position), 1, "the newest building is not the one found in a shared cell")
+	check(plot.remove(overlap), "could not remove the overlapping building")
+	check_eq(plot.placed.size(), 1, "removing the overlap removed the other too")
+	check(plot.index_at_world(node.global_position) == 0, "the first building lost its cells")
+	Economy.from_dict({"money": 1000 - def.cost, "day": 1})
 	var outside := plot.place(def, Vector2i(9999, 9999), 0)
 	check(outside == null, "placement outside the plot was allowed")
-	check_eq(plot.placement_error(def, Vector2i(1, 1), 0), "space taken", "wrong error for overlap")
 
 	Economy.from_dict({"money": 10, "day": 1})
 	check(plot.place(def, Vector2i(-10, -10), 0) == null, "placed a building without money")
@@ -3408,10 +3417,10 @@ func test_build_edit() -> void:
 	var turned: Node3D = plot.placed[index].node
 	check_near(turned.position.y - plot.to_local(plot.cell_to_world(Vector2i(3, 0), Vector3i(1, 1, 8), Vector3i(0, 1, 0))).y,
 		0.5, 0.001, "the belt was not lifted")
-	# A move onto the mill is refused and changes nothing.
+	# A move off the plot is refused and changes nothing.
 	var before: Dictionary = plot.placed[index].duplicate()
-	var err := plot.edit(index, Vector2i(-8, -8), Vector3i(0, 1, 0), Vector3i(1, 1, 8), 0.5)
-	check(err != "", "a belt was moved on top of a machine")
+	var err := plot.edit(index, Vector2i(9999, 9999), Vector3i(0, 1, 0), Vector3i(1, 1, 8), 0.5)
+	check(err != "", "a belt was moved off the plot")
 	check_eq(plot.placed[index].cell, before.cell, "a refused move still moved the belt")
 
 	# Size and height survive a save.
@@ -3552,6 +3561,24 @@ func test_enter_drops_load() -> void:
 		check((item as LooseItem).global_position.x > stood.x, "a dropped piece went toward the vehicle")
 	player.exit_vehicle()
 	truck.driver = null
+	done()
+
+func test_bridge_speed() -> void:
+	_setup(false)
+	var bridge := Bridge.new()
+	bridge.setup(Vector3(-20, 0.0, 0), Vector3(20, 0.0, 0), null)
+	world.add_child(bridge)
+	var truck := Hauler.new()
+	truck.setup(manager, 0, &"pickup")
+	world.add_child(truck)
+	truck.global_position = Vector3(0, bridge.deck_height(0.5) + truck.spawn_height(), 0)
+	await step(30)
+	check(truck.on_bridge(), "a truck on the deck is not on the bridge")
+	check_near(truck.speed_bonus(), Terrain.ROAD_SPEED_BONUS + 0.10, 0.0001, "the bridge bonus is not the road's plus 10%")
+	truck.move_to(Transform3D(Basis(), Vector3(0, 0, 30) + Vector3(0, truck.spawn_height(), 0)))
+	await step(5)
+	check(not truck.on_bridge(), "a truck off to the side counts as on the bridge")
+	check_eq(truck.speed_bonus(), 0.0, "a truck off road and bridge got a bonus")
 	done()
 
 func test_seated_driver() -> void:

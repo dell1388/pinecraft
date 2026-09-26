@@ -20,7 +20,7 @@ var terrain: Terrain
 var tier: int = 0
 var half_extent: float = 22.0
 var placed: Array[Dictionary] = []      ## {def, cell, rot, node}
-var occupied: Dictionary = {}           ## Vector2i -> index into `placed`
+var occupied: Dictionary = {}           ## Vector2i -> [indices into `placed`], oldest first; buildings may overlap
 
 var _floor_body: StaticBody3D
 var _floor_shape: CollisionShape3D
@@ -244,11 +244,10 @@ func placement_error(def: BuildingDef, cell: Vector2i, rot: Variant, check_cost:
 		if GameData.sold_copy(def.id, def.tier):
 			return "none left - buy another at the store"
 		return "need $%d" % def.cost
+	# Buildings may share space: several things can stand in one cell.
 	for c in cells_for(cell, def.size, rot):
 		if not in_bounds(c):
 			return "outside plot"
-		if occupied.has(c) and int(occupied[c]) != ignore_index:
-			return "space taken"
 	return ""
 
 func can_place(def: BuildingDef, cell: Vector2i, rot: Variant, check_cost: bool = true) -> bool:
@@ -269,9 +268,18 @@ func place(def: BuildingDef, cell: Vector2i, rot: Variant, charge: bool = true, 
 	placed.append(record)
 	var index := placed.size() - 1
 	for c in cells_for(cell, def.size, orientation):
-		occupied[c] = index
+		_occupy(c, index)
 	buildings_changed.emit(self)
 	return node
+
+func _occupy(c: Vector2i, index: int) -> void:
+	if not occupied.has(c):
+		occupied[c] = []
+	(occupied[c] as Array).append(index)
+
+## Every placed record standing in a cell, oldest first.
+func indices_at_cell(c: Vector2i) -> Array:
+	return occupied.get(c, [])
 
 ## Pays for building one: a plain shape is free (it is only a plan - the
 ## material is yours to bring), a store-bought building uses up one of the
@@ -388,7 +396,22 @@ func edit(index: int, cell: Vector2i, rot: Vector3i, size: Vector3i, lift: float
 
 ## The placed record under a world point, as an index, or -1.
 func index_at_world(world_pos: Vector3) -> int:
-	return int(occupied.get(world_to_cell(world_pos), -1))
+	var here := indices_at_cell(world_to_cell(world_pos))
+	return int(here.back()) if not here.is_empty() else -1
+
+## The placed record a ray hit belongs to: the building whose collider was
+## hit, so with several in one cell it is the one you aimed at. Falls back to
+## the newest building in the cell hit.
+func index_at_hit(hit: Dictionary) -> int:
+	if hit.is_empty():
+		return -1
+	var n := hit.get("collider") as Node
+	while n != null and n != self:
+		for i in placed.size():
+			if placed[i].node == n:
+				return i
+		n = n.get_parent()
+	return index_at_world(hit.position)
 
 ## What a building looks like, and nothing else: its meshes, as built, on a
 ## bare node - no colliders, no logic. Build mode shows it as the ghost, so
@@ -515,8 +538,14 @@ func remove(node: Node3D) -> bool:
 		return true
 	return false
 
+func remove_at_hit(hit: Dictionary) -> bool:
+	var index := index_at_hit(hit)
+	if index < 0 or index >= placed.size():
+		return false
+	return remove(placed[index].node)
+
 func remove_at_world(world_pos: Vector3) -> bool:
-	var index: int = occupied.get(world_to_cell(world_pos), -1)
+	var index := index_at_world(world_pos)
 	if index < 0 or index >= placed.size():
 		return false
 	return remove(placed[index].node)
@@ -526,7 +555,7 @@ func _reindex() -> void:
 	for i in placed.size():
 		var rec := placed[i]
 		for c in cells_for(rec.cell, (rec.def as BuildingDef).size, rec.rot):
-			occupied[c] = i
+			_occupy(c, i)
 
 func clear_buildings() -> void:
 	for rec in placed:
@@ -542,12 +571,12 @@ func find_sink_near(world_pos: Vector3, radius: float = 1.2) -> Object:
 	var span := int(ceil(radius / CELL))
 	for dx in range(-span, span + 1):
 		for dz in range(-span, span + 1):
-			var index: int = occupied.get(Vector2i(cell.x + dx, cell.y + dz), -1)
-			if index < 0 or index >= placed.size():
-				continue
-			var node: Node3D = placed[index].node
-			if node != null and node.has_method("accept_item"):
-				return node
+			for index: int in indices_at_cell(Vector2i(cell.x + dx, cell.y + dz)):
+				if index < 0 or index >= placed.size():
+					continue
+				var node: Node3D = placed[index].node
+				if node != null and node.has_method("accept_item"):
+					return node
 	return null
 
 func pads() -> Array[VehiclePad]:
