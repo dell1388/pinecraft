@@ -342,15 +342,20 @@ func set_operating(on: bool) -> void:
 	operating = on
 	if on:
 		folding = false
-		# A working spot behind the turntable, over the bed.
-		target = clamp_target(head_offset + Vector3(0, 0.3, boom_min * 0.9))
-		target_yaw = 0.0
-		_target_vel = Vector3.ZERO
-		_yaw_vel = 0.0
+		home()
 	else:
 		drop()
 		folding = true
 	_apply_plant()
+
+## Sends the grapple back to where operator mode starts it: behind the
+## turntable, over the bed, square to the truck. The crane gets there at its
+## own pace, carrying whatever it holds.
+func home() -> void:
+	target = clamp_target(head_offset + Vector3(0, 0.3, boom_min * 0.9))
+	target_yaw = 0.0
+	_target_vel = Vector3.ZERO
+	_yaw_vel = 0.0
 
 ## Moves the target: `move` in the truck's frame (x across, y up, z along,
 ## each -1..1), `turn` the log's yaw (-1..1). `fine` is the slow speed for
@@ -772,7 +777,7 @@ func status_line() -> String:
 	if operating:
 		var load := "%s, %.0f / %.0f kg" % [held.display_name(), held.mass, crane_power_kg] if held != null \
 			else "grapple open, %.0f kg crane" % crane_power_kg
-		bits.append("crane: %s%s  [W/S] away/toward [A/D] left/right [Shift/Ctrl] up/down [Q/E] turn [F] %s [RMB] fine [R] done" % [
+		bits.append("crane: %s%s  [W/S] away/toward [A/D] left/right [Shift/Ctrl] up/down [Q/E] turn [F] %s [RMB] fine [N] reset [R] done" % [
 			load, " - AT ITS LIMIT" if at_limit else "", "let go" if held != null else "grab"])
 	elif folding:
 		bits.append("crane folding away")

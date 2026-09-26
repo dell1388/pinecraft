@@ -19,6 +19,11 @@ var lift: float = 0.0
 ## tips it forward.
 var tilt: float = 0.0
 var lift_min: float = -0.5
+## The carrying pose it starts in and goes back to on [N]: arms a little up,
+## bucket curled back a touch.
+var home_lift: float = 0.0
+const HOME_TILT := 0.25
+var homing: bool = false
 var lift_max: float = 0.9
 const TILT_MIN := -0.95
 const TILT_MAX := 0.7
@@ -61,8 +66,9 @@ func setup(v: Hauler, spec: Dictionary) -> void:
 	# Lowest: the bucket floor just off the ground under the vehicle at rest.
 	var ground := v._lowest_wheel_y() - v.wheel_radius - Hauler.SAG
 	lift_min = asin(clampf((ground + 0.06 - pivot.y) / arm_length, -1.0, 1.0))
-	lift = lerpf(lift_min, 0.0, 0.3)
-	tilt = 0.25
+	home_lift = lerpf(lift_min, 0.0, 0.3)
+	lift = home_lift
+	tilt = HOME_TILT
 
 func _ready() -> void:
 	bucket = AnimatableBody3D.new()
@@ -198,6 +204,9 @@ func locked_items() -> Array[LooseItem]:
 
 ## Works the arms and bucket: `raise` and `curl` in -1..1.
 func drive(raise: float, curl: float, delta: float) -> void:
+	if raise == 0.0 and curl == 0.0:
+		return
+	homing = false
 	lift = clampf(lift + raise * LIFT_SPEED * delta, lift_min, lift_max)
 	tilt = clampf(tilt + curl * TILT_SPEED * delta, TILT_MIN, TILT_MAX)
 
@@ -213,6 +222,10 @@ func _physics_process(delta: float) -> void:
 	# Nobody at the controls: the clamp lets go, as a truck's load does.
 	if locked and vehicle.parked():
 		set_locked(false)
+	if homing:
+		lift = move_toward(lift, home_lift, LIFT_SPEED * delta)
+		tilt = move_toward(tilt, HOME_TILT, TILT_SPEED * delta)
+		homing = not (is_equal_approx(lift, home_lift) and is_equal_approx(tilt, HOME_TILT))
 	thumb_angle = move_toward(thumb_angle, THUMB_CLOSED if locked else THUMB_OPEN, THUMB_SPEED * delta)
 	if _thumb != null:
 		_thumb.rotation = Vector3(thumb_angle, 0, 0)
@@ -237,6 +250,10 @@ func _pose(snap: bool, delta: float = 0.0) -> void:
 		var side: float = arm.get_meta("side")
 		var x := side * arm_x
 		arm.transform = Transform3D(Basis(Vector3.RIGHT, lift), Vector3(x, pivot.y, pivot.z))
+
+## Back to the carrying pose, at the arms' own pace.
+func home() -> void:
+	homing = true
 
 ## After the vehicle has been moved to a new place.
 func snap() -> void:
@@ -263,7 +280,7 @@ func held() -> Array[LooseItem]:
 	return out
 
 func status_line() -> String:
-	return "loader: arms %d%%, bucket %s%s  [Shift/Ctrl] raise/lower  [Q/E] tip/curl  [G] %s" % [
+	return "loader: arms %d%%, bucket %s%s  [Shift/Ctrl] raise/lower  [Q/E] tip/curl  [G] %s  [N] reset" % [
 		roundi(100.0 * (lift - lift_min) / (lift_max - lift_min)),
 		"curled" if tilt > 0.15 else ("tipped" if tilt < -0.15 else "flat"),
 		", locked" if locked else "", "unlock" if locked else "lock"]

@@ -351,6 +351,16 @@ func _on_driving_key(event: InputEventKey) -> bool:
 	# In a loader Q and E work the bucket (held, in _update_vehicle_controls).
 	if loader() != null and (event.keycode == KEY_Q or event.keycode == KEY_E):
 		return true
+	if event.keycode == KEY_N:
+		if loader() != null:
+			loader().home()
+			interacted.emit("bucket back to its carrying pose")
+			return true
+		if rig() != null and rig().operating:
+			rig().home()
+			interacted.emit("crane back to its starting spot")
+			return true
+		return false
 	if loader() != null and event.keycode == KEY_G:
 		interacted.emit(loader().set_locked(not loader().locked))
 		return true

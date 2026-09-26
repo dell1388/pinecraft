@@ -35,8 +35,7 @@ const GROUPS := [
 		[["Z", "X", "C"], "Rotate around each axis"],
 		[["F"], "Select the building you aim at to edit it (again: done)"],
 		[["1", "/", "3"], "While editing: move, scale or rotate handles"],
-		[["LMB"], "While editing: drag a handle"],
-		[["RMB"], "While editing: hold to look around"],
+		[["LMB"], "While editing: aim at a handle, hold and move the mouse to drag it"],
 		[["Del"], "While editing: remove it"],
 		[["Esc"], "Leave build mode"],
 	]},
@@ -63,6 +62,7 @@ const GROUPS := [
 		[["Shift", "/", "Ctrl"], "Loader: raise / lower the arms"],
 		[["Q", "/", "E"], "Loader: tip the bucket forward / curl it back"],
 		[["G"], "Loader: lock what is in the bucket in place, or let it go"],
+		[["N"], "Crane or loader: back to the default position"],
 	]},
 	{"title": "Game", "rows": [
 		[["Esc"], "Pause menu"],
@@ -107,10 +107,10 @@ static func hints_for(state: String) -> Array:
 				[["Y"], "Winch"], [["K", "/", "L"], "Reel"], [["R"], "Crane"], [["T"], "Hitch"], [["F"], "Get out"]]
 		"loader":
 			return [[["W", "S"], "Drive"], [["Space"], "Brake"], [["Shift", "/", "Ctrl"], "Arms up / down"],
-				[["Q", "/", "E"], "Tip / curl"], [["G"], "Lock bucket"], [["F"], "Get out"]]
+				[["Q", "/", "E"], "Tip / curl"], [["G"], "Lock bucket"], [["N"], "Reset"], [["F"], "Get out"]]
 		"crane":
 			return [[["W", "S"], "Along"], [["A", "D"], "Across"], [["Shift", "/", "Ctrl"], "Up / down"],
-				[["Q", "/", "E"], "Turn"], [["F"], "Grab / let go"], [["RMB"], "Fine"], [["R"], "Done"]]
+				[["Q", "/", "E"], "Turn"], [["F"], "Grab / let go"], [["RMB"], "Fine"], [["N"], "Reset"], [["R"], "Done"]]
 		"dragging":
 			return [[["LMB"], "Hold to keep hold"], [["Wheel"], "Closer / further"],
 				[["Shift"], "+ WASDQE: turn it"], [["RMB"], "Throw"]]

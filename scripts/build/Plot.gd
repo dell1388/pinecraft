@@ -385,6 +385,43 @@ func edit(index: int, cell: Vector2i, rot: Vector3i, size: Vector3i, lift: float
 func index_at_world(world_pos: Vector3) -> int:
 	return int(occupied.get(world_to_cell(world_pos), -1))
 
+## What a building looks like, and nothing else: its meshes, as built, on a
+## bare node - no colliders, no logic. Build mode shows it as the ghost, so
+## you can see what you are about to put down and which way it faces.
+func preview_model(def: BuildingDef) -> Node3D:
+	var node := _instantiate(def)
+	if node == null:
+		return null
+	# Built in a switched-off corner of the tree: _ready makes its meshes, but
+	# nothing of it runs or touches the physics world.
+	var holder := Node3D.new()
+	holder.process_mode = Node.PROCESS_MODE_DISABLED
+	holder.visible = false
+	add_child(holder)
+	holder.add_child(node)
+	var out := Node3D.new()
+	out.name = "Preview"
+	_copy_meshes(node, node, out)
+	remove_child(holder)
+	holder.free()
+	return out
+
+static func _copy_meshes(root: Node3D, at: Node, out: Node3D) -> void:
+	for child in at.get_children():
+		if child is Label3D or child is GPUParticles3D or child is CPUParticles3D:
+			continue
+		var n3 := child as Node3D
+		if n3 != null and not n3.visible:
+			continue
+		var mi := child as MeshInstance3D
+		if mi != null and mi.mesh != null:
+			var copy := MeshInstance3D.new()
+			copy.mesh = mi.mesh
+			copy.transform = root.global_transform.affine_inverse() * mi.global_transform
+			copy.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			out.add_child(copy)
+		_copy_meshes(root, child, out)
+
 func _instantiate(def: BuildingDef) -> Node3D:
 	match def.kind:
 		&"machine":

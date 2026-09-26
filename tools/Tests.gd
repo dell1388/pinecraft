@@ -93,6 +93,8 @@ func _run_all() -> void:
 	await _test(&"things are dragged by the point grabbed", test_drag_at_point)
 	await _test(&"tools come from an inventory onto a hotbar", test_hotbar_tools)
 	await _test(&"build mode edits placed buildings", test_build_edit)
+	await _test(&"build mode previews the building itself", test_build_preview)
+	await _test(&"crane and loader go back to their default pose", test_rig_home)
 	await _test(&"ownership is tracked and saved", test_ownership)
 	await _test(&"hauler drives, carries and stays upright", test_hauler)
 	await _test(&"the load in the bed is loose and real", test_hauler_loose_load)
@@ -3183,6 +3185,92 @@ func test_hotbar_tools() -> void:
 
 ## Play-test: in build mode, F selects a building to edit, and the handles
 ## move it, resize it and turn it.
+## The build ghost is the building itself: every kind of building gives a
+## model of meshes only (nothing that collides, spawns or runs), and it is
+## shown where the building would go, turned the way it would face.
+func test_build_preview() -> void:
+	_setup()
+	var items_before := manager.active_count()
+	var children_before := plot.get_child_count()
+	for id in GameData.buildings:
+		var def: BuildingDef = GameData.building(id)
+		var model := plot.preview_model(def)
+		check(model != null, "%s has no preview" % id)
+		if model == null:
+			continue
+		var meshes := 0
+		for c in model.get_children():
+			if c is MeshInstance3D:
+				meshes += 1
+			check(not (c is CollisionObject3D), "the %s preview has a body" % id)
+		check(meshes > 0, "the %s preview has nothing to see" % id)
+		model.free()
+	await step(2)
+	check_eq(plot.get_child_count(), children_before, "making previews left things on the plot")
+	check_eq(manager.active_count(), items_before, "making previews spawned items")
+	check(plot.placed.is_empty(), "making previews placed buildings")
+	# In build mode the preview stands where the building would go.
+	var cam := Camera3D.new()
+	world.add_child(cam)
+	cam.current = true
+	cam.global_transform = Transform3D(Basis.looking_at(Vector3(0, -1, -0.6).normalized(), Vector3.UP), plot.global_position + Vector3(0, 8, 4))
+	var bs := BuildSystem.new()
+	world.add_child(bs)
+	bs.setup(plot, cam, null)
+	bs.refresh_palette()
+	bs.index = 0
+	bs.active = true
+	bs.rotate_axis(1)
+	await step(3)
+	var def0 := bs.current()
+	check(bs._preview != null and bs._preview.visible, "no preview in build mode")
+	if bs._preview != null:
+		var want := plot.cell_to_world(bs.target_cell, def0.size, bs.rot)
+		check(bs._preview.global_position.distance_to(want) < 0.01, "the preview is not where the building would go")
+		var facing := bs._preview.global_transform.basis * Vector3.FORWARD
+		var placed_facing := plot.global_transform.basis * Plot.orientation_basis(bs.rot) * Vector3.FORWARD
+		check(facing.dot(placed_facing) > 0.99, "the preview does not face the way the building would")
+	bs.active = false
+	bs.free()
+	done()
+
+## [N] puts a crane back where operator mode starts it and a loader's bucket
+## back in its carrying pose.
+func test_rig_home() -> void:
+	_setup(false)
+	var truck := Hauler.new()
+	truck.setup(manager, 0, &"crane_truck")
+	world.add_child(truck)
+	truck.global_position = Vector3(-10, truck.spawn_height(), 0)
+	var loader := Hauler.new()
+	loader.setup(manager, 0, &"loader")
+	world.add_child(loader)
+	loader.global_position = Vector3(10, loader.spawn_height(), 0)
+	await step(30)
+	var r := truck.rig
+	r.set_operating(true)
+	var start := r.target
+	for i in 60:
+		r.drive(Vector3(1, 0.5, -1), 1.0, false, 1.0 / 60.0)
+		await step(1)
+	check(r.target.distance_to(start) > 0.5, "the crane did not move")
+	r.home()
+	check(r.target.distance_to(start) < 0.001 and absf(r.target_yaw) < 0.001, "the crane did not go back to its start")
+	var l := loader.loader
+	var lift0 := l.lift
+	var tilt0 := l.tilt
+	for i in 60:
+		l.drive(1.0, -1.0, 1.0 / 60.0)
+		await step(1)
+	check(absf(l.lift - lift0) > 0.2, "the arms did not move")
+	l.home()
+	for i in 300:
+		l.drive(0.0, 0.0, 1.0 / 60.0)
+		await step(1)
+	check_near(l.lift, lift0, 0.001, "the arms did not go back to their carrying pose")
+	check_near(l.tilt, tilt0, 0.001, "the bucket did not go back to its carrying pose")
+	done()
+
 func test_build_edit() -> void:
 	_setup()
 	Economy.from_dict({"money": 100000, "day": 1})
