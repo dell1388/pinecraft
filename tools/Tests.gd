@@ -1531,6 +1531,16 @@ func test_ore_line() -> void:
 		var b := Solid.bounds(lump.dims)
 		check(maxf(b.x, maxf(b.y, b.z)) <= crusher.machine_def.max_piece + 0.001, "a lump is still too big")
 	check_near(total, chunk_volume, 0.0001, "the crusher did not conserve ore")
+	# A piece already small enough still gets crushed; its own lumps do not.
+	var small := _feed(crusher, &"ore_iron", Solid.cube(0.3))
+	var before := crusher.total_out
+	for i in 900:
+		if crusher.total_out - before >= 2 and crusher.queue.is_empty():
+			break
+		await step(1)
+	check(crusher.total_out - before >= 2, "a small chunk went through the crusher whole")
+	check(crusher.work({"id": &"ore_iron", "dims": Solid.cube(0.1).merged({"crushed": true}), "owned": true,
+		"plot": 0, "changed": false, "ready": 0.0}).size() == 1, "the crusher crushed its own lumps again")
 
 	_setup()
 	var smelter := _inline(&"furnace")

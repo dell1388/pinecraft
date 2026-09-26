@@ -510,11 +510,14 @@ func work(entry: Dictionary) -> Array[Dictionary]:
 				var t := pow(Solid.volume(dims) * machine_def.yield_share / 6.4, 1.0 / 3.0)
 				_change(entry, to, Solid.box(Vector3(t * 1.6, t * 4.0, t)))
 		MachineDef.MODE_CRUSH:
-			var b := Solid.bounds(dims)
-			if maxf(b.x, maxf(b.y, b.z)) > machine_def.max_piece + 0.001:
+			# Whatever fits through the mouth is broken up, however small -
+			# into lumps no bigger than max_piece, and at least two. Only
+			# its own lumps go through untouched.
+			if not bool(dims.get("crushed", false)):
 				var v := Solid.volume(dims)
 				var count := clampi(int(ceil(v / pow(machine_def.max_piece * 0.9, 3.0))), 2, 64)
 				var lump := Solid.cube(v / float(count))
+				lump["crushed"] = true
 				_change(entry, entry.id, lump)
 				for i in range(1, count):
 					var more := entry.duplicate(true)
