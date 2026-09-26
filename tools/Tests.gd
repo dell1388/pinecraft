@@ -1215,11 +1215,32 @@ func test_gem_line() -> void:
 	check_near(again.volume(), volume * cutter.machine_def.yield_share, 0.0001, "the jewel is the wrong size")
 	check(Solid.has_finish(again.dims, &"polished"), "cutting lost the polish")
 	check(Economy.price_of(again.item_id, again.dims) > polished_price * 2.0, "a cut emerald is not worth the cutting")
-	# The gem cutter leaves ore alone; the crusher leaves stones alone.
+	# The gem cutter leaves ore alone.
 	var ore := _feed(cutter, &"ore_iron", Solid.cube(0.2))
 	ore = await _through(cutter, ore)
 	check(ore != null, "ore did not ride through the cutter")
 	check_eq(ore.item_id, &"ore_iron", "the cutter changed ore")
+	# The crusher breaks rough stone down too - a quartz boulder far too big
+	# for the cutter comes out as lumps that fit it.
+	_setup()
+	var crusher := _inline(&"crusher")
+	_runout(crusher)
+	await step(3)
+	var quartz := _feed(crusher, &"gem_quartz", Solid.cube(1.0))
+	var q_volume := quartz.volume()
+	for i in 1800:
+		if crusher.total_processed >= 1 and crusher.queue.is_empty():
+			break
+		await step(1)
+	check(crusher.total_out >= 2, "the crusher did not break up quartz")
+	var got := 0.0
+	var mouth := 0.6
+	for lump in manager.free_items():
+		check_eq(lump.item_id, &"gem_quartz", "crushing quartz made %s" % lump.item_id)
+		got += lump.volume()
+		var b := Solid.bounds(lump.dims)
+		check(maxf(b.x, maxf(b.y, b.z)) < mouth, "a quartz lump is too big for the gem cutter")
+	check_near(got, q_volume, 0.001, "crushing quartz lost stone")
 	done()
 
 ## Spec: a 2.5 km map of islands with bridges between, and places hidden in it.

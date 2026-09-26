@@ -223,7 +223,7 @@
         4
       ],
       "machine": "crusher",
-      "blurb": "Breaks any ore chunk that fits its mouth into lumps a smelter will take."
+      "blurb": "Breaks any ore or rough stone that reaches it into lumps a smelter or gem cutter will take."
     },
     {
       "id": "schematic_block",
@@ -738,7 +738,8 @@
       "display_name": "Crusher",
       "mode": "crush",
       "accepts": [
-        "ore"
+        "ore",
+        "gem"
       ],
       "tunnel": [
         1.0,
