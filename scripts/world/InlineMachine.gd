@@ -338,13 +338,19 @@ func _physics_process(delta: float) -> void:
 	_refresh_lamp()
 
 ## Has the front of this piece got into the in-feed mouth? A piece too big
-## for the mouth never does: it is stopped at the bulkhead.
+## for the mouth never does: it is stopped at the bulkhead - except at the
+## crusher, which takes anything that reaches it.
 func _in_mouth(item: LooseItem) -> bool:
 	var inverse := global_transform.affine_inverse()
 	var local := inverse * item.global_position
 	# Only what is coming in: what the machine has set down is on the far side.
 	if local.z < 0.0:
 		return false
+	# The crusher's jaws take whatever is fed to them, however big: a piece
+	# goes in as soon as its front touches the in-feed bulkhead.
+	if machine_def.mode == MachineDef.MODE_CRUSH:
+		var front := item.extent_along(global_transform.basis.z)
+		return local.z - front < canopy_length() * 0.5 + 0.12 and absf(local.x) < width * 0.5 + 0.3
 	var axis := inverse.basis * item.global_transform.basis.y.normalized()
 	var reach := absf(axis.normalized().z) * item.length() * 0.5
 	var b := Solid.bounds(item.dims)

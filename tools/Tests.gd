@@ -1531,6 +1531,20 @@ func test_ore_line() -> void:
 		var b := Solid.bounds(lump.dims)
 		check(maxf(b.x, maxf(b.y, b.z)) <= crusher.machine_def.max_piece + 0.001, "a lump is still too big")
 	check_near(total, chunk_volume, 0.0001, "the crusher did not conserve ore")
+	# A chunk far too big for the mouth is still taken in and crushed.
+	var huge := _feed(crusher, &"ore_iron", Solid.cube(1.6))
+	var huge_volume := huge.volume()
+	var got := 0.0
+	var out_before := crusher.total_out
+	for i in 1800:
+		if crusher.total_processed >= 2 and crusher.queue.is_empty():
+			break
+		await step(1)
+	check(crusher.total_processed >= 2, "a chunk bigger than the mouth was not taken in")
+	check(crusher.total_out - out_before >= 8, "a chunk bigger than the mouth was not crushed (%d out)" % (crusher.total_out - out_before))
+	for lump in manager.free_items():
+		got += lump.volume()
+	check_near(got, chunk_volume + huge_volume, 0.001, "crushing the big chunk lost ore")
 	# A piece already small enough still gets crushed; its own lumps do not.
 	var small := _feed(crusher, &"ore_iron", Solid.cube(0.3))
 	var before := crusher.total_out
