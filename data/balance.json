@@ -24,16 +24,16 @@
 
   "vehicles": {
     "_about": "road_speed_bonus: extra top speed on roads (0.18 = +18%). bridge_extra_bonus: added on top of the road bonus on bridges. hold_speed / hold_after: a vehicle nobody is driving is held still once slower than this (m/s) for this long (s).",
-    "road_speed_bonus": 0.18,
-    "bridge_extra_bonus": 0.10,
+    "road_speed_bonus": 0.10,
+    "bridge_extra_bonus": 0.25,
     "hold_speed": 1.2,
     "hold_after": 0.3
   },
 
   "crane": {
     "_about": "move_speed: how fast the log target moves (m/s). claw_speed: how fast the claw drops and climbs (m/s).",
-    "move_speed": 2.4,
-    "claw_speed": 2.4
+    "move_speed": 4  ,
+    "claw_speed": 4
   },
 
   "loader": {
