@@ -56,7 +56,7 @@ const GROUPS := [
 		[["A", "D"], "Crane: log left / right of the camera"],
 		[["Shift", "/", "Ctrl"], "Crane: log up / down"],
 		[["Q", "/", "E"], "Crane: turn the log"],
-		[["F"], "Crane: close the grapple on the log under it, or let go"],
+		[["F"], "Crane: drop the claw - it goes down until it meets something, grabs it and comes back up (F again: let go)"],
 		[["RMB"], "Crane: hold for fine, slow control"],
 		[["Wheel"], "Crane: zoom the camera (the mouse orbits the log)"],
 		[["Shift", "/", "Ctrl"], "Loader: raise / lower the arms"],
@@ -110,7 +110,7 @@ static func hints_for(state: String) -> Array:
 				[["Q", "/", "E"], "Tip / curl"], [["Space"], "Lock bucket"], [["N"], "Reset"], [["F"], "Get out"]]
 		"crane":
 			return [[["W", "S"], "Along"], [["A", "D"], "Across"], [["Shift", "/", "Ctrl"], "Up / down"],
-				[["Q", "/", "E"], "Turn"], [["F"], "Grab / let go"], [["RMB"], "Fine"], [["N"], "Reset"], [["R"], "Done"]]
+				[["Q", "/", "E"], "Turn"], [["F"], "Claw / let go"], [["RMB"], "Fine"], [["N"], "Reset"], [["R"], "Done"]]
 		"dragging":
 			return [[["LMB"], "Hold to keep hold"], [["Wheel"], "Closer / further"],
 				[["Shift"], "+ WASDQE: turn it"], [["RMB"], "Throw"]]

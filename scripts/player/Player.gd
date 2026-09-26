@@ -378,14 +378,15 @@ func _on_driving_key(event: InputEventKey) -> bool:
 				interacted.emit("this vehicle has no crane")
 			else:
 				r.set_operating(not r.operating)
-				interacted.emit("crane: you move the log - W/S away from / toward the camera, A/D left/right, Shift/Ctrl up and down, Q/E turn it, F grab"
+				interacted.emit("crane: you move the log - W/S away from / toward the camera, A/D left/right, Shift/Ctrl up and down, Q/E turn it, F drop the claw"
 					if r.operating else "crane folding away")
 			return true
 		KEY_F:
 			# Working the crane, F is the grapple; otherwise it is the door.
 			if r.operating:
 				var had := r.held != null
-				interacted.emit(_said(r.latch(), "let go" if had else "grapple closed"))
+				var said := r.claw()
+				interacted.emit(said if said != "" else ("let go" if had else "claw going down"))
 				return true
 			return false
 		KEY_Q, KEY_E:
@@ -573,6 +574,9 @@ func _update_vehicle_controls(delta: float) -> void:
 	if r == null:
 		return
 	work_winch(r, delta)
+	if r.claw_said != "":
+		interacted.emit(r.claw_said)
+		r.claw_said = ""
 	if not r.operating:
 		return
 	# W takes the log away from the camera, S toward it, A and D to the

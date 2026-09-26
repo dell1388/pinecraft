@@ -114,6 +114,7 @@ func _run_all() -> void:
 	await _test(&"bridges give more speed than roads", test_bridge_speed)
 	await _test(&"a vehicle left alone stays put", test_parked_holds)
 	await _test(&"getting out does not shove the vehicle", test_exit_still)
+	await _test(&"the crane claw drops, grabs and comes back up", test_crane_claw)
 	await _test(&"vehicles reach their rated top speed", test_top_speed)
 	await _test(&"store-bought buildings are counted copies", test_building_copies)
 	await _test(&"winch and crane respect their power ratings", test_vehicle_rig)
@@ -3659,6 +3660,51 @@ func test_exit_still() -> void:
 		check(worst < 0.3, "the %s moved %.2f m when the driver got out" % [id, worst])
 		truck.queue_free()
 		await step(1)
+	done()
+
+func test_crane_claw() -> void:
+	_setup(false)
+	var truck := Hauler.new()
+	truck.setup(manager, 0, &"crane_truck")
+	world.add_child(truck)
+	truck.global_position = Vector3(0, truck.spawn_height(), 0)
+	await step(60)
+	var rig := truck.rig
+	rig.set_operating(true)
+	var frame := truck.global_transform
+	var beside: Vector3 = frame * Vector3(3.6, 0.0, 1.0)
+	var log_piece := spawn(&"wood_pine", Vector3(beside.x, 0.3, beside.z), Solid.cylinder(0.2, 0.18, 2.0))
+	await step(40)
+	# Over the log, well up above it.
+	var over := frame.affine_inverse() * log_piece.global_position
+	rig.target = rig.clamp_target(Vector3(over.x, over.y + 3.0, over.z))
+	for i in 400:
+		await step(1)
+	var top := rig.target.y
+	rig.claw()
+	check_eq(rig.claw_state, &"down", "F did not drop the claw")
+	for i in 900:
+		await step(1)
+		if rig.claw_state == &"":
+			break
+	check_eq(rig.claw_state, &"", "the claw never finished")
+	check(rig.held == log_piece, "the claw did not come up with the log")
+	check_near(rig.target.y, top, 0.02, "the claw did not come back up to where it started")
+	# F lets go; dropped again over bare ground it comes back up empty.
+	rig.claw()
+	check(rig.held == null, "F did not let the log go")
+	await step(60)
+	var bare := frame.affine_inverse() * (frame * Vector3(-3.6, 0.0, 1.0))
+	rig.target = rig.clamp_target(Vector3(bare.x, top, bare.z))
+	for i in 300:
+		await step(1)
+	rig.claw()
+	for i in 900:
+		await step(1)
+		if rig.claw_state == &"":
+			break
+	check_eq(rig.claw_state, &"", "the claw never came back from bare ground")
+	check(rig.held == null, "the claw came up from bare ground with something")
 	done()
 
 func test_parked_holds() -> void:

@@ -538,6 +538,70 @@ func latch() -> String:
 	_take(item)
 	return ""
 
+# --- The claw drop -------------------------------------------------------------------
+
+## [F] with the grapple empty works it like a claw machine: the grapple goes
+## straight down until it meets something it can take (or the ground, the bed
+## or anything else solid), closes, and comes back up to the height it started
+## from - with whatever it caught. [F] again on the way lets go / calls it back.
+var claw_state: StringName = &""     ## "", "down" or "up"
+var claw_said: String = ""           ## what the last drop came to, for the HUD
+var _claw_top: float = 0.0
+const CLAW_SPEED := 2.4              ## m/s the target drops and climbs
+const CLAW_FLOOR := 0.35             ## how close below the jaws "the ground" is
+
+func claw() -> String:
+	if not has_crane():
+		return "this vehicle has no crane"
+	if not operating:
+		return "work the crane first [R]"
+	if held != null:
+		claw_state = &""
+		drop()
+		return ""
+	if claw_state == &"down":
+		claw_state = &"up"
+		return "grapple coming back up"
+	if claw_state == &"up":
+		return ""
+	claw_state = &"down"
+	claw_said = ""
+	_claw_top = target.y
+	return ""
+
+func _work_claw(delta: float) -> void:
+	match claw_state:
+		&"down":
+			var found := _between_jaws()
+			if found != null or _jaws_on_something():
+				_close_claw()
+				return
+			var next := target + Vector3.DOWN * CLAW_SPEED * delta
+			var clamped := clamp_target(next)
+			if clamped.y > next.y + 0.001 and (_frame() * target).distance_to(jaw_world()) < 0.2:
+				# As low as the crane goes: close on whatever is there.
+				_close_claw()
+				return
+			target = clamped
+		&"up":
+			target = clamp_target(Vector3(target.x, move_toward(target.y, _claw_top, CLAW_SPEED * delta), target.z))
+			if absf(target.y - _claw_top) < 0.01:
+				claw_state = &""
+
+## Something solid right under the jaws: the ground, the bed, a machine.
+func _jaws_on_something() -> bool:
+	var jaw := jaw_world()
+	var q := PhysicsRayQueryParameters3D.create(jaw, jaw + Vector3.DOWN * CLAW_FLOOR,
+		Layers.WORLD | Layers.VEHICLE | Layers.MACHINE | Layers.KERB)
+	return not get_world_3d().direct_space_state.intersect_ray(q).is_empty()
+
+func _close_claw() -> void:
+	var said := latch()
+	claw_said = said if said != "" else ("got %s" % held.display_name() if held != null else "")
+	if held == null and claw_said == "":
+		claw_said = "nothing there"
+	claw_state = &"up"
+
 ## Kept for the old key.
 func grab(_item: LooseItem = null) -> String:
 	if held != null:
@@ -729,6 +793,10 @@ func _work_crane(delta: float) -> void:
 	if not has_crane():
 		return
 	holding()
+	if operating:
+		_work_claw(delta)
+	else:
+		claw_state = &""
 	var goals: Dictionary = solve(target, target_yaw) if operating else _rest_goals()
 	_step_joints(goals, delta, _load_factor(LOAD_SPEED))
 	if folding and _settled(_rest_goals(), 0.05):
@@ -778,7 +846,7 @@ func status_line() -> String:
 		var load := "%s, %.0f / %.0f kg" % [held.display_name(), held.mass, crane_power_kg] if held != null \
 			else "grapple open, %.0f kg crane" % crane_power_kg
 		bits.append("crane: %s%s  [W/S] away/toward [A/D] left/right [Shift/Ctrl] up/down [Q/E] turn [F] %s [RMB] fine [N] reset [R] done" % [
-			load, " - AT ITS LIMIT" if at_limit else "", "let go" if held != null else "grab"])
+			load, " - AT ITS LIMIT" if at_limit else "", "let go" if held != null else ("stop" if claw_state == &"down" else "drop the claw")])
 	elif folding:
 		bits.append("crane folding away")
 	if anchored:
