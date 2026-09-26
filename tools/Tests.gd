@@ -56,6 +56,7 @@ func _run_all() -> void:
 	await _test(&"a tunnel mouth is a real opening", test_tunnel_mouth)
 	await _test(&"logs never stick inside a tunnel", test_tunnel_flow)
 	await _test(&"a machine takes a trunk with its branches if it fits", test_machine_takes_branches)
+	await _test(&"the planker puts a trunk's branches into its plank", test_planker_merges_branches)
 	await _test(&"belts dump off their end - no hand-offs", test_belt_dumps_off_end)
 	await _test(&"a stretched ramp loads a truck", test_ramp_loads_truck)
 	await _test(&"bends carry pieces round", test_belt_bend)
@@ -1571,6 +1572,36 @@ func test_machine_takes_branches() -> void:
 		if Solid.has_finish(item.dims, &"sanded"):
 			sanded += 1
 	check_eq(sanded, 3, "the branches were not sanded with the trunk")
+	done()
+
+## The planker makes one plank of a trunk and its branches together: the
+## branch wood goes into the plank at the trunk's yield, not out on its own.
+func test_planker_merges_branches() -> void:
+	_setup()
+	var m := _inline(&"sawmill")
+	_runout(m, 12.0)
+	await step(3)
+	var bare := _feed(m, &"wood_pine", Solid.with_finish(Solid.cylinder(0.18, 0.16, 2.4), &"sanded"))
+	var plain := await _through(m, bare)
+	check(plain != null, "a bare trunk made no plank")
+	var plain_vol := Solid.volume(plain.dims)
+	var plain_len := Solid.length_of(plain.dims)
+	var ratio := plain_vol / Solid.volume(Solid.cylinder(0.18, 0.16, 2.4))
+	manager.despawn(plain)
+	await step(3)
+	var trunk := _feed(m, &"wood_pine", Solid.with_finish(Solid.cylinder(0.18, 0.16, 2.4), &"sanded"))
+	trunk.add_limb(Vector3(0.1, -0.3, 0), Vector3(0.05, 1, 0), 0.05, 0.6)
+	trunk.add_limb(Vector3(-0.1, 0.4, 0), Vector3(-0.05, 1, 0), 0.05, 0.5)
+	var extra := trunk.limb_volume()
+	var before := m.total_out
+	var plank := await _through(m, trunk)
+	for i in 120:
+		await step(1)
+	check_eq(m.total_out - before, 1, "branches came out of the planker on their own")
+	check(plank != null and plank.item_id != &"wood_pine", "the trunk was not planked")
+	if plank != null:
+		check_near(Solid.volume(plank.dims), plain_vol + extra * ratio, 0.0001, "the plank did not take in the branch wood")
+		check_near(Solid.length_of(plank.dims), plain_len, 0.001, "the plank changed length")
 	done()
 
 ## With nothing after it, a machine tips what it makes out on the ground past

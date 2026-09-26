@@ -368,6 +368,17 @@ func take(item: LooseItem) -> bool:
 	manager.despawn(item)
 	var before := Solid.volume(entry.dims)
 	var outs := work(entry)
+	if machine_def.mode == MachineDef.MODE_PLANK and bool(entry.changed) and not branches.is_empty():
+		# The planker takes the branches with the trunk: their wood goes into
+		# the one plank, at the same yield, which comes out broader and thicker.
+		var extra := 0.0
+		for branch in branches:
+			extra += Solid.volume(branch.dims)
+		var grow := sqrt(1.0 + extra / before)
+		before += extra
+		var size: Vector3 = entry.dims.size
+		entry.dims.size = Vector3(size.x * grow, size.y, size.z * grow)
+		branches.clear()
 	for branch in branches:
 		before += Solid.volume(branch.dims)
 		outs.append_array(work(branch))
