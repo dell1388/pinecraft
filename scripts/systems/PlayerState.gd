@@ -261,11 +261,14 @@ func from_dict(d: Dictionary) -> void:
 	reset()
 	for k in d.get("levels", {}):
 		levels[StringName(k)] = int(d["levels"][k])
+	# What reset() gave is everything buildable from the start, including
+	# pieces added since the save was made; the save only adds to it.
 	var ub: Array = d.get("unlocked", [])
-	if not ub.is_empty():
-		unlocked_buildings.clear()
-		for b in ub:
-			unlocked_buildings.append(StringName(b))
+	for b in ub:
+		var id := StringName(b)
+		var def := GameData.building(id)
+		if def != null and not def.hidden and not unlocked_buildings.has(id):
+			unlocked_buildings.append(id)
 	if d.has("spare"):
 		for key in d["spare"]:
 			spare[String(key)] = int(d["spare"][key])

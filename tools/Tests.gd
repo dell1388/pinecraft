@@ -96,6 +96,7 @@ func _run_all() -> void:
 	await _test(&"build mode edits placed buildings", test_build_edit)
 	await _test(&"build mode previews the building itself", test_build_preview)
 	await _test(&"build mode only opens on your own land", test_build_territory)
+	await _test(&"an old save still gets the new belt pieces", test_old_save_belts)
 	await _test(&"crane and loader go back to their default pose", test_rig_home)
 	await _test(&"ownership is tracked and saved", test_ownership)
 	await _test(&"hauler drives, carries and stays upright", test_hauler)
@@ -3303,6 +3304,21 @@ func test_build_preview() -> void:
 		check(facing.dot(placed_facing) > 0.99, "the preview does not face the way the building would")
 	bs.active = false
 	bs.free()
+	done()
+
+func test_old_save_belts() -> void:
+	PlayerState.reset()
+	var doc := PlayerState.to_dict()
+	doc["unlocked"] = ["conveyor"]
+	PlayerState.from_dict(doc)
+	for id in [&"conveyor", &"conveyor_ramp"]:
+		check(PlayerState.is_unlocked(id), "%s is missing after loading an old save" % id)
+	var belts := 0
+	for def in PlayerState.available_buildings():
+		if def.kind == &"conveyor":
+			belts += 1
+	check(belts >= 5, "only %d belt pieces in the build bar after an old save" % belts)
+	PlayerState.reset()
 	done()
 
 func test_build_territory() -> void:
