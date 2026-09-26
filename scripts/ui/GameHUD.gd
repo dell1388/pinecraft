@@ -686,6 +686,8 @@ func _current_prompt(building: bool, driving: bool) -> String:
 	if building:
 		return ""
 	if driving:
+		if player.loader() != null:
+			return player.loader().status_line()
 		var r := player.rig()
 		if r != null and (r.operating or r.anchored or r.outriggers_down):
 			return r.status_line()
@@ -745,6 +747,8 @@ func _hint_state(building: bool, driving: bool) -> String:
 	if building:
 		return "build"
 	if driving:
+		if player.loader() != null:
+			return "loader"
 		return "crane" if player.steering_load() else "drive"
 	if player.dragged != null:
 		return "dragging"

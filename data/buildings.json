@@ -404,6 +404,19 @@
       "blurb": "Spawns your dump trailer. Brings it back when it is lost."
     },
     {
+      "id": "pad_loader",
+      "display_name": "Front Loader Pad",
+      "kind": "pad",
+      "vehicle": "loader",
+      "cost": 9000,
+      "size": [
+        4,
+        1,
+        8
+      ],
+      "blurb": "Spawns your front loader. Brings it back when it is lost."
+    },
+    {
       "id": "conveyor_ramp",
       "display_name": "Belt Ramp",
       "kind": "conveyor",

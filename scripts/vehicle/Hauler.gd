@@ -129,6 +129,7 @@ var _cargo_area: Area3D
 var _cargo_shape: CollisionShape3D
 var _seat: Node3D
 var rig: VehicleRig
+var loader: LoaderArm
 var _grounded: int = 0
 var _poll: float = 0.0
 
@@ -283,6 +284,13 @@ func _build() -> void:
 		rig.head_offset = _vec(gear.get("head", [0, 1.1, -1.2]))
 		rig.setup(self)
 		add_child(rig)
+
+	var arms: Variant = spec.get("loader", null)
+	if arms is Dictionary:
+		loader = LoaderArm.new()
+		loader.name = "Loader"
+		loader.setup(self, arms)
+		add_child(loader)
 
 	_seat = Node3D.new()
 	_seat.position = _vec(spec.get("seat", [0, 1.2, -1.9]))
@@ -1093,6 +1101,8 @@ func move_to(after: Transform3D) -> void:
 	linear_velocity = Vector3.ZERO
 	angular_velocity = Vector3.ZERO
 	_snap_wheels()
+	if loader != null:
+		loader.snap()
 	for pair in riders:
 		(pair[0] as LooseItem).teleport(after * (pair[1] as Transform3D))
 

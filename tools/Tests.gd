@@ -57,6 +57,7 @@ func _run_all() -> void:
 	await _test(&"logs never stick inside a tunnel", test_tunnel_flow)
 	await _test(&"a machine takes a trunk with its branches if it fits", test_machine_takes_branches)
 	await _test(&"the planker puts a trunk's branches into its plank", test_planker_merges_branches)
+	await _test(&"a front loader pushes a pile, scoops it, lifts it and pours it out", test_front_loader)
 	await _test(&"belts dump off their end - no hand-offs", test_belt_dumps_off_end)
 	await _test(&"a stretched ramp loads a truck", test_ramp_loads_truck)
 	await _test(&"bends carry pieces round", test_belt_bend)
@@ -1604,6 +1605,67 @@ func test_planker_merges_branches() -> void:
 		check_near(Solid.length_of(plank.dims), plain_len, 0.001, "the plank changed length")
 	done()
 
+## A front loader with its bucket down shoves a pile of small pieces along;
+## curled and raised it carries them high; tipped, it pours them out.
+func test_front_loader() -> void:
+	_setup(false)
+	var v := Hauler.new()
+	v.setup(manager, 0, &"loader")
+	world.add_child(v)
+	v.global_position = Vector3(0, v.spawn_height(), 0)
+	await step(60)
+	var l := v.loader
+	check(l != null, "the loader has no arms")
+	if l == null:
+		done()
+		return
+	# Bucket flat and down.
+	l.tilt = 0.0
+	l.lift = l.lift_min
+	await step(30)
+	var lip := l.bucket.global_transform * Vector3(0, 0, -l.depth)
+	check(lip.y < 0.3, "the lowered bucket is %.2f m off the ground" % lip.y)
+	var pile: Array[LooseItem] = []
+	for i in 16:
+		pile.append(spawn(&"ore_iron", Vector3(-0.9 + 0.6 * float(i % 4), 0.3, -8.0 - 0.6 * float(i / 4)), Solid.cube(0.02)))
+	await step(60)
+	var start := 0.0
+	for item in pile:
+		start += item.global_position.z
+	v.autopilot = true
+	v.input_throttle = 0.6
+	await step(150)
+	v.input_throttle = 0.0
+	v.input_brake = true
+	await step(60)
+	var after := 0.0
+	for item in pile:
+		after += item.global_position.z
+	check((start - after) / float(pile.size()) > 1.5, "the bucket did not push the pile (%.1f m)" % ((start - after) / float(pile.size())))
+	# Curl and raise.
+	for i in 90:
+		l.drive(0.0, 1.0, 1.0 / 60.0)
+		await step(1)
+	for i in 240:
+		l.drive(1.0, 0.0, 1.0 / 60.0)
+		await step(1)
+	await step(30)
+	var held := l.held()
+	check(held.size() >= 4, "only %d pieces in the raised bucket" % held.size())
+	var high := 0
+	for item in held:
+		if item.global_position.y > 2.0:
+			high += 1
+	check(high >= 4, "only %d pieces lifted above 2 m" % high)
+	# Tip it out.
+	for i in 120:
+		l.drive(0.0, -1.0, 1.0 / 60.0)
+		await step(1)
+	await step(120)
+	check(l.held().size() <= 1, "%d pieces stayed in the tipped bucket" % l.held().size())
+	check(v.global_transform.basis.y.dot(Vector3.UP) > 0.9, "the loader tipped over")
+	done()
+
 ## With nothing after it, a machine tips what it makes out on the ground past
 ## its end - a few pieces, until there is no room left - then holds the rest.
 func test_machine_dumps_on_ground() -> void:
@@ -3126,7 +3188,7 @@ func test_seated_driver() -> void:
 	_setup(false)
 	var player := _make_player()
 	world.add_child(player)
-	var x := -12.0
+	var x := -30.0
 	for id in GameData.vehicles:
 		# Trailers have no engine and no seat: they are towed, tested elsewhere.
 		if bool(GameData.vehicle(id).get("trailer", false)):

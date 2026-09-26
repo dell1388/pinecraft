@@ -84,6 +84,10 @@
             {
               "kind": "unlock",
               "target": "pad_dump_trailer"
+            },
+            {
+              "kind": "unlock",
+              "target": "pad_loader"
             }
           ]
         },

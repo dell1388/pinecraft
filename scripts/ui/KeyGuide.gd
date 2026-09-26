@@ -59,6 +59,8 @@ const GROUPS := [
 		[["F"], "Crane: close the grapple on the log under it, or let go"],
 		[["RMB"], "Crane: hold for fine, slow control"],
 		[["Wheel"], "Crane: zoom the camera (the mouse orbits the log)"],
+		[["Shift", "/", "Ctrl"], "Loader: raise / lower the arms"],
+		[["Q", "/", "E"], "Loader: tip the bucket forward / curl it back"],
 	]},
 	{"title": "Game", "rows": [
 		[["Esc"], "Pause menu"],
@@ -101,6 +103,9 @@ static func hints_for(state: String) -> Array:
 		"drive":
 			return [[["W", "S"], "Drive"], [["Space"], "Brake"], [["X"], "Unload"],
 				[["Y"], "Winch"], [["K", "/", "L"], "Reel"], [["R"], "Crane"], [["T"], "Hitch"], [["F"], "Get out"]]
+		"loader":
+			return [[["W", "S"], "Drive"], [["Space"], "Brake"], [["Shift", "/", "Ctrl"], "Arms up / down"],
+				[["Q", "/", "E"], "Tip / curl"], [["F"], "Get out"]]
 		"crane":
 			return [[["W", "S"], "Along"], [["A", "D"], "Across"], [["Shift", "/", "Ctrl"], "Up / down"],
 				[["Q", "/", "E"], "Turn"], [["F"], "Grab / let go"], [["RMB"], "Fine"], [["R"], "Done"]]

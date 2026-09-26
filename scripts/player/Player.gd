@@ -186,6 +186,12 @@ func rig() -> VehicleRig:
 		return null
 	return vehicle.get("rig") as VehicleRig
 
+## The loader arms on the vehicle being driven, if it has them.
+func loader() -> LoaderArm:
+	if vehicle == null:
+		return null
+	return vehicle.get("loader") as LoaderArm
+
 ## True while the crane has hold of something, which is when the player is
 ## driving the load rather than the truck.
 func steering_load() -> bool:
@@ -335,6 +341,9 @@ func _on_key(event: InputEventKey) -> void:
 ## Keys that only mean something with a vehicle under you. Returns true when the
 ## key was used here, so it does not also do its on-foot job.
 func _on_driving_key(event: InputEventKey) -> bool:
+	# In a loader Q and E work the bucket (held, in _update_vehicle_controls).
+	if loader() != null and (event.keycode == KEY_Q or event.keycode == KEY_E):
+		return true
 	var r := rig()
 	if r == null:
 		return false
@@ -525,6 +534,13 @@ func _camera_clearance(pivot: Vector3, back: Vector3, most: float, skip: Array[R
 ## the tail, S toward the cab), A/D across it, Shift/Ctrl up and down, Q/E turn it. Holding the
 ## right mouse button is the slow, fine speed for setting it down.
 func _update_vehicle_controls(delta: float) -> void:
+	var l := loader()
+	if l != null:
+		# Shift raises the arms, Ctrl lowers them; E curls the bucket back,
+		# Q tips it forward.
+		var curl := (1.0 if Input.is_physical_key_pressed(KEY_E) else 0.0) \
+			- (1.0 if Input.is_physical_key_pressed(KEY_Q) else 0.0)
+		l.drive(Input.get_axis("lower", "sprint"), curl, delta)
 	var r := rig()
 	if r == null:
 		return
