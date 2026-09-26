@@ -29,6 +29,7 @@ func _run_all() -> void:
 	await _test(&"deterministic daily prices", test_prices)
 	await _test(&"felling drops the trunk as it grew", test_chop)
 	await _test(&"branches and trunk are cut separately", test_limb_cutting)
+	await _test(&"wood is cut wherever the axe lands", test_cut_anywhere)
 	await _test(&"resource fields fill to a quota and stop", test_resource_field)
 	await _test(&"terrain has biomes, rivers and roads", test_terrain)
 	await _test(&"you can stand on the terrain anywhere", test_terrain_collision)
@@ -309,17 +310,16 @@ func test_chop() -> void:
 		check_eq(trunk.limbs.size(), 4, "the felled trunk lost its branches")
 	check_near(loose_volume(), grown_volume, 0.0001,
 		"felling did not conserve the tree's wood volume")
-	# Bucking is refused until it is limbed; each limb comes off as a piece.
+	# Limbed close in to the trunk, each limb comes off whole, as a piece.
 	var player := _make_player()
 	world.add_child(player)
 	await step(1)
 	if trunk != null:
-		player._buck(trunk)
-		check_eq(manager.active_count(), 1, "a trunk with branches on was bucked")
 		for n in 4:
 			for s in 50:
 				if trunk.limbs.size() == 4 - n:
-					player._limb(trunk, 0)
+					var l: Dictionary = trunk.limbs[0]
+					player._limb(trunk, 0, trunk.global_transform * ((l.origin as Vector3) + (l.dir as Vector3) * 0.2))
 		check_eq(trunk.limbs.size(), 0, "limbing did not clear the branches")
 		check_eq(manager.active_count(), 5, "each limb did not come off as its own piece")
 		check_near(loose_volume(), grown_volume, 0.0001, "limbing did not conserve wood")
@@ -346,8 +346,9 @@ func test_limb_cutting() -> void:
 
 	# Aim at a branch: that branch alone comes off, and the tree stays up.
 	var branch: Dictionary = tree.branches[0]
+	# Close in to the trunk: the whole branch.
 	var aim: Vector3 = tree.global_position + Vector3(0, float(branch.height), 0) \
-		+ (branch.dir as Vector3) * float(branch.length) * 0.5
+		+ (branch.dir as Vector3) * (tree._joint_reach(branch) - 0.07)
 	check_eq(tree.limb_at(aim), 0, "aiming along a branch did not select that branch")
 	var branch_volume := Solid.volume(Solid.cylinder(
 		float(branch.radius), float(branch.radius) * 0.7, float(branch.length)))
@@ -772,6 +773,78 @@ func _ford_point(land: Terrain) -> Variant:
 			return point
 	return null
 
+## Any part of a tree, standing or felled, is cut where the axe lands: a
+## branch part way out leaves a stub, a log is bucked at the aim point and its
+## branches go with whichever piece they grow from. Wood is never made or lost.
+func test_cut_anywhere() -> void:
+	_setup()
+	var tree := _make_tree(8.0, 0.34, 0.6, 4)
+	world.add_child(tree)
+	await step(2)
+	var grown := tree.wood_volume()
+	var b: Dictionary = tree.branches[1]
+	var length := float(b.length)
+	var along := length * 0.6
+	var aim: Vector3 = tree.global_position + Vector3(0, float(b.height), 0) + (b.dir as Vector3) * along
+	check_eq(tree.limb_at(aim), 1, "aiming out along a branch did not pick it")
+	for i in 400:
+		if float(b.length) < length - 0.01:
+			break
+		tree.cut(34.0, aim, tree.global_position + Vector3(0, 0, 4))
+	await step(2)
+	check_eq(tree.branches.size(), 4, "cutting a branch part way out took the whole branch")
+	check_near(float(b.length), along, 0.05, "the stub is not as long as where it was cut")
+	check_eq(manager.active_count(), 1, "the branch end did not come off as a piece")
+	check_near(loose_volume() + tree.wood_volume(), grown, 0.0001, "cutting a branch back lost wood")
+
+	# Felled: buck the trunk a quarter of the way up, branches still on.
+	tree.fell(tree.global_position + Vector3(0, 0, 4))
+	await step(2)
+	var trunk: LooseItem = null
+	for item in manager.free_items():
+		if trunk == null or item.volume() > trunk.volume():
+			trunk = item
+	var limbs_on := trunk.limbs.size()
+	check_eq(limbs_on, 4, "the felled trunk lost branches")
+	var total := loose_volume()
+	var player := _make_player()
+	world.add_child(player)
+	await step(1)
+	# A limb cut part way out leaves a stub on the trunk.
+	var l: Dictionary = trunk.limbs[0]
+	var l_len := float(l.length)
+	var mid := trunk.global_transform * ((l.origin as Vector3) + (l.dir as Vector3) * l_len * 0.7)
+	for i in 200:
+		if float(l.length) < l_len - 0.01:
+			break
+		player._swing_cd = 0.0
+		player._limb(trunk, 0, mid)
+	check_eq(trunk.limbs.size(), limbs_on, "a limb cut part way out came off whole")
+	check_near(float(l.length), l_len * 0.7, 0.05, "the limb stub is the wrong length")
+	check_near(loose_volume(), total, 0.0001, "cutting a limb back lost wood")
+	var trunk_len := trunk.length()
+	var at := trunk.global_transform * Vector3(0, -trunk_len * 0.25, 0)
+	var before := manager.active_count()
+	for i in 400:
+		if manager.active_count() > before:
+			break
+		player._swing_cd = 0.0
+		player._buck(trunk, at)
+	await step(2)
+	check_eq(manager.active_count(), before + 1, "bucking with branches on did not cut the trunk")
+	var pieces: Array[LooseItem] = []
+	for item in manager.free_items():
+		if absf(item.length() - trunk_len * 0.25) < 0.05 or absf(item.length() - trunk_len * 0.75) < 0.05:
+			if item.dims.get("r0", 0.0) > 0.15:
+				pieces.append(item)
+	check_eq(pieces.size(), 2, "the trunk was not cut at the quarter mark")
+	var limbs_after := 0
+	for p in pieces:
+		limbs_after += p.limbs.size()
+	check_eq(limbs_after, limbs_on, "branches were lost bucking the trunk")
+	check_near(loose_volume(), total, 0.0001, "bucking with branches on lost wood")
+	done()
+
 func test_bucking() -> void:
 	_setup()
 	var player := _make_player()
@@ -784,7 +857,7 @@ func test_bucking() -> void:
 	check(start_volume > 0.5, "test trunk is too small to be interesting")
 
 	# One swing does not cut a 0.34 m trunk in half.
-	player._buck(trunk)
+	player._buck(trunk, trunk.global_position)
 	check_eq(manager.active_count(), 1, "a single swing split a full trunk")
 	check(trunk.cut_progress > 0.0, "the swing did no work")
 
@@ -792,7 +865,7 @@ func test_bucking() -> void:
 	var swings := 1
 	while manager.active_count() == 1 and swings < 60:
 		player._swing_cd = 0.0
-		player._buck(trunk)
+		player._buck(trunk, trunk.global_position)
 		swings += 1
 	await step(4)
 	check_eq(manager.active_count(), 2, "bucking never split the trunk (%d swings)" % swings)
@@ -804,11 +877,11 @@ func test_bucking() -> void:
 	check_near(lengths[0] + lengths[1], 7.0, 0.001, "the two halves do not add up to the trunk")
 
 	# Short offcuts cannot be split forever.
-	var stub := spawn(&"wood_pine", Vector3(6, 1.0, 0), Solid.cylinder(0.2, 0.2, 0.5))
+	var stub := spawn(&"wood_pine", Vector3(6, 1.0, 0), Solid.cylinder(0.2, 0.2, 0.3))
 	var before := manager.active_count()
 	for i in 20:
 		player._swing_cd = 0.0
-		player._buck(stub)
+		player._buck(stub, stub.global_position)
 	await step(2)
 	check_eq(manager.active_count(), before, "a piece under the minimum length was still split")
 	done()

@@ -116,7 +116,13 @@ func wood_volume() -> float:
 	return total
 
 func _branch_dims(b: Dictionary) -> Dictionary:
-	return Solid.cylinder(float(b.radius), float(b.radius) * 0.7, float(b.length))
+	return Solid.cylinder(float(b.radius), float(b.get("tip", float(b.radius) * 0.7)), float(b.length))
+
+## How far out along branch `index` a world point is, from the trunk.
+func _branch_along(index: int, world_point: Vector3) -> float:
+	var b: Dictionary = branches[index]
+	var local := to_local(world_point) - Vector3(0, float(b.height), 0)
+	return clampf(local.dot(b.dir as Vector3), 0.0, float(b.length))
 
 # --- Construction ----------------------------------------------------------
 
@@ -170,8 +176,8 @@ func _build() -> void:
 		shape.shape = cyl
 		shape.transform = Transform3D(basis, base + dir * length * 0.5)
 		add_child(shape)
-		branches.append({"height": height, "dir": dir, "radius": radius, "length": length,
-			"cut": 0.0, "mesh": mesh, "leaf": foliage, "shape": shape})
+		branches.append({"height": height, "dir": dir, "radius": radius, "tip": radius * 0.7,
+			"length": length, "cut": 0.0, "cut_at": -1.0, "mesh": mesh, "leaf": foliage, "shape": shape})
 
 	_refresh_trunk()
 
@@ -361,19 +367,78 @@ func cut(damage: float, world_point: Vector3, from: Vector3) -> String:
 	touched = true
 	var index := limb_at(world_point)
 	if index >= 0:
-		return _cut_branch(index, damage)
+		return _cut_branch(index, damage, _branch_along(index, world_point))
 	return _cut_trunk(damage, to_local(world_point).y, from)
 
-func _cut_branch(index: int, damage: float) -> String:
+## How far out from the trunk's centre a cut still takes a branch off whole.
+func _joint_reach(b: Dictionary) -> float:
+	var dir: Vector3 = b.dir
+	var out := maxf(0.3, Vector2(dir.x, dir.z).length())
+	return radius_at(float(b.height)) * 1.25 / out + LooseItem.MIN_STUB
+
+## The radius of a branch `along` metres out from the trunk (at the joint, its
+## full base).
+func _branch_radius_at(b: Dictionary, along: float) -> float:
+	if along < _joint_reach(b):
+		return float(b.radius)
+	return lerpf(float(b.radius), float(b.get("tip", float(b.radius) * 0.7)), along / maxf(0.01, float(b.length)))
+
+## A cut anywhere along a branch: right at the trunk it takes the whole branch;
+## further out the end drops and a stub stays on the tree.
+func _cut_branch(index: int, damage: float, along: float) -> String:
 	var b: Dictionary = branches[index]
-	var area: float = PI * float(b.radius) * float(b.radius)
-	var needed: float = area * work_per_m2
+	if float(b.cut_at) < 0.0 or absf(along - float(b.cut_at)) > 0.3:
+		b.cut_at = along
+		b.cut = 0.0
+	var r := _branch_radius_at(b, float(b.cut_at))
+	var needed: float = PI * r * r * work_per_m2
 	b.cut = float(b.cut) + damage
 	if float(b.cut) < needed:
 		_nudge(b.mesh)
 		return "cutting branch: %d%%" % int(float(b.cut) / needed * 100.0)
-	_drop_branch(index, Vector3.ZERO)
-	return "branch off"
+	var at := float(b.cut_at)
+	# Cut close in to the trunk, the whole branch comes away.
+	if at < _joint_reach(b):
+		_drop_branch(index, Vector3.ZERO)
+		return "branch off"
+	var fell_off := float(b.length) - minf(at, float(b.length) - LooseItem.MIN_STUB)
+	_cut_branch_back(index, at)
+	return "branch cut back: %.2f m off" % fell_off
+
+## Drops the end of a branch past `at` metres and leaves the stub. Returns the
+## volume that fell.
+func _cut_branch_back(index: int, at: float) -> float:
+	var b: Dictionary = branches[index]
+	var length := float(b.length)
+	at = minf(at, length - LooseItem.MIN_STUB)
+	var r_cut := _branch_radius_at(b, at)
+	var outer := Solid.cylinder(r_cut, float(b.get("tip", float(b.radius) * 0.7)), length - at)
+	var dir: Vector3 = b.dir
+	var base := Vector3(0, float(b.height), 0)
+	var basis := _basis_from_up(dir)
+	if manager != null:
+		manager.spawn(wood_item, Transform3D(global_transform.basis * basis,
+			global_transform * (base + dir * (at + (length - at) * 0.5))), plot_id, dir * 0.4, outer)
+	b.length = at
+	b.tip = r_cut
+	b.cut = 0.0
+	b.cut_at = -1.0
+	var mesh := b.mesh as MeshInstance3D
+	if is_instance_valid(mesh):
+		var cm := mesh.mesh as CylinderMesh
+		cm.top_radius = r_cut
+		cm.height = at
+		mesh.transform = Transform3D(basis, base + dir * at * 0.5)
+	# The leaves hung at the end that came off.
+	if b.leaf != null and is_instance_valid(b.leaf):
+		(b.leaf as Node).queue_free()
+	b.leaf = null
+	var shape := b.shape as CollisionShape3D
+	var cyl := (shape.shape as CylinderShape3D).duplicate() as CylinderShape3D
+	cyl.height = at
+	shape.shape = cyl
+	shape.transform = Transform3D(basis, base + dir * at * 0.5)
+	return Solid.volume(outer)
 
 ## Severs the trunk at `height`. Everything above leaves; what is below stays
 ## standing and can be cut again.
@@ -471,7 +536,8 @@ func _attach_branch(index: int, piece: LooseItem) -> float:
 	var visuals: Array = [b.mesh]
 	if b.leaf != null and is_instance_valid(b.leaf):
 		visuals.append(b.leaf)
-	piece.add_limb(origin, dir, float(b.radius), float(b.length), visuals)
+	piece.add_limb(origin, dir, float(b.radius), float(b.length), visuals, Color(0.42, 0.3, 0.2),
+		float(b.get("tip", float(b.radius) * 0.7)))
 	(b.shape as CollisionShape3D).queue_free()
 	branches.remove_at(index)
 	if branches.is_empty() and _crown != null and foliage_style != &"palm" and foliage_style != &"cap":
@@ -508,7 +574,10 @@ func cut_progress_at(world_point: Vector3) -> float:
 	var index := limb_at(world_point)
 	if index >= 0:
 		var b: Dictionary = branches[index]
-		var needed: float = PI * float(b.radius) * float(b.radius) * work_per_m2
+		if float(b.cut_at) < 0.0 or absf(_branch_along(index, world_point) - float(b.cut_at)) > 0.3:
+			return 0.0
+		var r := _branch_radius_at(b, float(b.cut_at))
+		var needed: float = PI * r * r * work_per_m2
 		return clampf(float(b.cut) / maxf(0.001, needed), 0.0, 1.0)
 	var height := clampf(to_local(world_point).y, 0.0, trunk_height)
 	if absf(height - trunk_cut_height) > 0.45:

@@ -15,7 +15,7 @@ const GROUPS := [
 		[["LMB"], "Empty hand: hold to drag by the point you grab"],
 		[["LMB"], "Axe: chop and buck. Hammer: crack rock"],
 		[["Wheel"], "While dragging: pull it closer or push it away"],
-		[["Shift", "+", "WASDQE"], "While dragging: turn it (it keeps its angle to you as you turn)"],
+		[["Shift"], "While dragging: hold and use W A S D Q E to turn it (it keeps its angle to you as you turn)"],
 		[["RMB"], "Pick up onto your carry rack (while dragging: throw)"],
 		[["I"], "Inventory: put tools on the hotbar"],
 		[["Q"], "Drop one piece from the rack"],
@@ -113,7 +113,7 @@ static func hints_for(state: String) -> Array:
 				[["Q", "/", "E"], "Turn"], [["F"], "Grab / let go"], [["RMB"], "Fine"], [["R"], "Done"]]
 		"dragging":
 			return [[["LMB"], "Hold to keep hold"], [["Wheel"], "Closer / further"],
-				[["Shift", "+", "WASDQE"], "Turn it"], [["RMB"], "Throw"]]
+				[["Shift"], "+ WASDQE: turn it"], [["RMB"], "Throw"]]
 		"carrying":
 			return [[["E"], "Deposit / sell"], [["Q"], "Drop one"], [["G"], "Drop all"],
 				[["RMB"], "Pick up more"], [["B"], "Build"]]

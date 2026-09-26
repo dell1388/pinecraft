@@ -35,7 +35,7 @@ const WADE_DEPTH := 1.1
 const SWIM_SPEED_FACTOR := 0.38
 
 ## Wood shorter than this cannot be split any further.
-const MIN_BUCK_LENGTH := 0.70
+const MIN_BUCK_LENGTH := 0.35
 ## Axe work required per square metre of cut face.
 const BUCK_WORK_PER_M2 := 700.0
 ## How hard the grabbed point is pulled toward the hold point (per second),
@@ -715,53 +715,68 @@ func _swing() -> void:
 		var piece := target as LooseItem
 		var limb := piece.limb_at(hit.position)
 		if limb >= 0:
-			_limb(piece, limb)
+			_limb(piece, limb, hit.position)
 		else:
-			_buck(piece)
+			_buck(piece, hit.position)
 	else:
 		_swing_cd = _tool_stat("cooldown", 0.4)
 
-## Bucking: cutting felled wood down to a size you can move. Work needed scales
-## with the cross-section at the cut, so a fat trunk takes real swings and a
-## branch takes one or two - and a better axe cuts through more per swing.
-## Limbing: taking a branch off a felled trunk. It comes away as a piece of
-## its own; work scales with its cross-section, like any cut.
-func _limb(item: LooseItem, index: int) -> void:
+## Limbing: cutting a branch on a felled trunk wherever the axe lands. Cut at
+## the trunk it comes away whole; further out, the end comes off and a stub
+## stays on. Work scales with the cross-section at the cut, like any cut.
+func _limb(item: LooseItem, index: int, at: Vector3) -> void:
 	_swing_cd = _tool_stat("cooldown", 0.4)
 	var l: Dictionary = item.limbs[index]
-	var needed: float = PI * float(l.radius) * float(l.radius) * BUCK_WORK_PER_M2
+	# The cut goes where the axe lands, anywhere along the branch; aiming
+	# somewhere else starts a fresh cut.
+	var along := item.limb_distance(index, at)
+	if float(l.cut_at) < 0.0 or absf(along - float(l.cut_at)) > 0.3:
+		l.cut_at = along
+		l.cut = 0.0
+	var r0 := float(l.radius)
+	var r := lerpf(r0, float(l.get("tip", r0 * 0.7)), float(l.cut_at) / maxf(0.01, float(l.length)))
+	var needed: float = PI * r * r * BUCK_WORK_PER_M2
 	l.cut = float(l.cut) + _tool_stat("damage", 34.0)
 	if float(l.cut) < needed:
 		interacted.emit("cutting branch: %d%%" % int(float(l.cut) / needed * 100.0))
 		return
-	var xform := item.limb_transform(index)
-	var dims := item.limb_dims(index)
-	item.remove_limb(index)
-	var branch := manager.spawn(item.item_id, xform, item.plot_id, item.linear_velocity, dims, item.owned)
+	var had := item.limbs.size()
+	var off := item.cut_limb(index, float(l.cut_at))
+	var branch := manager.spawn(item.item_id, off.xform, item.plot_id, item.linear_velocity, off.dims, item.owned)
 	if branch != null:
 		branch.owned = item.owned
-	interacted.emit("branch off" if not item.limbs.is_empty() else "last branch off - clean trunk")
+	if item.limbs.size() == had:
+		interacted.emit("branch cut back: %.2f m off" % Solid.length_of(off.dims))
+	else:
+		interacted.emit("branch off" if not item.limbs.is_empty() else "last branch off - clean trunk")
 
-func _buck(item: LooseItem) -> void:
+## Bucking: cutting felled wood wherever the axe lands. Work scales with the
+## cross-section there, so a fat trunk takes real swings and a branch takes
+## one or two. Branches still on it go with whichever piece they grow from.
+func _buck(item: LooseItem, at: Vector3) -> void:
 	if not item.is_wood() or item.state != LooseItem.State.FREE:
 		return
 	_swing_cd = _tool_stat("cooldown", 0.4)
-	if not item.limbs.is_empty():
-		interacted.emit("take the branches off first (%d left)" % item.limbs.size())
-		return
-	if item.length() <= MIN_BUCK_LENGTH:
+	var length := item.length()
+	if length <= MIN_BUCK_LENGTH:
 		interacted.emit("too short to cut - carry it or mill it")
 		return
-	var radius := Solid.max_radius(item.dims)
+	var y := clampf(item.to_local(at).y, -length * 0.5 + LooseItem.MIN_STUB, length * 0.5 - LooseItem.MIN_STUB)
+	if absf(y - item.cut_at) > 0.3:
+		item.cut_at = y
+		item.cut_progress = 0.0
+	var t := (item.cut_at + length * 0.5) / length
+	var radius := Solid.max_radius(Solid.split(item.dims, t)[1]) if item.dims.get("shape", Solid.BOX) == Solid.CYLINDER \
+		else Solid.max_radius(item.dims)
 	var work_needed: float = PI * radius * radius * BUCK_WORK_PER_M2
 	item.cut_progress += _tool_stat("damage", 34.0)
 	if item.cut_progress < work_needed:
 		interacted.emit("cutting: %d%%" % int(item.cut_progress / work_needed * 100.0))
 		return
-	var halves := manager.split_item(item, 0.5)
-	if halves.is_empty():
+	var pieces := manager.split_item(item, t)
+	if pieces.size() < 2:
 		return
-	interacted.emit("cut in two: %.2f m each" % halves[0].length())
+	interacted.emit("cut: %.2f m and %.2f m" % [pieces[0].length(), pieces[1].length()])
 
 # --- Carry rack ------------------------------------------------------------
 

@@ -162,18 +162,45 @@ func split_item(item: LooseItem, t: float = 0.5) -> Array[LooseItem]:
 	var id := item.item_id
 	var owned := item.owned
 	var velocity := item.linear_velocity
+	# Branches still on it go with whichever piece they grow from. Their
+	# models are lifted off first so they outlive the piece being cut.
+	var cut_y := -length * 0.5 + Solid.length_of(halves[0])
+	var limbs: Array = []
+	for l: Dictionary in item.limbs:
+		if is_instance_valid(l.shape):
+			(l.shape as Node).queue_free()
+		for n in l.nodes:
+			if is_instance_valid(n):
+				(n as Node3D).reparent(self, true)
+		limbs.append(l)
+	item.limbs.clear()
 	despawn(item)
 	var offsets := [
 		-axis * (length * 0.5 - Solid.length_of(halves[0]) * 0.5),
 		axis * (length * 0.5 - Solid.length_of(halves[1]) * 0.5),
+	]
+	var local_shift := [
+		-(length * 0.5 - Solid.length_of(halves[0]) * 0.5),
+		length * 0.5 - Solid.length_of(halves[1]) * 0.5,
 	]
 	for i in 2:
 		var piece := spawn(id, Transform3D(xform.basis, xform.origin + offsets[i]), plot,
 			Vector3.ZERO, halves[i], owned)
 		if piece == null:
 			continue
+		for l: Dictionary in limbs:
+			var o: Vector3 = l.origin
+			if (o.y < cut_y) != (i == 0):
+				continue
+			piece.add_limb(o - Vector3(0, float(local_shift[i]), 0), l.dir, float(l.radius), float(l.length),
+				l.nodes, l.get("bark", Color(0.42, 0.3, 0.2)), float(l.get("tip", -1.0)))
 		piece.linear_velocity = velocity + (offsets[i].normalized() * 0.6)
 		out.append(piece)
+	# Anything that found no piece (a spawn refused) is not left floating.
+	for l: Dictionary in limbs:
+		for n in l.nodes:
+			if is_instance_valid(n) and (n as Node).get_parent() == self:
+				(n as Node).queue_free()
 	return out
 
 func despawn_all() -> void:

@@ -128,8 +128,9 @@ static func _loose_from_array(manager: LooseItemManager, entries: Array, plot_id
 		if item != null:
 			for l in entry.get("limbs", []):
 				var a: Array = l
-				if a.size() == 8:
-					item.add_limb(Vector3(a[0], a[1], a[2]), Vector3(a[3], a[4], a[5]), float(a[6]), float(a[7]))
+				if a.size() >= 8:
+					item.add_limb(Vector3(a[0], a[1], a[2]), Vector3(a[3], a[4], a[5]), float(a[6]), float(a[7]),
+						[], Color(0.42, 0.3, 0.2), float(a[8]) if a.size() > 8 else -1.0)
 
 ## What the main menu shows under Continue, read without loading anything.
 static func summary(path: String = SAVE_PATH) -> Dictionary:

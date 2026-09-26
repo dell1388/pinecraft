@@ -29,6 +29,9 @@ var owned: bool = false
 var ccd_active: bool = false
 var quiet_time: float = 0.0
 var cut_progress: float = 0.0     ## axe work done on this piece since the last cut
+var cut_at: float = 0.0           ## where along the piece that cut is (local Y)
+## The shortest stub or end a cut can leave.
+const MIN_STUB := 0.15
 ## The vehicle whose bed this piece is lying in, if any. The piece is still a
 ## free body; this is only so the truck can count its load and save it.
 var carrier: Node3D = null
@@ -221,8 +224,10 @@ func add_extra_node(node: Node3D) -> void:
 ## `visuals` (the branch's own model, its foliage) are reparented to ride
 ## along; with none, a plain one is made.
 func add_limb(origin: Vector3, dir: Vector3, radius: float, length: float, visuals: Array = [],
-		bark: Color = Color(0.42, 0.3, 0.2)) -> void:
+		bark: Color = Color(0.42, 0.3, 0.2), tip: float = -1.0) -> void:
 	dir = dir.normalized()
+	if tip <= 0.0:
+		tip = radius * 0.7
 	var cs := CollisionShape3D.new()
 	var cyl := CylinderShape3D.new()
 	cyl.radius = maxf(0.03, radius)
@@ -241,7 +246,7 @@ func add_limb(origin: Vector3, dir: Vector3, radius: float, length: float, visua
 		var mi := MeshInstance3D.new()
 		var cm := CylinderMesh.new()
 		cm.bottom_radius = radius
-		cm.top_radius = radius * 0.7
+		cm.top_radius = tip
 		cm.height = length
 		cm.radial_segments = 6
 		mi.mesh = cm
@@ -252,9 +257,9 @@ func add_limb(origin: Vector3, dir: Vector3, radius: float, length: float, visua
 		mi.transform = cs.transform
 		add_child(mi)
 		nodes.append(mi)
-	mass += Solid.volume(Solid.cylinder(radius, radius * 0.7, length)) * _density()
-	limbs.append({"origin": origin, "dir": dir, "radius": radius, "length": length, "cut": 0.0,
-		"shape": cs, "nodes": nodes})
+	mass += Solid.volume(Solid.cylinder(radius, tip, length)) * _density()
+	limbs.append({"origin": origin, "dir": dir, "radius": radius, "tip": tip, "length": length, "cut": 0.0,
+		"cut_at": -1.0, "shape": cs, "nodes": nodes, "bark": bark})
 
 func _density() -> float:
 	var def: ItemDef = GameData.item(item_id)
@@ -283,7 +288,62 @@ func limb_at(world_point: Vector3) -> int:
 ## The branch as a piece of its own: its shape, and where it lies in the world.
 func limb_dims(i: int) -> Dictionary:
 	var l: Dictionary = limbs[i]
-	return Solid.cylinder(float(l.radius), float(l.radius) * 0.7, float(l.length))
+	return Solid.cylinder(float(l.radius), float(l.get("tip", float(l.radius) * 0.7)), float(l.length))
+
+## How far out along limb `i` a world point is, from where it joins the trunk.
+func limb_distance(i: int, world_point: Vector3) -> float:
+	var l: Dictionary = limbs[i]
+	return clampf((to_local(world_point) - (l.origin as Vector3)).dot(l.dir as Vector3), 0.0, float(l.length))
+
+## Cuts limb `i` through `at` metres out from the trunk. What is past the cut
+## comes away as a piece of its own (returned as its shape and where it lies);
+## the stub stays on. A cut right at the trunk takes the whole limb.
+func cut_limb(i: int, at: float) -> Dictionary:
+	var l: Dictionary = limbs[i]
+	var length := float(l.length)
+	var r0 := float(l.radius)
+	var r1 := float(l.get("tip", r0 * 0.7))
+	# Cut close in to the trunk (limbs start at its centre line), the whole
+	# limb comes away.
+	if at < Solid.max_radius(dims) * 1.1 + MIN_STUB:
+		var whole := {"dims": limb_dims(i), "xform": limb_transform(i)}
+		remove_limb(i)
+		return whole
+	at = minf(at, length - MIN_STUB)
+	var r_cut := lerpf(r0, r1, at / length)
+	var outer := Solid.cylinder(r_cut, r1, length - at)
+	var dir: Vector3 = l.dir
+	var xform := global_transform * Transform3D(_up_basis(dir), (l.origin as Vector3) + dir * (at + (length - at) * 0.5))
+	mass = maxf(1.0, mass - Solid.volume(outer) * _density())
+	l.length = at
+	l.tip = r_cut
+	l.cut = 0.0
+	l.cut_at = -1.0
+	# The stub is redrawn plain: leaves went with the end that came off.
+	for n in l.nodes:
+		if is_instance_valid(n):
+			(n as Node).queue_free()
+	var cs := l.shape as CollisionShape3D
+	var cyl := cs.shape as CylinderShape3D
+	cyl = cyl.duplicate()
+	cyl.height = maxf(0.1, at)
+	cs.shape = cyl
+	cs.transform = Transform3D(_up_basis(dir), (l.origin as Vector3) + dir * at * 0.5)
+	var mi := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.bottom_radius = r0
+	cm.top_radius = r_cut
+	cm.height = at
+	cm.radial_segments = 6
+	mi.mesh = cm
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = l.get("bark", Color(0.42, 0.3, 0.2))
+	mat.roughness = 0.9
+	mi.material_override = mat
+	mi.transform = cs.transform
+	add_child(mi)
+	l.nodes = [mi]
+	return {"dims": outer, "xform": xform}
 
 func limb_transform(i: int) -> Transform3D:
 	var l: Dictionary = limbs[i]
@@ -319,7 +379,8 @@ func limbs_to_array() -> Array:
 	for l in limbs:
 		var o: Vector3 = l.origin
 		var d: Vector3 = l.dir
-		out.append([o.x, o.y, o.z, d.x, d.y, d.z, float(l.radius), float(l.length)])
+		out.append([o.x, o.y, o.z, d.x, d.y, d.z, float(l.radius), float(l.length),
+			float(l.get("tip", float(l.radius) * 0.7))])
 	return out
 
 func clear_extras() -> void:
