@@ -122,6 +122,7 @@ func _run_all() -> void:
 	await _test(&"trucks tow trailers on a hitch", test_trailers)
 	await _test(&"kill plane rescues fallen items", test_kill_plane)
 	await _test(&"the kill plane is below every cave", test_kill_plane_below_caves)
+	await _test(&"every balance knob is read by the game", test_balance_file)
 	await _test(&"per-plot cap is enforced", test_cap)
 	await _test(&"full automated base stays in budget", test_full_base)
 
@@ -4628,6 +4629,23 @@ func _haulers_in(node: Node) -> int:
 		if child is Hauler and not child.is_queued_for_deletion():
 			n += 1
 	return n
+
+## data/balance.json: every value in it is one the game reads, so a typo in
+## a name is caught rather than silently ignored.
+func test_balance_file() -> void:
+	var values := Balance.all()
+	check(values.size() >= 20, "balance.json has only %d values" % values.size())
+	var source := ""
+	for dir in ["res://scripts/core", "res://scripts/player", "res://scripts/physics", "res://scripts/vehicle",
+			"res://scripts/world", "res://scripts/systems", "res://scripts/build"]:
+		for f in DirAccess.get_files_at(dir):
+			if f.ends_with(".gd"):
+				source += FileAccess.get_file_as_string(dir + "/" + f)
+	for key: String in values:
+		check(source.contains("\"%s\"" % key), "balance.json sets %s, which nothing reads" % key)
+		check(values[key] is float or values[key] is int, "balance.json %s is not a number" % key)
+	check_near(Terrain.ROAD_SPEED_BONUS, float(values["vehicles.road_speed_bonus"]), 0.0001, "the road bonus is not the file's")
+	done()
 
 func test_kill_plane_below_caves() -> void:
 	_setup(false)

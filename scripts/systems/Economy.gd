@@ -21,7 +21,7 @@ var items_sold: int = 0
 
 var _day_length: float = 900.0
 ## Days between price changes.
-const WEEK := 7
+static var WEEK: int = int(Balance.num("economy.week_days", 7))
 var _seed: int = 20260921
 var _trend_strength: float = 0.35
 var _price_cache: Dictionary = {}

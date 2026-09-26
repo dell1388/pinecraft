@@ -45,7 +45,7 @@ const SHORTEST_LINE := 1.2
 # --- Crane tuning ------------------------------------------------------------------
 
 ## How fast the log goes where it is steered, and gets there.
-const MOVE_SPEED := 2.4           ## m/s
+static var MOVE_SPEED: float = Balance.num("crane.move_speed", 2.4)          ## m/s
 const MOVE_ACCEL := 5.0           ## m/s^2
 const TURN_SPEED := 1.1           ## rad/s
 const TURN_ACCEL := 4.0
@@ -547,7 +547,7 @@ func latch() -> String:
 var claw_state: StringName = &""     ## "", "down" or "up"
 var claw_said: String = ""           ## what the last drop came to, for the HUD
 var _claw_top: float = 0.0
-const CLAW_SPEED := 2.4              ## m/s the target drops and climbs
+static var CLAW_SPEED: float = Balance.num("crane.claw_speed", 2.4)             ## m/s the target drops and climbs
 const CLAW_FLOOR := 0.35             ## how close below the jaws "the ground" is
 
 func claw() -> String:

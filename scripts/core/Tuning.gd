@@ -26,7 +26,7 @@ const ROUND_SIDES := 8
 # Anything below this plane is teleported back to the surface. It sits under
 # the deepest cave (floors go down to about -90 m), so pieces worked loose in
 # a cave stay there.
-const KILL_PLANE_Y := -170.0
+static var KILL_PLANE_Y: float = Balance.num("world.kill_plane_y", -170.0)
 
 # Sleep tuning is mirrored into the Jolt project settings; kept here so that
 # gameplay code can reason about it.

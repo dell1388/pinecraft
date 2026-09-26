@@ -27,8 +27,8 @@ var homing: bool = false
 var lift_max: float = 0.9
 const TILT_MIN := -0.95
 const TILT_MAX := 0.7
-const LIFT_SPEED := 0.45          ## rad/s
-const TILT_SPEED := 0.9           ## rad/s
+static var LIFT_SPEED: float = Balance.num("loader.lift_speed", 0.45)         ## rad/s
+static var TILT_SPEED: float = Balance.num("loader.tilt_speed", 0.9)          ## rad/s
 
 ## From the spec: the arm pivot in the vehicle's frame, the arm's length, and
 ## the bucket's inside width, depth (front to back) and height.

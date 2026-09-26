@@ -30,9 +30,9 @@ const ROAD_HALF_WIDTH := 6.5
 ## is sampled between grid points, a sharp step just outside the carriageway
 ## bleeds back into it.
 const ROAD_SHOULDER := 10.0
-const ROAD_SPEED_BONUS := 0.18
+static var ROAD_SPEED_BONUS: float = Balance.num("vehicles.road_speed_bonus", 0.18)
 ## Bridges are faster still: the road's bonus and this much more.
-const BRIDGE_SPEED_BONUS := ROAD_SPEED_BONUS + 0.10
+static var BRIDGE_SPEED_BONUS: float = ROAD_SPEED_BONUS + Balance.num("vehicles.bridge_extra_bonus", 0.10)
 ## The steepest a road is graded, as rise over run.
 const MAX_GRADE := 0.1
 

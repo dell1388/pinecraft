@@ -207,7 +207,7 @@ func retire_one() -> Node3D:
 
 ## Nothing grows up through a vehicle: no tree or rock appears within this
 ## many metres (across the ground) of one.
-const VEHICLE_CLEARANCE := 7.0
+static var VEHICLE_CLEARANCE: float = Balance.num("world.vehicle_clearance", 7.0)
 
 func vehicle_near(point: Vector3) -> bool:
 	if not is_inside_tree():

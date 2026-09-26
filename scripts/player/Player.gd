@@ -15,14 +15,14 @@ signal swung()
 ## Asks the world to put the player in a vehicle's driving seat.
 signal wants_to_drive(vehicle: Node3D)
 
-@export var jump_velocity: float = 6.5
+@export var jump_velocity: float = Balance.num("player.jump_velocity", 6.5)
 @export var mouse_sensitivity: float = 0.0022
-@export var reach: float = 4.5
+@export var reach: float = Balance.num("player.reach", 4.5)
 @export var vacuum_radius: float = 2.6
 @export var carry_distance: float = 2.2
 @export var carry_gain: float = 14.0
-@export var carry_max_speed: float = 14.0
-@export var throw_impulse: float = 9.0
+@export var carry_max_speed: float = Balance.num("player.carry_max_speed", 14.0)
+@export var throw_impulse: float = Balance.num("player.throw_impulse", 9.0)
 ## Spec: driving is third-person on the vehicle.
 @export var chase_distance: float = 9.0
 ## How far back the camera sits from the log in crane operator mode (the
@@ -32,18 +32,18 @@ var crane_zoom: float = 7.0
 
 ## Water deeper than this is swum rather than waded.
 const WADE_DEPTH := 1.1
-const SWIM_SPEED_FACTOR := 0.38
+static var SWIM_SPEED_FACTOR: float = Balance.num("player.swim_speed_factor", 0.38)
 
 ## Wood shorter than this cannot be split any further.
-const MIN_BUCK_LENGTH := 0.35
+static var MIN_BUCK_LENGTH: float = Balance.num("cutting.min_buck_length", 0.35)
 ## Axe work required per square metre of cut face.
-const BUCK_WORK_PER_M2 := 700.0
+static var BUCK_WORK_PER_M2: float = Balance.num("cutting.buck_work_per_m2", 700.0)
 ## The smallest piece a hammer will split a loose chunk into.
-const MIN_CRACK_VOLUME := 0.004
+static var MIN_CRACK_VOLUME: float = Balance.num("cutting.min_crack_volume", 0.004)
 ## How hard the grabbed point is pulled toward the hold point (per second),
 ## and how strong the player is: the most force the hand can put on it.
 const DRAG_GAIN := 9.0
-const DRAG_STRENGTH_KG := 1000.0
+static var DRAG_STRENGTH_KG: float = Balance.num("player.drag_strength_kg", 1000.0)
 const DRAG_MIN_DISTANCE := 1.2
 
 var manager: LooseItemManager
@@ -63,7 +63,7 @@ var _drag_point: Vector3 = Vector3.ZERO
 var _drag_distance: float = 2.2
 ## The piece's turn relative to the player's facing, held while it is in hand.
 var _drag_turn: Basis = Basis()
-const DRAG_TURN_RATE := 1.6          ## rad/s, Shift + WASDQE
+static var DRAG_TURN_RATE: float = Balance.num("player.drag_turn_rate", 1.6)         ## rad/s, Shift + WASDQE
 const DRAG_SPIN_GAIN := 10.0
 ## The hotbar slot in hand, or -1 for an empty hand.
 var selected_slot: int = -1

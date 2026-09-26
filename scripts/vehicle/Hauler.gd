@@ -807,8 +807,8 @@ func _physics_process(delta: float) -> void:
 ## it for the crane.
 var held: bool = false
 var _hold_time: float = 0.0
-const HOLD_SPEED := 1.2           ## m/s; slower than this and it is held
-const HOLD_AFTER := 0.3           ## seconds of being slow before it is
+static var HOLD_SPEED: float = Balance.num("vehicles.hold_speed", 1.2)          ## m/s; slower than this and it is held
+static var HOLD_AFTER: float = Balance.num("vehicles.hold_after", 0.3)          ## seconds of being slow before it is
 
 func _may_hold() -> bool:
 	return parked() and not planted and towed_by == null and not wheel_bodies.is_empty()

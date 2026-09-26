@@ -1,0 +1,55 @@
+{
+  "_note": "Balance knobs. Change a number, restart the game. Anything left out uses the value the game was tuned with. Prices, item values, machine speeds and vehicle stats live in their own tables (prices.json, items.json, buildings.json, vehicles.json, upgrades.json).",
+
+  "player": {
+    "_about": "Moving and handling. reach: how far you can use things (m). drag_strength_kg: how hard your hand pulls a dragged piece. drag_turn_rate: Shift+WASDQE turn speed (rad/s). throw_impulse: how hard RMB throws. swim_speed_factor: speed in deep water as a share of walking.",
+    "jump_velocity": 6.5,
+    "reach": 4.5,
+    "carry_max_speed": 14.0,
+    "throw_impulse": 9.0,
+    "drag_strength_kg": 1000.0,
+    "drag_turn_rate": 1.6,
+    "swim_speed_factor": 0.38
+  },
+
+  "cutting": {
+    "_about": "Axe and hammer work. chop_work_multiplier scales how many swings every tree takes. buck_work_per_m2: axe work per m2 of cut face on felled wood. min_buck_length: shortest piece the axe will still cut (m). min_piece: shortest end a cut can leave (m). crack_gain: hammer crack depth per kg of head (in the ground and loose). min_crack_volume: smallest piece the hammer splits loose stone into (m3).",
+    "chop_work_multiplier": 1.0,
+    "buck_work_per_m2": 700.0,
+    "min_buck_length": 0.35,
+    "min_piece": 0.15,
+    "crack_gain": 0.05,
+    "min_crack_volume": 0.004
+  },
+
+  "vehicles": {
+    "_about": "road_speed_bonus: extra top speed on roads (0.18 = +18%). bridge_extra_bonus: added on top of the road bonus on bridges. hold_speed / hold_after: a vehicle nobody is driving is held still once slower than this (m/s) for this long (s).",
+    "road_speed_bonus": 0.18,
+    "bridge_extra_bonus": 0.10,
+    "hold_speed": 1.2,
+    "hold_after": 0.3
+  },
+
+  "crane": {
+    "_about": "move_speed: how fast the log target moves (m/s). claw_speed: how fast the claw drops and climbs (m/s).",
+    "move_speed": 2.4,
+    "claw_speed": 2.4
+  },
+
+  "loader": {
+    "_about": "Arm raise speed and bucket tilt speed, in rad/s.",
+    "lift_speed": 0.45,
+    "tilt_speed": 0.9
+  },
+
+  "economy": {
+    "_about": "week_days: days in a market week (prices change weekly). Day length is day_length_seconds in prices.json.",
+    "week_days": 7
+  },
+
+  "world": {
+    "_about": "vehicle_clearance: no tree or rock appears within this many metres of a vehicle. kill_plane_y: loose pieces below this height are put back on the surface (keep it under the deepest cave, about -90).",
+    "vehicle_clearance": 7.0,
+    "kill_plane_y": -170.0
+  }
+}

@@ -556,7 +556,7 @@ scripts/vehicle/   Hauler (every vehicle), VehicleModel (dressing), VehicleRig (
 scripts/ui/        UITheme, UIKit, GameHUD, Compass, Journal, MapView, KeyGuide,
                    MainMenu, PauseMenu, SettingsPanel, StressHUD
 assets/fonts/      Rubik, Lilita One (SIL OFL)
-data/              items, recipes, buildings, upgrades, prices, quests, store
+data/              items, recipes, buildings, upgrades, prices, quests, store, balance
 tools/             Bench, Tests, SmokeWorld, Probe
 ```
 
@@ -568,6 +568,14 @@ fails loudly instead of silently doing nothing. Prices are never written twice:
 a boxed axe on a shelf costs whatever the next level of the axe track costs, a
 T1 machine crate costs that building's unlock price, and a higher tier crate
 that level of its track - every time, since each crate is one machine.
+
+`data/balance.json` holds the game-feel knobs that are not a row in one of
+those tables: reach and drag strength, how many swings a tree or a cut takes,
+hammer cracking, road and bridge speed bonuses, how still a parked vehicle is
+held, crane and loader speeds, the market week, spawn clearance round
+vehicles and the kill plane. Each section has an `_about` line saying what its
+numbers mean. Change a value and restart; anything missing falls back to the
+tuned default, and a test fails if the file names a value nothing reads.
 
 ## Physics design
 

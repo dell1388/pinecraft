@@ -747,7 +747,7 @@ func _build_tree(kind: Dictionary, form_seed: int) -> Node3D:
 	tree.trunk_height = rng.randf_range(kind.height[0], kind.height[1])
 	tree.trunk_radius = rng.randf_range(kind.radius[0], kind.radius[1])
 	tree.trunk_taper = float(kind.taper)
-	tree.work_per_m2 = float(kind.work)
+	tree.work_per_m2 = float(kind.work) * Balance.num("cutting.chop_work_multiplier", 1.0)
 	tree.leaf_color = kind.leaf
 	tree.branch_start = float(kind.start)
 	tree.branch_pitch = Vector2(kind.pitch[0], kind.pitch[1])

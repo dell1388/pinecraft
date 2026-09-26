@@ -29,7 +29,7 @@ const SHAPE_FILL := 2.36
 const MIN_CHUNK := 0.06
 ## Crack depth opened per kilogram of hammer head, before the chunk's size is
 ## taken into account. A heavier head cracks deeper, a bigger chunk cracks slower.
-const CRACK_GAIN := 0.05
+static var CRACK_GAIN: float = Balance.num("cutting.crack_gain", 0.05)
 ## Two blows closer together than this along the chunk work the same crack.
 const CRACK_SPREAD := 0.18
 ## The least of the chunk a single fracture can take off.

@@ -31,7 +31,7 @@ var quiet_time: float = 0.0
 var cut_progress: float = 0.0     ## axe work done on this piece since the last cut
 var cut_at: float = 0.0           ## where along the piece that cut is (local Y)
 ## The shortest stub or end a cut can leave.
-const MIN_STUB := 0.15
+static var MIN_STUB: float = Balance.num("cutting.min_piece", 0.15)
 ## The vehicle whose bed this piece is lying in, if any. The piece is still a
 ## free body; this is only so the truck can count its load and save it.
 var carrier: Node3D = null
