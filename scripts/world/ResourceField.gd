@@ -159,6 +159,10 @@ func _wake_and_sleep() -> void:
 			break
 		var d: Dictionary = dormant[i]
 		if _near_focus(to_global(d.position), wake_distance):
+			# Not up through a vehicle parked on the spot: it waits until the
+			# vehicle has gone.
+			if vehicle_near(to_global(d.position)):
+				continue
 			dormant.remove_at(i)
 			_build(d.entry, int(d.seed), d.position)
 			woken += 1
@@ -201,6 +205,19 @@ func retire_one() -> Node3D:
 	node.queue_free()
 	return node
 
+## Nothing grows up through a vehicle: no tree or rock appears within this
+## many metres (across the ground) of one.
+const VEHICLE_CLEARANCE := 7.0
+
+func vehicle_near(point: Vector3) -> bool:
+	if not is_inside_tree():
+		return false
+	for v in get_tree().get_nodes_in_group(&"vehicles"):
+		var n := v as Node3D
+		if n != null and Vector2(point.x - n.global_position.x, point.z - n.global_position.z).length() < VEHICLE_CLEARANCE:
+			return true
+	return false
+
 func _near_focus(point: Vector3, distance: float) -> bool:
 	var f := anchor
 	if focus != null and is_instance_valid(focus):
@@ -213,6 +230,8 @@ func _find_spot() -> Variant:
 	for i in placement_tries:
 		var candidate: Vector3 = sampler.call(_rng)
 		if spawn_clearance > 0.0 and _near_focus(to_global(candidate), spawn_clearance):
+			continue
+		if vehicle_near(to_global(candidate)):
 			continue
 		var clear := true
 		for other in alive:

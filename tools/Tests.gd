@@ -32,6 +32,7 @@ func _run_all() -> void:
 	await _test(&"wood is cut wherever the axe lands", test_cut_anywhere)
 	await _test(&"a hammer cracks loose chunks down to fit a machine", test_crack_loose)
 	await _test(&"resource fields fill to a quota and stop", test_resource_field)
+	await _test(&"nothing grows up through a parked vehicle", test_field_avoids_vehicles)
 	await _test(&"terrain has biomes, rivers and roads", test_terrain)
 	await _test(&"you can stand on the terrain anywhere", test_terrain_collision)
 	await _test(&"a species only gets offered its own country", test_biome_pools)
@@ -395,6 +396,35 @@ func test_limb_cutting() -> void:
 
 ## Spec: resources spawn procedurally in form and place up to a quota, and stop
 ## once the quota is reached.
+func test_field_avoids_vehicles() -> void:
+	_setup(false)
+	var trucks: Array[Hauler] = []
+	for i in 6:
+		var t := Hauler.new()
+		t.setup(manager, 0, &"pickup")
+		world.add_child(t)
+		var a := TAU * float(i) / 6.0
+		t.global_position = Vector3(cos(a) * 12.0, t.spawn_height(), sin(a) * 12.0)
+		trucks.append(t)
+	await step(10)
+	var field := ResourceField.new()
+	field.quota = 40
+	field.min_spacing = 1.0
+	field.setup([{"h": 5.0}],
+		func(_kind: Dictionary, form_seed: int) -> Node3D:
+			var tree := _make_tree(5.0, 0.3, 0.6, 2)
+			tree.seed_form(form_seed)
+			return tree,
+		ResourceField.annulus(6.0, 18.0), 99)
+	world.add_child(field)
+	field.prefill()
+	check(field.count() > 10, "the field barely filled (%d)" % field.count())
+	for node in field.alive:
+		for t in trucks:
+			var d := Vector2(node.global_position.x - t.global_position.x, node.global_position.z - t.global_position.z).length()
+			check(d >= ResourceField.VEHICLE_CLEARANCE, "a tree grew %.1f m from a parked truck" % d)
+	done()
+
 func test_resource_field() -> void:
 	_setup(false)
 	var field := ResourceField.new()

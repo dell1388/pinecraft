@@ -196,6 +196,7 @@ func has_bed() -> bool:
 	return bed_kind != &"none" and cargo_capacity_m3 > 0.0
 
 func _ready() -> void:
+	add_to_group(&"vehicles")
 	_apply_spec()
 	collision_layer = Layers.VEHICLE
 	collision_mask = Layers.WORLD | Layers.LOOSE | Layers.MACHINE | Layers.TREE | Layers.PLAYER
