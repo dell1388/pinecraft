@@ -353,7 +353,7 @@ func _on_driving_key(event: InputEventKey) -> bool:
 				interacted.emit("this vehicle has no crane")
 			else:
 				r.set_operating(not r.operating)
-				interacted.emit("crane: you move the log - W/S along the truck (W toward the tail), A/D across, Shift/Ctrl up and down, Q/E turn it, F grab"
+				interacted.emit("crane: you move the log - W/S away from / toward the camera, A/D left/right, Shift/Ctrl up and down, Q/E turn it, F grab"
 					if r.operating else "crane folding away")
 			return true
 		KEY_F:
@@ -530,8 +530,8 @@ func _camera_clearance(pivot: Vector3, back: Vector3, most: float, skip: Array[R
 		return maxf(0.5, most * f - 0.1)
 	return most
 ## The winch (reel in, let out) whenever there is one, and in crane operator
-## mode the log itself, in the truck's frame: W/S along the truck (W toward
-## the tail, S toward the cab), A/D across it, Shift/Ctrl up and down, Q/E turn it. Holding the
+## mode the log itself, relative to the camera: W/S away from and toward it,
+## A/D to its left and right, Shift/Ctrl up and down, Q/E turn it. Holding the
 ## right mouse button is the slow, fine speed for setting it down.
 func _update_vehicle_controls(delta: float) -> void:
 	var l := loader()
@@ -547,10 +547,12 @@ func _update_vehicle_controls(delta: float) -> void:
 	work_winch(r, delta)
 	if not r.operating:
 		return
-	# W takes the log toward the tail, S toward the cab; A to the truck's
-	# right, D to its left.
-	var move := Vector3(Input.get_axis("move_right", "move_left"), Input.get_axis("lower", "sprint"),
-		Input.get_axis("move_back", "move_forward"))
+	# W takes the log away from the camera, S toward it, A and D to the
+	# camera's left and right - turned into the truck's frame.
+	var axes := r.view_axes()
+	var move := axes[0] * Input.get_axis("move_right", "move_left") \
+		+ axes[1] * Input.get_axis("move_back", "move_forward") \
+		+ Vector3.UP * Input.get_axis("lower", "sprint")
 	var turn := (1.0 if Input.is_physical_key_pressed(KEY_Q) else 0.0) \
 		- (1.0 if Input.is_physical_key_pressed(KEY_E) else 0.0)
 	r.drive(move, turn, Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT), delta)

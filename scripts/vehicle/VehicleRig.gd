@@ -372,6 +372,21 @@ func drive(move: Vector3, turn: float, fine: bool, delta: float) -> void:
 	target = clamped
 	target_yaw = wrapf(target_yaw + _yaw_vel * delta, -PI, PI)
 
+## The camera's left and away-from-camera directions, flat in the truck's
+## frame: W moves the log away from the camera, A to the camera's left.
+func view_axes() -> Array[Vector3]:
+	var cam := get_viewport().get_camera_3d() if is_inside_tree() else null
+	if cam == null:
+		return [Vector3(1, 0, 0), Vector3(0, 0, 1)]
+	var inv := _frame().basis.inverse()
+	var away := inv * -cam.global_transform.basis.z
+	away.y = 0.0
+	if away.length() < 0.001:
+		away = inv * cam.global_transform.basis.y
+		away.y = 0.0
+	away = away.normalized()
+	return [Vector3.UP.cross(away).normalized(), away]
+
 ## The nearest point to `p` (the jaws, in the truck's frame) the crane can
 ## put its grapple: within its reach and height, inside its slew arc, and out
 ## of the cab.
@@ -757,7 +772,7 @@ func status_line() -> String:
 	if operating:
 		var load := "%s, %.0f / %.0f kg" % [held.display_name(), held.mass, crane_power_kg] if held != null \
 			else "grapple open, %.0f kg crane" % crane_power_kg
-		bits.append("crane: %s%s  [W/S] along [A/D] across [Shift/Ctrl] up/down [Q/E] turn [F] %s [RMB] fine [R] done" % [
+		bits.append("crane: %s%s  [W/S] away/toward [A/D] left/right [Shift/Ctrl] up/down [Q/E] turn [F] %s [RMB] fine [R] done" % [
 			load, " - AT ITS LIMIT" if at_limit else "", "let go" if held != null else "grab"])
 	elif folding:
 		bits.append("crane folding away")
@@ -909,8 +924,8 @@ func _build_aids() -> void:
 	_footprint.material_override = foot_mat
 	_footprint.top_level = true
 	_aids.add_child(_footprint)
-	# The truck-axis gizmo: W toward the tail, S toward the cab, A and D
-	# across - whichever way the camera is looking.
+	# The move gizmo: W away from the camera, S toward it, A and D to its
+	# left and right, laid flat in the truck's frame.
 	_gizmo = Node3D.new()
 	_gizmo.top_level = true
 	_aids.add_child(_gizmo)
@@ -997,7 +1012,9 @@ func _draw_aids(frame: Transform3D, grip: Vector3, yaw: float) -> void:
 		_ghost.global_transform = Transform3D(frame.basis * Basis(Vector3.UP, target_yaw), ghost_at)
 	# Scaled to clear the log, so the arrows stand out beyond its ends.
 	var spread := 1.0 if held == null else maxf(1.0, Solid.bounds(held.dims).y * 0.6)
-	_gizmo.global_transform = Transform3D(frame.basis.scaled(Vector3.ONE * spread), ghost_at + frame.basis.y * 0.9)
+	var axes := view_axes()
+	var view := Basis(axes[0], Vector3.UP, axes[1])
+	_gizmo.global_transform = Transform3D((frame.basis * view).scaled(Vector3.ONE * spread), ghost_at + frame.basis.y * 0.9)
 	# Straight down from the log (or the jaws) to whatever it would land on.
 	var down := -frame.basis.y.normalized()
 	var q := PhysicsRayQueryParameters3D.create(grip, grip + down * 40.0,

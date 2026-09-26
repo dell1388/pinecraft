@@ -57,6 +57,7 @@ func _run_all() -> void:
 	await _test(&"logs never stick inside a tunnel", test_tunnel_flow)
 	await _test(&"a machine takes a trunk with its branches if it fits", test_machine_takes_branches)
 	await _test(&"the planker puts a trunk's branches into its plank", test_planker_merges_branches)
+	await _test(&"crane keys follow the camera", test_crane_view_axes)
 	await _test(&"a front loader pushes a pile, scoops it, lifts it and pours it out", test_front_loader)
 	await _test(&"belts dump off their end - no hand-offs", test_belt_dumps_off_end)
 	await _test(&"a stretched ramp loads a truck", test_ramp_loads_truck)
@@ -1603,6 +1604,31 @@ func test_planker_merges_branches() -> void:
 	if plank != null:
 		check_near(Solid.volume(plank.dims), plain_vol + extra * ratio, 0.0001, "the plank did not take in the branch wood")
 		check_near(Solid.length_of(plank.dims), plain_len, 0.001, "the plank changed length")
+	done()
+
+## Working the crane, W moves the log away from the camera and A to the
+## camera's left, whichever way the truck faces.
+func test_crane_view_axes() -> void:
+	_setup(false)
+	var truck := Hauler.new()
+	truck.setup(manager, 0, &"crane_truck")
+	world.add_child(truck)
+	truck.global_position = Vector3(0, truck.spawn_height(), 0)
+	truck.rotation.y = 0.7
+	var cam := Camera3D.new()
+	world.add_child(cam)
+	cam.current = true
+	await step(30)
+	for look in [Vector3(0, -0.3, -1), Vector3(1, -0.5, 0), Vector3(-0.4, -0.2, 1)]:
+		var d: Vector3 = look.normalized()
+		cam.global_transform = Transform3D(Basis.looking_at(d, Vector3.UP), truck.global_position - d * 8.0)
+		var axes := truck.rig.view_axes()
+		var basis := truck.global_transform.basis
+		var away := (basis * axes[1]).normalized()
+		var left := (basis * axes[0]).normalized()
+		var flat := Vector3(d.x, 0, d.z).normalized()
+		check(away.dot(flat) > 0.99, "W does not go away from the camera looking %s" % look)
+		check(left.dot(Vector3.UP.cross(flat)) > 0.99, "A does not go to the camera's left looking %s" % look)
 	done()
 
 ## A front loader with its bucket down shoves a pile of small pieces along;

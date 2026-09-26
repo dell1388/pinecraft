@@ -12,7 +12,7 @@ const TIPS := [
 	"A machine with nothing after it sets its work down on the ground.",
 	"Prices change once a week - the journal says when.",
 	"Planks fill a log order too, cubic metre for cubic metre.",
-	"In the crane you move the log: W/S along the truck, A/D across it.",
+	"In the crane you move the log: W/S away from / toward the camera, A/D left / right.",
 	"Hold the right mouse button in the crane for fine control.",
 	"Outriggers [O] lock a truck in place for the winch.",
 	"Nights are dark - your headlamp comes on by itself.",
