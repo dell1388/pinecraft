@@ -1192,14 +1192,23 @@ func enter_vehicle(v: Node3D) -> void:
 	collision_layer = 0
 	collision_mask = 0
 
+func _solid_again() -> void:
+	for i in 2:
+		await get_tree().physics_frame
+	if vehicle == null:
+		collision_layer = Layers.PLAYER
+		collision_mask = Layers.MASK_PLAYER
+
 func exit_vehicle() -> void:
 	var r := rig()
 	if r != null:
 		r.set_operating(false)
 		r.release_winch()
 	vehicle = null
-	collision_layer = Layers.PLAYER
-	collision_mask = Layers.MASK_PLAYER
+	# Solid again only once the body has been moved out to the door and the
+	# physics has caught up: the jump from the seat would otherwise be taken
+	# as a sweep through the cab, and kick the vehicle metres away.
+	_solid_again()
 	camera.position = Vector3(0, 1.65, 0)
 	camera.rotation.y = 0.0
 	camera.rotation.z = 0.0

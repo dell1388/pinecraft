@@ -113,6 +113,7 @@ func _run_all() -> void:
 	await _test(&"getting into a vehicle drops what you carry", test_enter_drops_load)
 	await _test(&"bridges give more speed than roads", test_bridge_speed)
 	await _test(&"a vehicle left alone stays put", test_parked_holds)
+	await _test(&"getting out does not shove the vehicle", test_exit_still)
 	await _test(&"vehicles reach their rated top speed", test_top_speed)
 	await _test(&"store-bought buildings are counted copies", test_building_copies)
 	await _test(&"winch and crane respect their power ratings", test_vehicle_rig)
@@ -3625,6 +3626,41 @@ func test_enter_drops_load() -> void:
 
 ## Out of the seat, a vehicle comes to rest and is held there: shoved, it
 ## does not creep or skate. Someone gets in and it drives again.
+## Getting out - by the driver's door, as the game does it - leaves every
+## vehicle where it stood.
+func test_exit_still() -> void:
+	_setup(false)
+	var player := _make_player()
+	world.add_child(player)
+	var x := -30.0
+	for id in GameData.vehicles:
+		if bool(GameData.vehicle(id).get("trailer", false)):
+			continue
+		var truck := Hauler.new()
+		truck.setup(manager, 0, id)
+		truck.position = Vector3(x, truck.spawn_height() + 0.2, 20)
+		x += 8.0
+		world.add_child(truck)
+		await step(60)
+		player.enter_vehicle(truck)
+		truck.driver = player
+		for i in 90:
+			player.global_position = truck.seat_transform().origin
+			await step(1)
+		var at := truck.global_position
+		player.exit_vehicle()
+		truck.driver = null
+		player.global_position = truck.global_position \
+			+ truck.global_transform.basis.x * (truck.body_size.x * 0.5 + 1.3) + Vector3(0, 1.0, 0)
+		var worst := 0.0
+		for i in 120:
+			await step(1)
+			worst = maxf(worst, truck.global_position.distance_to(at))
+		check(worst < 0.3, "the %s moved %.2f m when the driver got out" % [id, worst])
+		truck.queue_free()
+		await step(1)
+	done()
+
 func test_parked_holds() -> void:
 	_setup(false)
 	var truck := Hauler.new()
@@ -3704,6 +3740,7 @@ func test_seated_driver() -> void:
 		truck.driver = null
 		truck.queue_free()
 		await step(1)
+	await step(3)
 	check_eq(player.collision_layer, Layers.PLAYER, "getting out did not make the driver solid again")
 	done()
 
