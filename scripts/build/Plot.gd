@@ -25,10 +25,7 @@ var occupied: Dictionary = {}           ## Vector2i -> [indices into `placed`], 
 var _floor_body: StaticBody3D
 var _floor_shape: CollisionShape3D
 var _floor_mesh: MeshInstance3D
-var _kerb_body: StaticBody3D
-var _kerb_mesh: MeshInstance3D
 var _floor_material: ShaderMaterial
-var _wall_shapes: Array[CollisionShape3D] = []
 
 func setup(p_manager: LooseItemManager, p_plot_id: int = 0) -> void:
 	manager = p_manager
@@ -59,26 +56,6 @@ func _ensure_floor() -> void:
 	_floor_mesh.material_override = _floor_material
 	_floor_body.add_child(_floor_mesh)
 	add_child(_floor_body)
-	_kerb_mesh = MeshInstance3D.new()
-	_kerb_mesh.name = "KerbMesh"
-	var kerb_mat := StandardMaterial3D.new()
-	kerb_mat.albedo_color = Color(0.46, 0.47, 0.43)
-	kerb_mat.roughness = 0.9
-	_kerb_mesh.material_override = kerb_mat
-	add_child(_kerb_mesh)
-
-	# Kerbing sits on its own layer: loose items and cargo bounce off it, the
-	# player and vehicles drive straight over.
-	_kerb_body = StaticBody3D.new()
-	_kerb_body.name = "PlotKerb"
-	_kerb_body.collision_layer = Layers.KERB
-	_kerb_body.collision_mask = 0
-	for i in 4:
-		var cs := CollisionShape3D.new()
-		cs.shape = BoxShape3D.new()
-		_kerb_body.add_child(cs)
-		_wall_shapes.append(cs)
-	add_child(_kerb_body)
 
 func _apply_expansion(new_tier: int, announce: bool = true) -> void:
 	var data := GameData.expansion(new_tier)
@@ -92,25 +69,6 @@ func _apply_expansion(new_tier: int, announce: bool = true) -> void:
 	_floor_shape.position = Vector3(0, -0.5, 0)
 	(_floor_mesh.mesh as BoxMesh).size = Vector3(size, 1.0, size)
 	_floor_mesh.position = _floor_shape.position
-	# Low kerb walls: they stop items rolling off the plot without boxing the
-	# player in, and they are four boxes rather than a mesh collider.
-	var offsets := [
-		[Vector3(0, 0.3, -half_extent), Vector3(size, 0.6, 0.4)],
-		[Vector3(0, 0.3, half_extent), Vector3(size, 0.6, 0.4)],
-		[Vector3(-half_extent, 0.3, 0), Vector3(0.4, 0.6, size)],
-		[Vector3(half_extent, 0.3, 0), Vector3(0.4, 0.6, size)],
-	]
-	for i in _wall_shapes.size():
-		(_wall_shapes[i].shape as BoxShape3D).size = offsets[i][1]
-		_wall_shapes[i].position = offsets[i][0]
-	# The kerb is drawn lower than it collides, as a lip rather than a wall.
-	var kerb := ArrayMesh.new()
-	var st := SurfaceTool.new()
-	for spec in offsets:
-		var b := BoxMesh.new()
-		b.size = Vector3(spec[1].x, 0.22, spec[1].z)
-		st.append_from(b, 0, Transform3D(Basis(), Vector3(spec[0].x, 0.11, spec[0].z)))
-	_kerb_mesh.mesh = st.commit(kerb)
 	_floor_material.set_shader_parameter("half_extent", half_extent)
 	if announce:
 		expanded.emit(tier, half_extent)
