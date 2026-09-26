@@ -844,8 +844,8 @@ func _nearest_free_item(radius: float) -> LooseItem:
 			best = item
 	return best
 
-func _drop(count: int) -> void:
-	var forward := -camera.global_transform.basis.z
+func _drop(count: int, toward: Vector3 = Vector3.ZERO) -> void:
+	var forward := toward.normalized() if toward.length_squared() > 0.0001 else -camera.global_transform.basis.z
 	for i in mini(count, held.size()):
 		var item: LooseItem = held.pop_back()
 		if not is_instance_valid(item):
@@ -1137,7 +1137,13 @@ func _use_store(shop: Store, point: Vector3) -> void:
 			interacted.emit("bring a box to the counter")
 
 func enter_vehicle(v: Node3D) -> void:
+	# Nothing comes into the cab: what is in hand is let go, and the rack is
+	# set down on the ground beside you, away from the vehicle.
 	_release_dragged()
+	if not held.is_empty():
+		var away := global_position - v.global_position
+		away.y = 0.0
+		_drop(held.size(), away if away.length_squared() > 0.01 else global_transform.basis.z)
 	vehicle = v
 	velocity = Vector3.ZERO
 	# Seated, the body is carried in the cab: it must not collide with the

@@ -106,6 +106,7 @@ func _run_all() -> void:
 	await _test(&"the dump truck tips its load out", test_dump_truck)
 	await _test(&"debug unlimited money", test_unlimited_money)
 	await _test(&"a seated driver does not upset the vehicle", test_seated_driver)
+	await _test(&"getting into a vehicle drops what you carry", test_enter_drops_load)
 	await _test(&"vehicles reach their rated top speed", test_top_speed)
 	await _test(&"store-bought buildings are counted copies", test_building_copies)
 	await _test(&"winch and crane respect their power ratings", test_vehicle_rig)
@@ -3437,6 +3438,39 @@ func test_top_speed() -> void:
 		await step(1)
 		top = maxf(top, truck.linear_velocity.length())
 	check(top > truck.max_speed * 0.9, "the %s topped out at %.1f of %.1f m/s" % [truck.vehicle_id, top, truck.max_speed])
+	done()
+
+## Nothing comes into the cab: getting in lets go of what is dragged and sets
+## the carry rack down beside you, on the far side from the vehicle.
+func test_enter_drops_load() -> void:
+	_setup(false)
+	var player := _make_player()
+	world.add_child(player)
+	var truck := Hauler.new()
+	truck.setup(manager, 0, &"pickup")
+	world.add_child(truck)
+	truck.global_position = Vector3(0, truck.spawn_height(), 0)
+	player.global_position = Vector3(3, 1, 0)
+	await step(30)
+	var a := spawn(&"ore_iron", player.global_position + Vector3(0, 0.3, -1), Solid.cube(0.002))
+	var b := spawn(&"ore_iron", player.global_position + Vector3(0.3, 0.3, -1), Solid.cube(0.002))
+	await step(2)
+	check(player.pick_up(a) and player.pick_up(b), "could not pick up the test pieces")
+	var log_piece := spawn(&"wood_pine", player.global_position + Vector3(0, 0.3, -2), Solid.cylinder(0.1, 0.1, 1.0))
+	await step(2)
+	player._hold_for_tests = true
+	check(player._grab_drag_item(log_piece), "could not take hold of the log")
+	var stood := player.global_position
+	player.enter_vehicle(truck)
+	truck.driver = player
+	check(player.held.is_empty(), "the carry rack came into the cab")
+	check(player.dragged == null, "the dragged log came into the cab")
+	for item in [a, b, log_piece]:
+		check_eq((item as LooseItem).state, LooseItem.State.FREE, "a carried piece was not let go")
+	for item in [a, b]:
+		check((item as LooseItem).global_position.x > stood.x, "a dropped piece went toward the vehicle")
+	player.exit_vehicle()
+	truck.driver = null
 	done()
 
 func test_seated_driver() -> void:
