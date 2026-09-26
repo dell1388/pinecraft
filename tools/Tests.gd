@@ -1872,11 +1872,19 @@ func test_front_loader() -> void:
 		check(item.global_position.y > 1.5, "a locked piece is not up in the bucket")
 	check(l.locked, "the lock let go with a driver in")
 	v.autopilot = false
-	await step(2)
-	check(not l.locked and l.locked_items().is_empty(), "the lock held with nobody at the controls")
+	await step(10)
+	check(l.locked and l.locked_items().size() == before, "the lock let go when nobody was at the controls")
+	# Saved and loaded, it comes back locked with its load.
+	var doc := v.to_dict()
+	var ids := l.locked_items().size()
+	v.from_dict(doc)
+	await step(10)
+	check(l.locked, "the bucket came back from a save unlocked")
+	check_eq(l.locked_items().size(), ids, "the locked load did not come back from a save")
+	v.autopilot = true
+	l.set_locked(false)
 	await step(60)
 	check(l.thumb_angle > 1.0, "the thumb did not open")
-	v.autopilot = true
 	# Tip it out.
 	for i in 120:
 		l.drive(0.0, -1.0, 1.0 / 60.0)
@@ -3423,13 +3431,13 @@ func test_build_edit() -> void:
 	check(plot.index_at_world(moved.global_position) == index, "the moved belt is not where the grid says")
 	check_eq(plot.index_at_world(belt_at), -1, "the old cells are still taken")
 
-	# Belts stretch: longer belt, longer price.
+	# Belts stretch, and stretching is free.
 	var money := Economy.money
 	check_eq(plot.edit(index, Vector2i(3, 0), Vector3i.ZERO, Vector3i(1, 1, 8), 0.0), "", "stretching the belt failed")
 	await step(2)
 	var long := plot.placed[index].node as Conveyor
 	check_near(long.length, 8.0, 0.001, "the stretched belt is %.1f m" % long.length)
-	check(Economy.money < money, "stretching the belt was free")
+	check_eq(Economy.money, money, "stretching the belt cost money")
 	check(Plot.size_limits(GameData.building(&"sawmill")).is_empty(), "a machine can be resized")
 
 	# Turned a quarter, and lifted.

@@ -45,7 +45,7 @@ var bucket: AnimatableBody3D
 var _arms: Array[MeshInstance3D] = []
 
 ## Locked: what is in the bucket is clamped in it, part of the bucket exactly
-## as it lies, until it is unlocked (or the driver gets out). The thumb - a
+## as it lies, until it is unlocked - driver or no driver. The thumb - a
 ## clamp hinged on the top of the back plate - swings down over the load.
 var locked: bool = false
 var _locked: Dictionary = {}          ## LooseItem -> [its shapes on the bucket]
@@ -219,9 +219,6 @@ func bucket_local() -> Transform3D:
 	return Transform3D(Basis(Vector3.RIGHT, tilt), tip())
 
 func _physics_process(delta: float) -> void:
-	# Nobody at the controls: the clamp lets go, as a truck's load does.
-	if locked and vehicle.parked():
-		set_locked(false)
 	if homing:
 		lift = move_toward(lift, home_lift, LIFT_SPEED * delta)
 		tilt = move_toward(tilt, HOME_TILT, TILT_SPEED * delta)
@@ -254,6 +251,13 @@ func _pose(snap: bool, delta: float = 0.0) -> void:
 ## Back to the carrying pose, at the arms' own pace.
 func home() -> void:
 	homing = true
+
+## Clamps the bucket once the pieces put back in it by a load have settled
+## into the physics world.
+func relock_after_load() -> void:
+	for i in 3:
+		await get_tree().physics_frame
+	set_locked(true)
 
 ## After the vehicle has been moved to a new place.
 func snap() -> void:

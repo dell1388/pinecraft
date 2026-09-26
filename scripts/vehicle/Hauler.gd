@@ -1139,7 +1139,7 @@ func to_dict() -> Dictionary:
 	return {"vehicle": String(vehicle_id),
 		"position": [global_position.x, global_position.y, global_position.z],
 		"yaw": global_rotation.y, "cargo": entries,
-		"loader": [loader.lift, loader.tilt] if loader != null else []}
+		"loader": [loader.lift, loader.tilt, loader.locked] if loader != null else []}
 
 func from_dict(d: Dictionary) -> void:
 	var p: Array = d.get("position", [0, 2, 0])
@@ -1155,7 +1155,7 @@ func from_dict(d: Dictionary) -> void:
 	angular_velocity = Vector3.ZERO
 	_snap_wheels()
 	var arms: Array = d.get("loader", [])
-	if loader != null and arms.size() == 2:
+	if loader != null and arms.size() >= 2:
 		loader.lift = clampf(float(arms[0]), loader.lift_min, loader.lift_max)
 		loader.tilt = clampf(float(arms[1]), LoaderArm.TILT_MIN, LoaderArm.TILT_MAX)
 		loader.snap()
@@ -1163,6 +1163,13 @@ func from_dict(d: Dictionary) -> void:
 	# under it once they exist.
 	_snap_wheels.call_deferred()
 	release_load()
+	if loader != null:
+		# What was clamped in the bucket is in the save too.
+		var clamped := loader.locked_items()
+		loader.set_locked(false)
+		if manager != null:
+			for item in clamped:
+				manager.despawn(item)
 	if manager != null:
 		for item in _load:
 			manager.despawn(item)
@@ -1181,3 +1188,6 @@ func from_dict(d: Dictionary) -> void:
 		if item != null:
 			_take(item)
 	cargo_changed.emit(_load.size(), cargo_capacity_m3)
+	if loader != null and arms.size() >= 3 and bool(arms[2]):
+		loader.set_locked(false)
+		loader.relock_after_load()

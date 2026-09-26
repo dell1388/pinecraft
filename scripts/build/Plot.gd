@@ -335,8 +335,7 @@ static func size_limits(def: BuildingDef) -> Array:
 			return [Vector3i(1, 1, 1), b * 3]
 	return []
 
-## `def` at another size. Price follows the size, so a 16 m belt is not a
-## 4 m belt's price.
+## `def` at another size. The price stays the same: resizing never costs.
 static func resized(def: BuildingDef, size: Vector3i) -> BuildingDef:
 	var base := GameData.building(def.id)
 	if base == null or size == base.size:
@@ -345,15 +344,12 @@ static func resized(def: BuildingDef, size: Vector3i) -> BuildingDef:
 	out.size = size
 	out.tier = def.tier
 	out.display_name = def.display_name
-	var ratio := float(size.x * size.y * size.z) / float(maxi(1, base.size.x * base.size.y * base.size.z))
-	if base.kind == &"conveyor":
-		# A belt is priced by its deck: length times width.
-		ratio = float(size.x * size.z) / float(maxi(1, base.size.x * base.size.z))
-		if base.rise > 0.0:
-			# A ramp keeps its slope: longer, it climbs higher, and stands taller.
-			out.rise = base.rise * float(size.z) / float(base.size.z)
-			out.size.y = maxi(base.size.y, int(ceil(out.rise)) + 1)
-	out.cost = int(round(float(base.cost) * ratio))
+	if base.kind == &"conveyor" and base.rise > 0.0:
+		# A ramp keeps its slope: longer, it climbs higher, and stands taller.
+		out.rise = base.rise * float(size.z) / float(base.size.z)
+		out.size.y = maxi(base.size.y, int(ceil(out.rise)) + 1)
+	# Resizing is free: a building costs its price at any size.
+	out.cost = base.cost
 	return out
 
 ## Moves, turns, resizes or lifts a building that is already placed. Returns
@@ -368,15 +364,6 @@ func edit(index: int, cell: Vector2i, rot: Vector3i, size: Vector3i, lift: float
 	var err := placement_error(new_def, cell, rot, false, index)
 	if err != "":
 		return err
-	# A bigger belt costs the difference; a smaller one refunds half of it.
-	# Shapes are free, and a store-bought copy is one copy at any size.
-	var extra := new_def.cost - def.cost
-	if def.kind == &"schematic" or GameData.sold_copy(def.id, def.tier):
-		extra = 0
-	if extra > 0 and not Economy.try_spend(extra):
-		return "need $%d more" % extra
-	if extra < 0:
-		Economy.add_money(-extra / 2)
 	var old: Node3D = rec.node
 	var state: Variant = old.call("to_dict") if old.has_method("to_dict") else null
 	if old is VehiclePad:
