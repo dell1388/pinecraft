@@ -273,6 +273,8 @@ func _ready() -> void:
 	plot.setup(manager, 0)
 	plot.vehicle_host = self
 	plot.terrain = terrain
+	# Over the cap, pieces are recycled off the property first, and never on it.
+	manager.on_property = func(p: Vector3) -> bool: return plot.contains_world(p, 1.0)
 	plot.vehicle_spawned.connect(_on_vehicle_spawned)
 	add_child(plot)
 

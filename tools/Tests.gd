@@ -180,6 +180,7 @@ func _run_all() -> void:
 	await _test(&"save slots: several games, and the old save moves in", test_save_slots)
 	await _test(&"the lumberjack is posed from what you do, and third person still aims true", test_avatar)
 	await _test(&"per-plot cap is enforced", test_cap)
+	await _test(&"the cap takes pieces off the property, never on it", test_cap_spares_property)
 	await _test(&"shop stock stays on the shelf however busy the world gets", test_shop_stock_kept)
 	await _test(&"ore blocks are built to fit any box", test_ore_look_fits_any_box)
 	await _test(&"a knock throws the player limp, and he gets back up", test_knocked_flying)
@@ -6251,6 +6252,41 @@ func test_cap() -> void:
 	# Pooling means the node count stays near the cap however many spawns happen.
 	var nodes := manager.active_count() + manager.pooled_count()
 	check(nodes <= 45, "pooling leaked nodes: %d live+pooled for a cap of 40" % nodes)
+	done()
+
+## Over the cap, the oldest pieces off the property go first, and nothing on
+## the property ever does - however old it is.
+func test_cap_spares_property() -> void:
+	_setup()
+	manager.per_plot_cap = 20
+	manager.on_property = func(p: Vector3) -> bool: return p.x < 0.0
+	await step(2)
+	var home: Array[LooseItem] = []
+	for i in 15:
+		home.append(spawn(&"wood_pine", Vector3(-3.0 - float(i % 5), 0.5 + float(i / 5) * 0.6, -3.0)))
+	var away: Array[LooseItem] = []
+	for i in 5:
+		away.append(spawn(&"wood_pine", Vector3(5.0 + float(i) * 1.5, 0.5, 5.0)))
+	await step(10)
+	# Five more past the cap: the five off the property go, oldest first.
+	for i in 3:
+		spawn(&"wood_pine", Vector3(20.0 + float(i) * 1.5, 0.5, 5.0))
+	await step(2)
+	for it in home:
+		check(it.state == LooseItem.State.FREE and it.item_id == &"wood_pine" and it.global_position.x < 0.0,
+			"a piece on the property was recycled for the cap")
+	var gone := 0
+	for i in 3:
+		if away[i].state == LooseItem.State.POOLED or away[i].global_position.x > 19.0:
+			gone += 1
+	check_eq(gone, 3, "the three oldest pieces off the property were not the ones recycled")
+	check(away[3].state == LooseItem.State.FREE and away[3].global_position.x < 19.0, "a newer piece went before an older one")
+	# With nothing left off the property to take, the cap gives way.
+	for i in 12:
+		spawn(&"wood_pine", Vector3(-12.0 - float(i % 4), 0.5 + float(i / 4) * 0.6, 3.0))
+	await step(2)
+	for it in home:
+		check(it.state == LooseItem.State.FREE and it.global_position.x < 0.0, "a piece on the property was recycled once the cap was full")
 	done()
 
 func test_shop_stock_kept() -> void:
