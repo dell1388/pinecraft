@@ -312,10 +312,19 @@ func _anchor_world() -> Vector3:
 func reel(delta: float) -> void:
 	if not anchored:
 		return
+	if _reeling == 0:
+		_reel_from = line_length
 	_reeling = 2
 	if winch_tension >= winch_power_kg * 9.8 * 0.97:
 		return
 	line_length = maxf(SHORTEST_LINE, line_length - winch_speed * delta)
+
+## The line's length when reeling began: however hard it is dragged on, the
+## drum never lets it out past this.
+var _reel_from: float = 0.0
+## Line the drum could not pull in is not wound on: past this much short of
+## the hook, what is on the end is too heavy for it.
+const STALL_GAP := 0.03
 
 ## Lets line out, up to what is on the drum.
 func pay_out(delta: float) -> void:
@@ -349,8 +358,17 @@ func _work_winch() -> void:
 	var most := winch_power_kg * 9.8
 	_wake(body)
 	# The line itself never gives: the rating is what the drum can reel in
-	# against, not what the line will hold.
-	winch_tension = pull(vehicle, fairlead(), body, anchor_point, line_length, most * LINE_HOLDS)
+	# against, not what the line will hold. Reeling, it pulls with no more
+	# than its rating, and winds on only the line it actually brought in -
+	# so what is too heavy for it stays where it is, and the line holds it
+	# there as rigidly as ever.
+	var reeling := _reeling > 0
+	winch_tension = pull(vehicle, fairlead(), body, anchor_point, line_length,
+		most if reeling else most * LINE_HOLDS)
+	if reeling:
+		var gap := fairlead().distance_to(anchor_point) - line_length
+		if gap > STALL_GAP:
+			line_length = minf(_reel_from, line_length + gap - STALL_GAP)
 	# Hooked on ore still in the ground: pulled hard enough, it comes out,
 	# and the line stays on the chunk.
 	if anchor_rock != null:

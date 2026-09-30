@@ -35,9 +35,13 @@ signal warped()
 @export var throw_impulse: float = Balance.num("player.throw_impulse", 9.0)
 ## Spec: driving is third-person on the vehicle.
 @export var chase_distance: float = 9.0
-## How far back the camera sits from the log in crane operator mode (the
-## wheel zooms it; it pulls further back to keep the bed in view).
-var crane_zoom: float = 7.0
+## The mouse wheel's zoom on the camera behind a vehicle, and on the one
+## orbiting the log in crane operator mode: a multiple of how far back each
+## sits by itself (under 1 is in closer).
+var drive_zoom: float = 1.0
+var crane_zoom: float = 1.0
+const ZOOM_MIN := 0.35
+const ZOOM_MAX := 3.0
 @export var chase_height: float = 2.8
 
 ## Walking and sprinting, as a multiple of what the boots give.
@@ -162,6 +166,10 @@ const VIEWMODEL_REST := Vector3(-0.45, 0.35, -0.35)
 func _process(delta: float) -> void:
 	if knocked() or crushed():
 		_update_down_camera(delta)
+	# Every drawn frame, not every physics tick: the mouse turns the camera
+	# each frame, and placed only on the ticks it steps round in jerks.
+	elif driving():
+		_update_chase_camera(delta)
 	_update_view(delta)
 	var tool := selected_tool() if not driving() and not (build_system != null and build_system.active) else &""
 	_viewmodel_pivot.visible = not third_person
@@ -426,7 +434,9 @@ func _on_mouse_action(event: InputEvent) -> bool:
 		if building:
 			build_system.cycle(step)
 		elif steering_load():
-			crane_zoom = clampf(crane_zoom + float(step), 3.0, 30.0)
+			crane_zoom = clampf(crane_zoom * pow(1.12, float(step)), ZOOM_MIN, ZOOM_MAX)
+		elif driving():
+			drive_zoom = clampf(drive_zoom * pow(1.12, float(step)), ZOOM_MIN, ZOOM_MAX)
 		elif dragged != null:
 			_drag_distance = clampf(_drag_distance - 0.3 * float(step), DRAG_MIN_DISTANCE, reach)
 		elif not driving():
@@ -713,7 +723,6 @@ func _physics_step(delta: float) -> void:
 		# arms are worked here too.
 		if vehicle is Hauler and (vehicle as Hauler).net_mirror and not passenger:
 			_update_vehicle_controls(delta)
-		_update_chase_camera(delta)
 		return
 	_swing_cd = maxf(0.0, _swing_cd - delta)
 	if net_follow and driving():
@@ -722,7 +731,6 @@ func _physics_step(delta: float) -> void:
 		_update_rack()
 		if not passenger:
 			_update_vehicle_controls(delta)
-		_update_chase_camera(delta)
 		return
 
 	if build_system != null and build_system.active:
@@ -899,14 +907,18 @@ func _update_chase_camera(delta: float) -> void:
 	var pivot: Vector3
 	var distance: float
 	var skip: Array[RID] = []
-	if r != null and r.operating:
+	var mask := CAMERA_MASK
+	var crane := r != null and r.operating
+	if crane:
 		var focus := r.focus_point()
 		var bed: Vector3 = vehicle.global_transform * Vector3(0, float(vehicle.get("bed_floor")), float(vehicle.get("bed_mid_z"))) \
 			if vehicle.get("bed_mid_z") != null else vehicle.global_position
 		var frame := clampf(focus.distance_to(bed) * 1.1 + 3.0, 5.0, 26.0)
-		distance = maxf(crane_zoom, frame)
+		distance = frame * crane_zoom
 		pivot = focus + Vector3(0, 0.6, 0)
-		# The log being looked at does not push the camera in.
+		# Logs on the ground, in the bed and in the grapple never push the
+		# camera in: working a pile, there is always one going past.
+		mask &= ~Layers.LOOSE
 		if r.held != null and is_instance_valid(r.held):
 			skip.append(r.held.get_rid())
 	else:
@@ -914,31 +926,49 @@ func _update_chase_camera(delta: float) -> void:
 		distance = chase_distance
 		if vehicle.get("camera_distance") != null:
 			distance = float(vehicle.get("camera_distance"))
+		distance *= drive_zoom
 		# The truck itself, what it tows and what it carries never push the
 		# camera in: only the world around it does.
 		if vehicle is Hauler:
 			skip.append_array((vehicle as Hauler).train_rids())
-	var clear := _camera_clearance(pivot, basis.z, distance, skip)
+	# A swinging log and the pull-back that keeps the bed in view both move
+	# the camera, so on the crane it follows them smoothly rather than
+	# shaking with every sway. Behind a truck it stays locked on.
+	if crane and _cam_crane:
+		var k := 1.0 - exp(-8.0 * delta)
+		_cam_pivot = _cam_pivot.lerp(pivot, k)
+		_cam_want = lerpf(_cam_want, distance, k)
+	else:
+		_cam_pivot = pivot
+		_cam_want = distance
+	_cam_crane = crane
+	var clear := _camera_clearance(_cam_pivot, basis.z, _cam_want, skip, mask)
 	# In at once when something is in the way; back out gently once clear.
 	_cam_distance = clear if clear < _cam_distance else move_toward(_cam_distance, clear, 12.0 * delta)
-	camera.global_transform = Transform3D(basis, pivot + basis.z * _cam_distance)
+	camera.global_transform = Transform3D(basis, _cam_pivot + basis.z * _cam_distance)
 
+var _cam_pivot: Vector3 = Vector3.ZERO
+var _cam_want: float = 9.0
+var _cam_crane: bool = false
 var _cam_distance: float = 9.0
 ## How far the camera sits off the land and anything solid.
 const CAMERA_RADIUS := 0.35
+## What the camera keeps out of.
+const CAMERA_MASK := Layers.WORLD | Layers.VEHICLE | Layers.MACHINE | Layers.TREE | Layers.LOOSE | Layers.KERB
 
 ## How far back from `pivot` along `back` the camera can sit, up to `most`,
 ## without being inside terrain, a vehicle, a building, a tree or a log: a
 ## small sphere swept out from the pivot, stopped short of what it meets. If
 ## the pivot itself is inside something (the truck's own roof, say), that one
 ## thing is ignored rather than the camera jammed on the pivot.
-func _camera_clearance(pivot: Vector3, back: Vector3, most: float, skip: Array[RID]) -> float:
+func _camera_clearance(pivot: Vector3, back: Vector3, most: float, skip: Array[RID],
+		mask: int = CAMERA_MASK) -> float:
 	var space := get_world_3d().direct_space_state
 	var sphere := SphereShape3D.new()
 	sphere.radius = CAMERA_RADIUS
 	var q := PhysicsShapeQueryParameters3D.new()
 	q.shape = sphere
-	q.collision_mask = Layers.WORLD | Layers.VEHICLE | Layers.MACHINE | Layers.TREE | Layers.LOOSE | Layers.KERB
+	q.collision_mask = mask
 	var excluded: Array[RID] = [get_rid()]
 	excluded.append_array(skip)
 	for attempt in 3:

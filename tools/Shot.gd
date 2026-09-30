@@ -755,6 +755,33 @@ func shot_ebony() -> void:
 		await get_tree().physics_frame
 	await _tree_shots(["Ebony"])
 
+## A belt, a ramp and a belt at the ramp's top, with pieces riding up it:
+## frames from the side as they cross each join.
+func shot_rampline() -> void:
+	Settings.set_value(&"moving_sun", false, false)
+	var plot: Plot = world.plot
+	var S := Plot.SUB
+	var base := Vector2i(4 * S, 0)
+	var a := plot.place(GameData.building(&"conveyor"), base + Vector2i(0, 4 * S), 0, false)
+	plot.place(GameData.building(&"conveyor_ramp"), base, 0, false)
+	plot.place(GameData.building(&"conveyor"), base + Vector2i(0, -4 * S), 0, false, 2.0)
+	var start: Vector3 = a.global_transform * Vector3(0, 0.6, 1.5)
+	var mid: Vector3 = a.global_transform * Vector3(0, 1.0, -4.0)
+	world.player.global_position = mid + Vector3(14, 0, 0)
+	await look(mid + Vector3(12, 4.0, 3.0), mid)
+	print("line from ", start, " mid ", mid)
+	var kinds := [[&"ore_iron", Solid.chunk(0.02)], [&"lumber_pine", Solid.box(Vector3(0.3, 0.1, 1.2))],
+		[&"gem_ruby", Solid.chunk(0.004)], [&"ore_copper", Solid.chunk(0.1)]]
+	for i in 16:
+		var k: Array = kinds[i % kinds.size()]
+		world.manager.spawn(k[0], Transform3D(Basis(), start), 0, Vector3.ZERO, k[1])
+		await _frames(20)
+		if i % 2 == 1:
+			await snap("rampline_%02d" % i)
+			for it in world.manager.free_items():
+				if it.global_position.distance_to(mid) < 12.0:
+					print("  ", it.item_id, " ", it.global_position, " vis ", it.visible, " in tree ", it.is_visible_in_tree())
+
 func _tree_shots(want: Array) -> void:
 	world.hud.visible = false
 	for i in 60:

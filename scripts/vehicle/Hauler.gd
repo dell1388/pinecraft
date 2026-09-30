@@ -134,6 +134,8 @@ var _load: Array[LooseItem] = []
 var _fixed: Dictionary = {}
 ## How long each piece in the bed has lain still, relative to the truck.
 var _still_for: Dictionary = {}
+## How high over the walls a heaped load still counts as aboard.
+const HEAP_HEIGHT := 2.5
 const FIX_SPEED := 0.25          ## m/s relative to the bed, and rad/s of spin
 const FIX_SECONDS := 0.4
 var _tailgate: CollisionShape3D
@@ -446,8 +448,12 @@ func _build() -> void:
 		_cargo_area.collision_mask = Layers.LOOSE
 		var acs := CollisionShape3D.new()
 		var ab := BoxShape3D.new()
-		var tall := maxf(wall_height, 0.3) + 0.6
-		ab.size = Vector3(bed_half_width * 2.0, tall, bed_length)
+		# Up past the walls by a heap's height: a load piled above the sides
+		# is still aboard, and is fixed with the rest when someone drives.
+		var tall := maxf(wall_height, 0.3) + HEAP_HEIGHT
+		# A little wider than the bed, for pieces heaped over the tops of the
+		# side walls.
+		ab.size = Vector3(bed_half_width * 2.0 + 0.4, tall, bed_length)
 		acs.shape = ab
 		acs.position = Vector3(0, bed_floor + tall * 0.5, bed_mid_z)
 		_cargo_shape = acs
