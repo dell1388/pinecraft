@@ -29,7 +29,7 @@
       "id": "pickup",
       "voice": "v8",
       "display_name": "Pickup",
-      "blurb": "Fast on the road, with a short bed and a winch on the front bumper.",
+      "blurb": "Fast on the road, with a short bed, a winch on the front bumper and a hitch on the back for the utility trailer or anything lighter [T].",
       "style": "truck",
       "mass": 900,
       "engine": 18000,
@@ -49,6 +49,7 @@
       "capacity": 2.5,
       "bed": {"kind": "sides", "front": 0.12, "back": 2.02, "half_width": 0.88, "wall": 0.55, "head": 0.9},
       "hitch": [0, -0.22, 2.45],
+      "tow_limit": 400,
       "rig": {"winch": 5000, "crane": 0, "reach": 12, "head": [0, 0.1, -2.3]}
     },
     {
@@ -209,7 +210,7 @@
     {
       "id": "trailer",
       "display_name": "Utility Trailer",
-      "blurb": "An open steel utility trailer on two axles: high rail sides and a mesh gate at the back that comes down as a ramp [X]. Hitch it behind a truck [T].",
+      "blurb": "An open steel utility trailer on two axles: high rail sides and a mesh gate at the back that comes down as a ramp [X]. Hitch it behind a truck [T] - the pickup pulls it too.",
       "style": "trailer",
       "trailer": true,
       "mass": 400,
@@ -235,7 +236,7 @@
     {
       "id": "mower_trailer",
       "display_name": "Lawnmower Trailer",
-      "blurb": "A short single-axle trailer with low rail sides and a mesh gate that comes down as a ramp [X]. Light enough to pull by hand, with a hitch of its own on the back.",
+      "blurb": "A short single-axle trailer with low rail sides and a mesh gate that comes down as a ramp [X]. Light enough to pull by hand or behind the pickup, with a hitch of its own on the back.",
       "style": "trailer",
       "trailer": true,
       "mass": 200,
@@ -287,7 +288,7 @@
     {
       "id": "dump_trailer",
       "display_name": "Dump Trailer",
-      "blurb": "A steel tub on a tandem axle that tips its load out the back [X]. Hitch it behind a truck [T].",
+      "blurb": "A steel tub on a tandem axle that tips its load out the back [X]. Hitch it behind a truck [T] - too heavy for the pickup.",
       "style": "trailer",
       "trailer": true,
       "mass": 6000,
@@ -313,7 +314,7 @@
     {
       "id": "low_loader",
       "display_name": "Low-Loader",
-      "blurb": "A low flat deck for carrying the front loader. Ramps down [X], drive it aboard, ramps up, and hitch it behind a truck [T].",
+      "blurb": "A low flat deck for carrying the front loader. Ramps down [X], drive it aboard, ramps up, and hitch it behind a truck [T] - too heavy for the pickup.",
       "style": "trailer",
       "trailer": true,
       "mass": 1200,

@@ -116,6 +116,9 @@ func _run(label: String, path: Callable, frames: int) -> void:
 	var objects := 0.0
 	var prims := 0.0
 	var worst := 0.0
+	var grass_ms := 0.0
+	var grass_worst := 0.0
+	var birds_ms := 0.0
 	var last := Time.get_ticks_usec()
 	var t := 0.0
 	for i in frames:
@@ -127,6 +130,8 @@ func _run(label: String, path: Callable, frames: int) -> void:
 		ResourceField.built_count = 0
 		ResourceField.slept_count = 0
 		Decor.spent_usec = 0
+		GrassField.spent_usec = 0
+		Birds.spent_usec = 0
 		var tw0 := Time.get_ticks_usec()
 		await get_tree().process_frame
 		var now := Time.get_ticks_usec()
@@ -139,6 +144,9 @@ func _run(label: String, path: Callable, frames: int) -> void:
 		if ms > 25.0:
 			print("PERF slow frame %.1f ms: fields %.1f ms, built %d, slept %d, decor %.1f ms" % [ms, ResourceField.spent_usec / 1000.0, ResourceField.built_count, ResourceField.slept_count, Decor.spent_usec / 1000.0])
 		worst = maxf(worst, ms)
+		grass_ms += GrassField.spent_usec / 1000.0
+		grass_worst = maxf(grass_worst, GrassField.spent_usec / 1000.0)
+		birds_ms += Birds.spent_usec / 1000.0
 		proc += Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
 		phys += Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
 		draws += Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)
@@ -151,6 +159,7 @@ func _run(label: String, path: Callable, frames: int) -> void:
 		label, _sum(times) / n, sorted[int(n * 0.95)], worst, proc / n, phys / n,
 		int(draws / n), int(objects / n), int(prims / n / 1000.0),
 		Performance.get_monitor(Performance.OBJECT_NODE_COUNT)])
+	print("PERF %-26s grass %.3f ms a frame (worst %.2f), birds %.3f ms" % [label, grass_ms / n, grass_worst, birds_ms / n])
 
 static func _stats() -> Vector2i:
 	return Vector2i(int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)),

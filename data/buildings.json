@@ -29,16 +29,15 @@
     },
     {
       "id": "splitter",
-      "hidden": true,
       "display_name": "3-Way Splitter",
       "kind": "splitter",
       "cost": 510,
       "size": [
-        2,
+        3,
         1,
-        2
+        3
       ],
-      "blurb": "Deals pieces out left, straight and right in turn."
+      "blurb": "One belt in at the back, three out: deals pieces out left, straight and right in turn. Lay belts off its sides and front."
     },
     {
       "id": "filter",

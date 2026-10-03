@@ -32,6 +32,8 @@ func _ready() -> void:
 	}[mode], "Small")
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	add_child(note)
+	if mode == Mode.NEW:
+		add_child(_map_picker())
 	_rows = UIKit.vbox(8)
 	add_child(_rows)
 	refresh()
@@ -55,7 +57,8 @@ func _row(n: int, info: Dictionary) -> Control:
 		col.add_child(UIKit.label("Empty", "Muted"))
 	else:
 		var when := UIKit.ago(String(info.saved_at))
-		col.add_child(UIKit.label("Day %d   ·   %s   ·   %d building%s%s" % [
+		col.add_child(UIKit.label("%s   ·   Day %d   ·   %s   ·   %d building%s%s" % [
+			WorldMap.title(WorldMap.valid(info.get("map", WorldMap.ISLES))),
 			int(info.day), UIKit.money(int(info.money)), int(info.buildings),
 			"" if int(info.buildings) == 1 else "s", ("   ·   saved " + when) if when != "" else ""]))
 	row.add_child(col)
@@ -86,6 +89,32 @@ func _row(n: int, info: Dictionary) -> Control:
 			if used and not playing:
 				row.add_child(_delete_button(n))
 	return shell
+
+## Which map the new game is on: a button per map, the picked one lit, and
+## what it is under them.
+func _map_picker() -> Control:
+	var box := UIKit.vbox(6)
+	box.add_child(UIKit.label("Map", "Subheader", 14))
+	var row := UIKit.hbox(8)
+	box.add_child(row)
+	var about := UIKit.label(WorldMap.blurb(WorldMap.chosen), "Small")
+	about.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	about.custom_minimum_size.x = 420
+	var buttons: Array[Button] = []
+	for id in WorldMap.ALL:
+		var map_id: StringName = id
+		var b := UIKit.button(WorldMap.title(map_id), func():
+			WorldMap.chosen = map_id
+			about.text = WorldMap.blurb(map_id)
+			for other in buttons:
+				other.button_pressed = other.get_meta("map") == map_id)
+		b.toggle_mode = true
+		b.set_meta("map", map_id)
+		b.button_pressed = WorldMap.chosen == map_id
+		buttons.append(b)
+		row.add_child(b)
+	box.add_child(about)
+	return box
 
 func _delete_button(n: int) -> Button:
 	return UIKit.button("Delete", func():

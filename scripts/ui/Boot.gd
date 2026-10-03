@@ -57,9 +57,18 @@ var _tip_time: float = 0.0
 var _spin: float = 0.0
 var _done: bool = false
 
+## The frame rate cap from before loading, put back once the world is up.
+var _fps_before: int = 0
+
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_started_ms = Time.get_ticks_msec()
+	# The loading screen needs no more than 60 frames a second, and with the
+	# monitor sync off it would otherwise draw as fast as it can, taking a
+	# core the world's builders could have.
+	_fps_before = Engine.max_fps
+	if Engine.max_fps == 0 or Engine.max_fps > 60:
+		Engine.max_fps = 60
 	_tip_index = randi() % TIPS.size()
 	_build_screen()
 	_say("Starting up: reading the game's data, your settings and your controls")
@@ -137,6 +146,7 @@ func _say(text: String) -> void:
 	_target = maxf(_target, _target + (next - _target) * 0.12)
 
 func _on_loaded(world: Node) -> void:
+	Engine.max_fps = _fps_before
 	get_tree().current_scene = world
 	_on_progress("Ready", 1.0)
 	_done = true

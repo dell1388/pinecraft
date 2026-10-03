@@ -57,6 +57,9 @@ func show_page(i: int) -> void:
 			_toggle(&"ambient_occlusion", "Ambient occlusion")
 			_toggle(&"bloom", "Bloom")
 			_slider(&"view_distance", "View distance", 150.0, 1200.0, 50.0, "%d m")
+			_toggle(&"shaders", "Shaders: grass and trees sway, leafy trees, grassy ground")
+			_choice(&"grass", "Grass and flowers", ["Off", "Short range", "Far"])
+			_toggle(&"birds", "Birds")
 			_toggle(&"moving_sun", "Day and night (off: always day)")
 		"Audio":
 			_slider(&"music_volume", "Music", 0.0, 1.0, 0.05, "%d%%", 100.0)

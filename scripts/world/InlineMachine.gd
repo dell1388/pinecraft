@@ -215,6 +215,111 @@ func _build_hopper(outer: float, run: float, h: float) -> void:
 	_hopper_shape.position = Vector3(0, floor_y + 0.2 + tall * 0.5, 0)
 	_hopper_area.add_child(_hopper_shape)
 	_canopy.add_child(_hopper_area)
+	if machine_def.mode == MachineDef.MODE_CRUSH:
+		_build_wheels(open, roof_y, h)
+
+# --- The grinding wheels ------------------------------------------------------------
+
+## Two toothed steel drums under the hopper's mouth, turning in toward each
+## other while the crusher runs. Only the look: what drops in is taken by the
+## hopper, as ever. Someone who falls in is drawn down between them, slowly.
+var _wheels: Array[Node3D] = []
+var _wheel_nip: Vector3 = Vector3.ZERO
+var _blood: CPUParticles3D
+## Players being drawn in: Player -> true.
+var _grinding: Dictionary = {}
+## Seconds from falling in to going through.
+const GRIND_SECONDS := 2.6
+
+## The rollers (assets/models/crusher_roller.glb, built in Blender from
+## source/crusher.blend): a shaft, a core drum and seven cutter discs with
+## hooked teeth staggered round it, 2 m long and 1 m to the tooth tips; and a
+## bearing block for each end of the shaft.
+const ROLLER_MODEL := "res://assets/models/crusher_roller.glb"
+static var _roller_mesh: Mesh
+static var _bearing_mesh: Mesh
+
+static func _roller_parts() -> void:
+	if _roller_mesh != null:
+		return
+	var scene := load(ROLLER_MODEL) as PackedScene
+	if scene == null:
+		return
+	var root := scene.instantiate()
+	for n in root.find_children("*", "MeshInstance3D", true, false):
+		if String(n.name).begins_with("CrusherRoller"):
+			_roller_mesh = (n as MeshInstance3D).mesh
+		elif String(n.name).begins_with("CrusherBearing"):
+			_bearing_mesh = (n as MeshInstance3D).mesh
+	root.free()
+
+func _build_wheels(open: float, roof_y: float, h: float) -> void:
+	_roller_parts()
+	# Two big rollers filling the hopper's mouth side by side, their shafts
+	# level with the hopper's floor: the top halves turn in the hopper, the
+	# bottoms down in the machine. Their ends stop inside the hopper's walls,
+	# the bearings between them and the walls.
+	var r := clampf(open * 0.245, 0.3, 0.75)
+	var y := roof_y
+	var bearing_w := 0.22 * r
+	var span := open - 0.1 - bearing_w * 2.0
+	for side in [-1.0, 1.0]:
+		var pivot := Node3D.new()
+		pivot.name = "Roller_%s" % ("front" if side < 0 else "back")
+		pivot.position = Vector3(0, y, side * r * 0.98)
+		if _roller_mesh != null:
+			var mi := MeshInstance3D.new()
+			mi.mesh = _roller_mesh
+			mi.scale = Vector3(span / 2.0, r, r)
+			# Staggered, so the teeth of one pass between the other's.
+			mi.rotation.x = 0.0 if side < 0 else PI * 0.25
+			pivot.add_child(mi)
+		_canopy.add_child(pivot)
+		pivot.set_meta("turn", -side)
+		_wheels.append(pivot)
+		if _bearing_mesh != null:
+			for e in [-1.0, 1.0]:
+				var b := MeshInstance3D.new()
+				b.mesh = _bearing_mesh
+				b.scale = Vector3(r, r, r)
+				b.position = Vector3(e * (span * 0.5 + bearing_w * 0.5 + 0.02), y, side * r * 0.98)
+				_canopy.add_child(b)
+	_wheel_nip = Vector3(0, y, 0)
+	_blood = CPUParticles3D.new()
+	_blood.name = "Blood"
+	_blood.amount = 220
+	_blood.lifetime = 1.1
+	_blood.emitting = false
+	_blood.position = _wheel_nip + Vector3(0, r * 0.5, 0)
+	_blood.direction = Vector3(0, 1, 0)
+	_blood.spread = 50.0
+	_blood.initial_velocity_min = 3.5
+	_blood.initial_velocity_max = 7.5
+	_blood.gravity = Vector3(0, -9.8, 0)
+	_blood.scale_amount_min = 0.8
+	_blood.scale_amount_max = 2.2
+	_blood.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+	_blood.emission_box_extents = Vector3(span * 0.3, 0.05, r * 0.3)
+	var drop := SphereMesh.new()
+	drop.radius = 0.045
+	drop.height = 0.09
+	drop.radial_segments = 6
+	drop.rings = 3
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.75, 0.02, 0.03)
+	mat.emission_enabled = true
+	mat.emission = Color(0.35, 0.0, 0.0)
+	mat.roughness = 0.3
+	drop.material = mat
+	_blood.mesh = drop
+	_canopy.add_child(_blood)
+
+func _turn_wheels(delta: float) -> void:
+	if _wheels.is_empty() or not running:
+		return
+	var rate := 5.0 + 4.0 * float(not _grinding.is_empty())
+	for w in _wheels:
+		w.rotate_object_local(Vector3.RIGHT, float(w.get_meta("turn")) * rate * delta)
 
 ## Pieces that have dropped into the hopper: taken, whatever their size.
 func _feed_hopper() -> void:
@@ -224,7 +329,10 @@ func _feed_hopper() -> void:
 		if machine_def.mode == MachineDef.MODE_CRUSH:
 			var who: Variant = (body as Node).get_meta("player") if (body as Node).has_meta("player") else body
 			if who is Player:
-				crush_player(who as Player)
+				# Only someone actually down in the hopper is caught: not
+				# someone jumping over it, or standing by its rim.
+				if _in_hopper((body as Node3D).global_position):
+					_catch(who as Player)
 				continue
 		var item := body as LooseItem
 		if item == null or item.state != LooseItem.State.FREE:
@@ -232,6 +340,34 @@ func _feed_hopper() -> void:
 		if not GameData.machine_accepts(machine_def.id, item.item_id):
 			continue
 		take(item)
+
+## Down inside the hopper's mouth: within its walls, below its rims.
+func _in_hopper(point: Vector3) -> bool:
+	var local := _canopy.global_transform.affine_inverse() * point
+	var open := hopper_opening()
+	var rim := DECK_THICKNESS + canopy_height() + 0.06 + HOPPER_DEPTH
+	return absf(local.x) < open * 0.5 - 0.05 and absf(local.z) < open * 0.5 - 0.05 and local.y < rim - 0.15
+
+## Someone has fallen into the hopper: the wheels have them, and draw them
+## down between them over a couple of seconds, blood flying, before they go
+## through.
+func _catch(who: Player) -> void:
+	if _grinding.has(who) or who.crushed() or who.grinding() or who.driving():
+		return
+	_grinding[who] = true
+	who.grind(_canopy.to_global(_wheel_nip), GRIND_SECONDS)
+	Sfx.play(&"grind", global_position, 0.0, 0.8)
+
+func _grind_step() -> void:
+	if _blood != null:
+		_blood.emitting = not _grinding.is_empty()
+	for who in _grinding.keys():
+		var p := who as Player
+		if not is_instance_valid(p) or not p.grinding():
+			_grinding.erase(who)
+			if is_instance_valid(p) and not p.crushed():
+				# Done drawing in: through he goes.
+				crush_player(p)
 
 ## How many pieces of meat a player comes out as.
 const MEAT_PIECES := 10
@@ -241,6 +377,9 @@ const MEAT_PIECES := 10
 func crush_player(who: Player) -> void:
 	if who.crushed() or who.driving():
 		return
+	_grinding.erase(who)
+	if _blood != null:
+		_blood.restart()
 	who.crush(global_position + Vector3.UP * 1.5)
 	var ready := _clock + canopy_length() / maxf(0.5, speed)
 	for i in MEAT_PIECES:
@@ -451,6 +590,9 @@ func captured_count() -> int:
 func _physics_process(delta: float) -> void:
 	super(delta)
 	_clock += delta
+	_turn_wheels(delta)
+	if not _grinding.is_empty() or (_blood != null and _blood.emitting):
+		_grind_step()
 	if running:
 		if top_loaded():
 			_feed_hopper()

@@ -54,8 +54,24 @@ func _run_all() -> void:
 	await _test(&"stones are either polished or cut, and which pays depends on the stone", test_gem_line)
 	await _test(&"islands, bridges and carved places", test_islands)
 	await _test(&"big consolidated biome regions with real relief", test_regions)
+	await _test(&"ostars: the continent is where the map puts it", test_ostars_land)
+	await _test(&"ostars: forests grow in stands, on dry land, apart", test_ostars_forest)
+	await _test(&"ostars: the plot and the build sites lie level, no plate across them", test_ostars_level_ground)
+	await _test(&"grass grows on the ground, on green land, not on roads, water or the plot", test_grass_field)
+	await _test(&"far trees are leaf clusters and tiers, not buns; leaves marked for the shader", test_tree_stand_ins)
+	await _test(&"shaders switch trees and ground between plain and fancy", test_shaders_switch)
+	await _test(&"birds fly round you, above the ground, and roost at night", test_birds)
+	await _test(&"ostars: each save remembers its map", test_ostars_save_map)
+	await _test(&"ostars: roads from home to the town and every trader", test_ostars_roads)
+	await _test(&"ostars: ore by hardness, the best in the hardest country", test_ostars_ore)
+	await _test(&"traders: each has a model, a tool or a chair, and pivots", test_trader_models)
+	await _test(&"traders: each yard buys only its own goods", test_trader_yards)
+	await _test(&"traders: an order is loaded into the truck in the bay", test_trader_order)
+	await _test(&"traders: fell Old Bjorn's tree and he lets you know", test_bjorns_tree)
 	await _test(&"roads are routed over the land, graded, with no tight bends", test_road_routing)
 	await _test(&"cave networks: joined up, below sea level, with open mouths", test_cave_network)
+	await _test(&"a cave plan read back from its file is the plan as made", test_cave_plan_kept)
+	await _test(&"loading work on the worker threads leaves cores free and misses nothing", test_load_workers)
 	await _test(&"belted lines of machines keep flowing without jamming", test_machine_lines)
 	await _test(&"a tunnel mouth is a real opening", test_tunnel_mouth)
 	await _test(&"logs never stick inside a tunnel", test_tunnel_flow)
@@ -78,6 +94,8 @@ func _run_all() -> void:
 	await _test(&"belts come as ramps, borderless and stoppable", test_conveyor_options)
 	await _test(&"belts carry by friction, and things on them can jam", test_conveyor_physics)
 	await _test(&"splitter routes round-robin", test_splitter)
+	await _test(&"the 3-way splitter takes a belt in and deals onto three belts", test_splitter_belts)
+	await _test(&"a splitter's ways lock and unlock, and stay locked through a save", test_splitter_locks)
 	await _test(&"filter sorts items by type", test_filter)
 	await _test(&"building placement, cost and removal", test_building)
 	await _test(&"buildings sit on the pad, not in it", test_buildings_sit_on_pad)
@@ -138,6 +156,7 @@ func _run_all() -> void:
 	await _test(&"a driven truck's settled load is fixed as it lies", test_load_fixed_while_driven)
 	await _test(&"a load heaped over the sides is fixed too", test_heaped_load_fixed)
 	await _test(&"trucks tow trailers on a hitch", test_trailers)
+	await _test(&"the pickup pulls the utility trailer and lighter, not the big ones", test_pickup_tow_limit)
 	await _test(&"trailers chain behind one another", test_trailer_train)
 	await _test(&"the driving camera looks past its own truck, trailer and load", test_chase_camera_clear)
 	await _test(&"the front loader drives up onto the low-loader and rides on it", test_low_loader)
@@ -185,9 +204,12 @@ func _run_all() -> void:
 	await _test(&"ore blocks are built to fit any box", test_ore_look_fits_any_box)
 	await _test(&"a knock throws the player limp, and he gets back up", test_knocked_flying)
 	await _test(&"a truck driving into a player sends him flying", test_truck_knocks_player)
+	await _test(&"running into a parked truck does not knock him over", test_run_into_parked_truck)
 	await _test(&"a crane's grapple picks a player up", test_crane_lifts_player)
 	await _test(&"the crusher crushes a player into meat", test_crusher_crushes_player)
+	await _test(&"jumping over or standing by the crusher's hopper is safe", test_crusher_rim_safe)
 	await _test(&"TNT: $50 a stick, blows players about, cracks easy ore, not the best", test_tnt)
+	await _test(&"one stick of TNT sets off the rest, and throws you far", test_tnt_chain)
 	await _test(&"full automated base stays in budget", test_full_base)
 
 	_say("")
@@ -1667,6 +1689,107 @@ func test_road_routing() -> void:
 	check(poked * 50 <= tried, "the ground pokes through the road at %d of %d points" % [poked, tried])
 	done()
 
+## Planning the caves is the slow part of building them, so the plan is kept
+## in a file and read back on the next load: what comes back must be exactly
+## the plan as it was made, entrances and all, and only for the same key. And
+## the quicker bend relaxing must move the same points as looking at every
+## point every time round did.
+func test_cave_plan_kept() -> void:
+	_setup(false)
+	var land := _region_land()
+	land.cave_count = 3
+	land.cave_zones = [{"centre": Vector2(0, 0), "radius": 520.0, "count": 3}]
+	world.add_child(land)
+	await step(2)
+	var zones := [{"name": "Test", "centre": Vector2(0, 0), "radius": 520.0, "rooms": 10,
+		"kinds": [[CaveNetwork.Kind.RIVER, Vector2(-220, 120)], [CaveNetwork.Kind.CRYSTAL, Vector2(260, -160)]]}]
+	var made := CaveNetwork.new()
+	made.plan(land, zones, [], 11)
+	check(made.rooms.size() > 3 and made.tunnels.size() > 2, "too small a plan to test: %d caverns, %d tunnels" % [
+		made.rooms.size(), made.tunnels.size()])
+	var path := "user://test_cave_plan.bin"
+	made.save_plan(path, "key-a")
+	var read := CaveNetwork.new()
+	check(not read.load_plan(land, path, "key-b", 11), "a plan was read back for another key")
+	check(read.rooms.is_empty(), "a refused plan left caverns behind")
+	check(read.load_plan(land, path, "key-a", 11), "the plan was not read back")
+	check_eq(read.rooms.size(), made.rooms.size(), "caverns read back")
+	check_eq(read.tunnels.size(), made.tunnels.size(), "tunnels read back")
+	check_eq(var_to_str(read.tunnels), var_to_str(made.tunnels), "tunnels as made")
+	var entrances := 0
+	for i in mini(read.rooms.size(), made.rooms.size()):
+		var a: Dictionary = made.rooms[i]
+		var b: Dictionary = read.rooms[i]
+		for k in ["centre", "rx", "ry", "rz", "floor", "yaw", "kind", "zone", "links", "index"]:
+			check_eq(b[k], a[k], "cavern %d's %s" % [i, k])
+		check(is_same(b.entrance, a.entrance), "cavern %d's entrance is not the terrain's own cave plan" % i)
+		entrances += int(b.entrance != null)
+	check(entrances > 0, "no cavern read back with its entrance")
+	# The same queries answer the same way.
+	for t: Dictionary in made.tunnels:
+		var mid: Vector3 = (t.points as PackedVector3Array)[(t.points as PackedVector3Array).size() / 2]
+		check(read.contains(mid), "a point in a tunnel is not in the read-back plan's caves")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	made.free()
+	read.free()
+	# Bend relaxing, against the plain way of doing it.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5
+	for trial in 40:
+		var pts := PackedVector3Array()
+		var p := Vector3.ZERO
+		var heading := 0.0
+		for i in rng.randi_range(8, 70):
+			heading += rng.randf_range(-1.4, 1.4)
+			p += Vector3(cos(heading), rng.randf_range(-0.4, 0.4), sin(heading)) * 2.5
+			pts.append(p)
+		var r := rng.randf_range(3.0, 8.0)
+		check_eq(CaveNetwork._relax_bends(pts, r), _relax_plain(pts, r), "relaxed bends, trial %d" % trial)
+	done()
+
+## Bend relaxing as it was first written: every point, every time round.
+func _relax_plain(pts: PackedVector3Array, r: float) -> PackedVector3Array:
+	var tightest := CaveNetwork.min_bend(r) * 1.05
+	var out := pts.duplicate()
+	var keep := 2
+	for it in 120:
+		var moved := false
+		for i in range(keep, out.size() - keep):
+			if CaveNetwork.bend_radius(out, i) >= tightest:
+				continue
+			for j in [i - 1, i, i + 1]:
+				if j < keep or j >= out.size() - keep:
+					continue
+				var mid := (out[j - 1] + out[j + 1]) * 0.5
+				out[j] = out[j].lerp(mid, 0.5)
+			moved = true
+		if not moved:
+			break
+	return out
+
+## The big jobs of loading are split over the worker threads: every piece
+## done once, with or without frames going by meanwhile, and some cores left
+## for the rest of the computer.
+func test_load_workers() -> void:
+	const Workers := preload("res://scripts/core/Workers.gd")
+	var n := OS.get_processor_count()
+	check(Workers.tasks() >= 1, "no threads at all")
+	if n > 2:
+		check(Workers.tasks() < n, "every core used: %d of %d" % [Workers.tasks(), n])
+	for tree in [null, get_tree()]:
+		var hits: Array = []
+		hits.resize(500)
+		hits.fill(0)
+		await Workers.group(func(i: int): hits[i] = int(hits[i]) + 1, 500, "test", tree)
+		var wrong := 0
+		for h in hits:
+			wrong += int(h != 1)
+		check_eq(wrong, 0, "pieces not done exactly once (%s)" % ("with frames" if tree != null else "waited"))
+		var out := [0]
+		await Workers.one(func(): out[0] = 42, "test", tree)
+		check_eq(out[0], 42, "a single job's result (%s)" % ("with frames" if tree != null else "waited"))
+	done()
+
 ## Spec: caves much more extensive and interconnected, below sea level, big and
 ## small caverns with many tunnels, cave biomes with their own resources.
 func test_cave_network() -> void:
@@ -2678,6 +2801,94 @@ func test_splitter() -> void:
 			straight += 1
 	check(left > 0 and right > 0 and straight > 0,
 		"splitter did not use all three outputs (l%d s%d r%d)" % [left, straight, right])
+	done()
+
+## Built from build mode on the plot, in a line of belts: a belt into the back
+## of the 3-way splitter, a belt off each side and the front. Pieces go out
+## all three, and none is left on the plate.
+func test_splitter_belts() -> void:
+	_setup()
+	var def := GameData.building(&"splitter")
+	check(not def.hidden, "the 3-way splitter is not in build mode")
+	check(def.id in PlayerState.available_buildings().map(func(d): return d.id), "the 3-way splitter is not offered")
+	var sp := plot.place(def, Vector2i(0, 0), 0, false) as Splitter
+	check(sp != null, "the splitter would not go down")
+	await step(3)
+	# Belts round it, each running away from it, the in-belt running into it.
+	var belts: Array = []
+	for spec in [[Vector3(0, 0, 3.5), 0.0], [Vector3(-3.5, 0, 0), PI * 0.5], [Vector3(0, 0, -3.5), 0.0], [Vector3(3.5, 0, 0), -PI * 0.5]]:
+		var belt := Conveyor.new()
+		belt.length = 4.0
+		belt.width = 0.9
+		belt.speed = 3.0
+		world.add_child(belt)
+		belt.global_transform = Transform3D(Basis(Vector3.UP, spec[1]), sp.global_position + spec[0])
+		belts.append(belt)
+	await step(3)
+	for i in 6:
+		spawn(&"ingot_iron", sp.global_position + Vector3(0, 0.45, 4.8), Solid.box(Vector3(0.2, 0.3, 0.1)))
+		await step(45)
+	await step(150)
+	var ways := {"left": 0, "straight": 0, "right": 0}
+	var lost := 0
+	for item in manager.free_items():
+		var local: Vector3 = sp.global_transform.affine_inverse() * item.global_position
+		if local.x < -1.6:
+			ways.left += 1
+		elif local.x > 1.6:
+			ways.right += 1
+		elif local.z < -1.6:
+			ways.straight += 1
+		if absf(local.x) < 1.6 and absf(local.z) < 1.6:
+			lost += 1
+	check(int(ways.left) > 0 and int(ways.straight) > 0 and int(ways.right) > 0,
+		"the splitter did not deal onto all three belts (%s)" % str(ways))
+	check_eq(lost, 0, "pieces left sitting on the splitter")
+	done()
+
+## Aiming at a side of a splitter and pressing [R] locks that way (a gate
+## comes down across it) or opens it again; pieces only go out the open ways,
+## and which are locked is kept with the plot.
+func test_splitter_locks() -> void:
+	_setup()
+	var sp := plot.place(GameData.building(&"splitter"), Vector2i(0, 0), 0, false) as Splitter
+	await step(3)
+	var at := sp.global_position
+	check_eq(sp.toggle_toward(at + Vector3(-1.2, 0.2, 0)), 0, "aiming left did not pick the left way")
+	check_eq(sp.toggle_toward(at + Vector3(1.2, 0.2, 0.1)), 2, "aiming right did not pick the right way")
+	check_eq(sp.toggle_toward(at + Vector3(0, 0.2, 1.3)), -1, "aiming at the way in locked something")
+	check(not sp.enabled_outputs[0] and sp.enabled_outputs[1] and not sp.enabled_outputs[2], "the wrong ways are locked")
+	check(sp._gates[0].visible and not sp._gates[1].visible, "no gate across the locked way")
+	check(sp.status_line().contains("left LOCKED"), "the prompt does not say the left is locked")
+	for i in 5:
+		spawn(&"ingot_iron", at + Vector3(0, 0.45, 0.9), Solid.box(Vector3(0.2, 0.3, 0.1)))
+		await step(40)
+	await step(90)
+	var sideways := 0
+	var front := 0
+	for item in manager.free_items():
+		var local: Vector3 = sp.global_transform.affine_inverse() * item.global_position
+		if absf(local.x) > 1.6:
+			sideways += 1
+		elif local.z < -1.4:
+			front += 1
+	check_eq(sideways, 0, "a piece went out a locked way")
+	check(front >= 4, "only %d of 5 went out the open front" % front)
+	# Kept with the plot.
+	var saved := plot.to_dict()
+	plot.clear_buildings()
+	await step(2)
+	plot.from_dict(saved)
+	await step(3)
+	var back: Splitter = null
+	for rec in plot.placed:
+		if rec.node is Splitter:
+			back = rec.node
+	check(back != null and not back.enabled_outputs[0] and back.enabled_outputs[1] and not back.enabled_outputs[2],
+		"the locks were not kept through a save")
+	sp = back
+	sp.toggle_toward(sp.global_position + Vector3(-1.2, 0.2, 0))
+	check(sp.enabled_outputs[0] and not sp._gates[0].visible, "the left way would not open again")
 	done()
 
 func test_filter() -> void:
@@ -6046,7 +6257,8 @@ func test_trailer_train() -> void:
 	done()
 
 func test_trailers() -> void:
-	for pair in [[&"hauler", &"trailer"], [&"log_truck", &"log_trailer"], [&"dump_truck", &"dump_trailer"]]:
+	for pair in [[&"hauler", &"trailer"], [&"log_truck", &"log_trailer"], [&"dump_truck", &"dump_trailer"],
+			[&"pickup", &"trailer"], [&"pickup", &"mower_trailer"]]:
 		_setup(false)
 		var truck := Hauler.new()
 		truck.setup(manager, 0, pair[0])
@@ -6092,6 +6304,63 @@ func test_trailers() -> void:
 		await step(90)
 		check(trailer.parked() and absf(trailer.global_transform.basis.z.y) < 0.25,
 			"the let-go %s is not standing on its leg" % pair[1])
+	done()
+
+## The pickup pulls the utility trailer and anything lighter; the logging and
+## dump trailers and the low-loader are too heavy for it, and it says so. A
+## trailer hitched on the back of the pickup's trailer counts the same.
+## Bigger trucks pull anything.
+func test_pickup_tow_limit() -> void:
+	for id in [&"trailer", &"mower_trailer", &"log_trailer", &"dump_trailer", &"low_loader"]:
+		_setup(false)
+		var truck := Hauler.new()
+		truck.setup(manager, 0, &"pickup")
+		world.add_child(truck)
+		truck.global_position = Vector3(0, truck.spawn_height(), 0)
+		var trailer := Hauler.new()
+		trailer.setup(manager, 0, id)
+		world.add_child(trailer)
+		await step(2)
+		var behind := truck.hitch_point() + Vector3(0.2, 0, 0.6) - trailer.tongue_offset
+		trailer.global_position = Vector3(behind.x, trailer.spawn_height(), behind.z)
+		await step(60)
+		var said := truck.hitch(trailer)
+		var light := float(GameData.vehicle(id).get("mass", 0)) <= 400.0
+		if light:
+			check_eq(said, "", "the pickup would not pull the %s" % id)
+			check(truck.towing == trailer, "the pickup is not towing the %s" % id)
+		else:
+			check(said.contains("too heavy for the pickup") and said.contains("utility trailer"),
+				"the pickup took on the %s (said '%s')" % [id, said])
+			check(truck.towing == null and trailer.towed_by == null, "the %s was hitched to the pickup anyway" % id)
+	# A heavy trailer on the back of the pickup's own trailer is refused too.
+	_setup(false)
+	var pickup := Hauler.new()
+	pickup.setup(manager, 0, &"pickup")
+	world.add_child(pickup)
+	pickup.global_position = Vector3(0, pickup.spawn_height(), 0)
+	var mower := Hauler.new()
+	mower.setup(manager, 0, &"mower_trailer")
+	world.add_child(mower)
+	var dump := Hauler.new()
+	dump.setup(manager, 0, &"dump_trailer")
+	world.add_child(dump)
+	await step(2)
+	# Light enough to roll: set down just behind, and hitched as soon as it
+	# has settled.
+	var at := pickup.hitch_point() + Vector3(0, 0, 0.4) - mower.tongue_offset
+	mower.global_position = Vector3(at.x, mower.spawn_height(), at.z)
+	await step(15)
+	check_eq(pickup.hitch(mower), "", "the pickup would not pull the lawnmower trailer")
+	await step(20)
+	at = mower.hitch_point() + Vector3(0, 0, 0.6) - dump.tongue_offset
+	dump.global_position = Vector3(at.x, dump.spawn_height(), at.z)
+	await step(60)
+	check(mower.hitch(dump).contains("too heavy for the pickup"), "a dump trailer went on behind the pickup's trailer")
+	check(mower.towing == null, "the dump trailer is on the pickup's train")
+	# The bigger trucks have no such limit.
+	for id in [&"hauler", &"log_truck", &"dump_truck", &"crane_truck"]:
+		check_eq(float(GameData.vehicle(id).get("tow_limit", 0.0)), 0.0, "the %s has a towing limit" % id)
 	done()
 
 func _haulers_in(node: Node) -> int:
@@ -6985,7 +7254,7 @@ func test_avatar() -> void:
 		player.queue_free()
 		done()
 		return
-	check_eq(av._part.size(), 6, "the model should have six pivots")
+	check_eq(av._part.size(), PlayerAvatar.PARTS.size(), "the model is missing pivots (elbows, knees, fingers...)")
 	player.third_person = false
 	await step(2)
 	check_eq(av._meshes[0].cast_shadow, GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY,
@@ -7152,17 +7421,29 @@ func test_knocked_flying() -> void:
 	check(p.knocked(), "a knock did not throw him limp")
 	await step(10)
 	check_eq(p.avatar.mode(), &"ragdoll", "the lumberjack does not go limp when thrown")
+	check(p.ragdoll != null, "he went limp as one lump, not a ragdoll with arms and legs")
 	var went := false
+	var worst_gap := 0.0
 	for i in 60 * 14:
 		await step(1)
 		if p.global_position.x > 3.0:
 			went = true
+		if p.ragdoll != null and is_instance_valid(p.ragdoll):
+			# Every limb stays on at its joint, however he lands.
+			for pair in [[&"arm_r", &"fore_r", 0.24], [&"thigh_l", &"shin_l", 0.28], [&"torso", &"head", 0.0]]:
+				var a: RigidBody3D = p.ragdoll.bodies[pair[0]]
+				var b: RigidBody3D = p.ragdoll.bodies[pair[1]]
+				var joint: Vector3 = a.global_transform * (Vector3.DOWN * float(pair[2])) if float(pair[2]) > 0.0 else b.global_position
+				worst_gap = maxf(worst_gap, joint.distance_to(b.global_position))
 		if not p.knocked():
 			break
+	check(worst_gap < 0.2, "a limb came off at the joint (%.2f m)" % worst_gap)
 	check(went, "the knock did not send him flying")
 	check(not p.knocked(), "he never got back up")
 	check_eq(p.collision_layer, Layers.PLAYER, "standing up did not give him his body back")
 	check(not p.camera.top_level, "the camera stayed off watching after he got up")
+	check(p.avatar.part(&"Torso").position.distance_to(Vector3(0, 0.62, 0)) < 0.01, "his body did not go back on his hips after getting up")
+	check(not p.avatar.hat_off(), "his hat is still off after getting up")
 	# A long drop lands him in a heap too.
 	p.global_position = Vector3(0, 40, 0)
 	p.velocity = Vector3.ZERO
@@ -7201,6 +7482,36 @@ func test_truck_knocks_player() -> void:
 	if hit:
 		check(p.tumble.linear_velocity.dot(toward) > 3.0, "he did not go the way the truck was going")
 	p.free_tumble_for_test()
+	done()
+
+## Only a vehicle coming at him knocks him flying. Sprinting flat out into a
+## parked one (faster than the knock speed) just stops him against it; so
+## does riding along on a moving one.
+func test_run_into_parked_truck() -> void:
+	_setup(false)
+	var truck := Hauler.new()
+	truck.setup(manager, 0, &"pickup")
+	world.add_child(truck)
+	truck.global_position = Vector3(0, truck.spawn_height(), -7)
+	await step(40)
+	var p := _standing_player(Vector3(0, 1.0, 0))
+	await step(20)
+	p.rotation.y = 0.0
+	Input.action_press("move_forward")
+	Input.action_press("sprint")
+	var fastest := 0.0
+	var knocked := false
+	for i in 150:
+		await step(1)
+		fastest = maxf(fastest, Vector2(p.velocity.x, p.velocity.z).length())
+		knocked = knocked or p.knocked()
+	Input.action_release("move_forward")
+	Input.action_release("sprint")
+	check(fastest > Player.CAR_KNOCK_SPEED, "he never ran faster than the knock speed (%.1f m/s)" % fastest)
+	check(p.global_position.z < -3.0, "he did not get to the truck (z %.1f)" % p.global_position.z)
+	check(not knocked, "running into a parked truck knocked him flying")
+	if p.knocked():
+		p.free_tumble_for_test()
 	done()
 
 func test_crane_lifts_player() -> void:
@@ -7250,12 +7561,20 @@ func test_crusher_crushes_player() -> void:
 	var top := crusher.global_transform * Vector3(0, InlineMachine.DECK_THICKNESS + crusher.canopy_height() + InlineMachine.HOPPER_DEPTH + 1.0, 0)
 	var p := _standing_player(top)
 	var got := false
-	for i in 120:
+	var pulled := false
+	var frames_drawn := 0
+	for i in 600:
 		await step(1)
+		if p.grinding():
+			pulled = true
+			frames_drawn += 1
 		if p.crushed():
 			got = true
 			break
+	check(pulled, "he was not drawn into the wheels first")
+	check(frames_drawn > 100, "he went through in %d frames: not slowly" % frames_drawn)
 	check(got, "falling into the crusher did not crush him")
+	check(crusher._wheels.size() == 2, "the crusher has no grinding wheels")
 	var meat := 0
 	for i in 60 * 6:
 		await step(1)
@@ -7264,6 +7583,29 @@ func test_crusher_crushes_player() -> void:
 			meat += 1
 	check(meat >= 5, "the crusher did not spit out meat (%d bits)" % meat)
 	check(not p.crushed(), "he was never let out of the crusher")
+	done()
+
+## The crusher only takes someone who is down inside its hopper: standing on
+## its roof beside the mouth, or passing just over the rims, is safe.
+func test_crusher_rim_safe() -> void:
+	_setup(false)
+	var crusher := _inline(&"crusher")
+	_runout(crusher)
+	await step(10)
+	var roof := InlineMachine.DECK_THICKNESS + crusher.canopy_height() + 0.06
+	var rim := roof + InlineMachine.HOPPER_DEPTH
+	var open := crusher.hopper_opening()
+	var t := crusher.global_transform
+	# Just over the rims, as at the top of a jump across.
+	check(not crusher._in_hopper(t * Vector3(0, rim + 0.3, 0)), "just over the hopper counts as in it")
+	check(not crusher._in_hopper(t * Vector3(open * 0.5 + 0.1, rim - 0.4, 0)), "beside the rim counts as in it")
+	check(crusher._in_hopper(t * Vector3(0, rim - 0.5, 0)), "down in the hopper does not count")
+	# A player standing on the roof next to the hopper for a while.
+	var p := _standing_player(t * Vector3(open * 0.5 + 0.45, roof + 0.3, 0))
+	for i in 120:
+		await step(1)
+	check(not p.grinding() and not p.crushed(), "standing by the hopper pulled him in")
+	p.queue_free()
 	done()
 
 func test_tnt() -> void:
@@ -7333,4 +7675,564 @@ func test_tnt() -> void:
 		check(p.tumble.linear_velocity.length() > 4.0 or p.global_position.distance_to(Vector3(-27, 1, 28)) > 1.0,
 			"the blast barely moved the player")
 	p.free_tumble_for_test()
+	done()
+
+## One stick sets off the rest: loose, boxed, or on someone's rack - and he
+## goes a long way.
+func test_tnt_chain() -> void:
+	_setup()
+	var a := spawn(&"tnt_stick", Vector3(20, 0.5, -20))
+	var b := spawn(&"tnt_stick", Vector3(23, 0.5, -20))
+	var boxed := spawn(&"box_tnt_stick", Vector3(20, 0.5, -15))
+	var p := _standing_player(Vector3(18, 1.0, -22))
+	await step(20)
+	var carried := spawn(&"tnt_stick", p.global_position + Vector3(0, 1.2, 0))
+	await step(2)
+	check(p.pick_up(carried), "could not pick a stick of TNT up onto the rack")
+	await step(5)
+	check(Blast.light(a, manager, 0.1), "the first stick would not light")
+	var fastest := 0.0
+	for i in 90:
+		await step(1)
+		if p.knocked():
+			fastest = maxf(fastest, p.tumble.linear_velocity.length())
+	var left := 0
+	for item in manager.free_items():
+		if Blast.explosive(item):
+			left += 1
+	check_eq(left, 0, "not every stick went up in the chain")
+	check(not p.held.has(carried), "the stick on his rack did not go off")
+	check(fastest > 18.0, "the blast only threw him at %.1f m/s" % fastest)
+	p.free_tumble_for_test()
+	done()
+
+# --- Ostars -------------------------------------------------------------------
+
+## The second map is drawn, not rolled: the places on it are where it says.
+func test_ostars_land() -> void:
+	var o := Ostars.new()
+	var home: Array = o.sample(0.0, 0.0)
+	check(float(home[1]) > 0.5 and float(home[1]) < 10.0, "home is not low dry ground (%.1f)" % float(home[1]))
+	check_eq(int(home[0]), Terrain.Biome.WOODLAND, "home is not in the meadows")
+	for corner in [Vector2(2350, 2350), Vector2(-2350, -2350), Vector2(2350, -2350), Vector2(-2350, 2350)]:
+		check(float(o.sample(corner.x, corner.y)[1]) < -3.0, "the map's corner %s is not sea" % corner)
+	check(float(o.sample(-1500.0, 200.0)[1]) < 0.0, "the Aethel Sea is dry")
+	check(float(o.sample(-1940.0, -360.0)[1]) > 3.0, "the Whispering Woods' island is not there")
+	# The Arch stands out of the sea, with sea either side of it.
+	check(float(o.sample(-1470.0, -400.0)[1]) > 10.0, "the Great Sky Arch is not up out of the sea")
+	check(float(o.sample(-1470.0, -330.0)[1]) < 0.0 and float(o.sample(-1470.0, -470.0)[1]) < 0.0,
+		"the Arch is not over open water")
+	# The Spine: a flat top well up off the desert, and it drops away.
+	var top: float = o.sample(560.0, 350.0)[1]
+	check_near(top, 38.0, 1.0, "the Emperor's Spine's top")
+	check(float(o.sample(620.0, 300.0)[1]) < top - 4.0, "the Spine is not a ridge")
+	# Orodruin: a high cone with a crater sunk in its top.
+	var rim: float = o.sample(-1010.0, -980.0)[1]
+	var pit: float = o.sample(-1080.0, -980.0)[1]
+	check(rim > 200.0, "Mt. Orodruin is only %.0f m high" % rim)
+	check(pit < rim - 30.0, "Orodruin has no crater (%.0f in, %.0f at the rim)" % [pit, rim])
+	check_eq(int(o.sample(-1080.0, -900.0)[0]), Terrain.Biome.ASH, "Orodruin is not ash")
+	check(Ostars.lava_level() < rim and Ostars.lava_level() > pit, "the lava is not in the crater")
+	# The frozen lakes are flat ice; the north is snow.
+	var lake: Array = o.sample(520.0, -1830.0)
+	check_eq(int(lake[0]), Terrain.Biome.ICE, "the tundra lake is not ice")
+	check_near(float(o.sample(560.0, -1830.0)[1]), float(lake[1]), 0.01, "the ice is not flat")
+	check_eq(int(o.sample(900.0, -1800.0)[0]), Terrain.Biome.SNOW, "the Frostpeak Tundra is not snow")
+	check_eq(int(o.sample(450.0, 360.0)[0]), Terrain.Biome.DESERT, "the Shattered Desert is not desert")
+	check_eq(int(o.sample(1450.0, 760.0)[0]), Terrain.Biome.SWAMP, "the Mor'uk Bogs are not swamp")
+	check_eq(String(o.region_at(-700.0, -260.0).name), "Sylvenwood", "Sylvenwood is not where the map has it")
+	# The rivers run in low valleys all the way down.
+	for k in Ostars.RIVERS.size():
+		var path: Array = Ostars.RIVERS[k].path
+		for i in range(2, path.size()):
+			var at: Vector2 = path[i]
+			check(float(o.sample(at.x, at.y)[1]) < 6.0, "%s is up on high ground at %s" % [Ostars.RIVERS[k].name, at])
+	# The Dragon's Teeth are fangs, and the shaper is a pure function of place.
+	var teeth := -INF
+	for x in range(700, 2150, 25):
+		for z in range(1150, 2050, 25):
+			teeth = maxf(teeth, float(o.sample(x, z)[1]))
+	check(teeth > 120.0, "the Dragon's Teeth top out at %.0f m" % teeth)
+	check_eq(Ostars.new().sample(123.0, -456.0), o.sample(123.0, -456.0), "the same place sampled twice differs")
+	done()
+
+## A piece of Ostars round home, as the terrain builds it, for the tests.
+func _ostars_patch(half: float) -> Terrain:
+	var land := Terrain.new()
+	land.half_extent = half
+	land.noise_seed = 20260929
+	var o := Ostars.new()
+	o.configure(land)
+	land.reserve_site(Vector3(0, World.PLOT_GROUND, 0), 56.0)
+	land.reserve_clear_square(Vector3(0, World.PLOT_GROUND, 0), 50.0, World.PLOT_GROUND, 10.0)
+	return land
+
+## The land round the plot is levelled, and the plates that draw the land
+## have to follow it: none reaching in over the plot from the rising ground
+## round it (which used to lay a slanted plate across half the concrete), and
+## none across a levelled build site either.
+func test_ostars_level_ground() -> void:
+	_setup(false)
+	var land := _ostars_patch(420.0)
+	land.reserve_site(Vector3(160, NAN, -140), 20.0)
+	world.add_child(land)
+	await step(2)
+	check(land.facets != null, "Ostars is not drawn in plates")
+	var highest := -INF
+	var lowest := INF
+	# The plot at its biggest, and a little past its kerb.
+	for x in range(-50, 51, 2):
+		for z in range(-50, 51, 2):
+			var h := land.height_at(float(x), float(z))
+			highest = maxf(highest, h)
+			lowest = minf(lowest, h)
+	check(highest <= World.PLOT_GROUND + 0.01, "the land comes up to %.2f m over the plot (level %.2f)" % [highest, World.PLOT_GROUND])
+	check(lowest >= World.PLOT_GROUND - 0.1, "the land dips to %.2f m under the plot" % lowest)
+	# A levelled site: dead level over most of it; toward its edge the grid
+	# cells there reach out onto the eased ground, a few centimetres, no more.
+	var site: Dictionary = land.build_sites[land.build_sites.size() - 1]
+	var c: Vector3 = site.centre
+	var inner := 0.0
+	var edge := 0.0
+	for k in 400:
+		var a := float(k) * 2.39996
+		var f := sqrt(float(k) / 400.0) * 0.9
+		var d := f * float(site.radius)
+		var off := absf(land.height_at(c.x + cos(a) * d, c.z + sin(a) * d) - c.y)
+		if f <= 0.7:
+			inner = maxf(inner, off)
+		else:
+			edge = maxf(edge, off)
+	check(inner < 0.02, "the ground strays %.2f m off the level inside a build site" % inner)
+	check(edge < 0.25, "the ground strays %.2f m off the level near a build site's edge" % edge)
+	done()
+
+## Grass stands on the ground (its lattice heights are the ground's), grows
+## where the ground is green, and not on the roads, the water or the plot's
+## concrete; it thins out and stops with distance.
+func test_grass_field() -> void:
+	_setup(false)
+	var land := _ostars_patch(420.0)
+	world.add_child(land)
+	await step(2)
+	var grass := GrassField.new()
+	grass.setup(land)
+	grass.keep_off = [[Vector3(0, 0, 0), 22.6]]
+	world.add_child(grass)
+	grass.configure(2, true)
+	var at := Vector3(70, land.height_at(70, 70), 70)
+	grass.build_around(at)
+	check(grass.chunk_count >= 20, "only %d chunks of grass round a point" % grass.chunk_count)
+	var grown := 0
+	var bad_height := 0
+	var on_plot := 0
+	var on_water := 0
+	var looked := 0
+	for key in grass._chunks:
+		var c: GrassField.Chunk = grass._chunks[key]
+		if c.empty:
+			continue
+		var img := c.ground.get_image()
+		for iz in GrassField.LATTICE + 1:
+			for ix in GrassField.LATTICE + 1:
+				var x := float(key.x) * GrassField.CHUNK + float(ix) * GrassField.CHUNK / float(GrassField.LATTICE)
+				var z := float(key.y) * GrassField.CHUNK + float(iz) * GrassField.CHUNK / float(GrassField.LATTICE)
+				var px := img.get_pixel(ix, iz)
+				looked += 1
+				if absf(px.r - land.height_at(x, z)) > 0.05:
+					bad_height += 1
+				if px.g > 0.0:
+					grown += 1
+					if absf(x) <= 22.6 and absf(z) <= 22.6:
+						on_plot += 1
+					if land.water_depth(x, z) > 0.0 or land.is_road(x, z):
+						on_water += 1
+	check(looked > 0 and grown * 3 > looked, "grass on only %d of %d points round home" % [grown, looked])
+	check_eq(bad_height, 0, "grass lattice points off the ground")
+	check_eq(on_plot, 0, "grass growing through the plot's concrete")
+	check_eq(on_water, 0, "grass growing in the water or on a road")
+	# Near, all of it; further, a half, then a quarter; past the reach, none.
+	check_near(grass.keep_at(5.0), 1.0, 0.001, "grass kept at 5 m")
+	check(grass.keep_at(35.0) < 0.6 and grass.keep_at(35.0) > 0.25, "grass kept at 35 m: %.2f" % grass.keep_at(35.0))
+	check_near(grass.keep_at(58.0), 0.25, 0.001, "grass kept far off")
+	# Off: nothing left.
+	grass.configure(0, true)
+	check_eq(grass.chunk_count, 0, "grass left with grass off")
+	done()
+
+## The far stand-ins are the tree's shape in a hundred-odd triangles - leaf
+## lumps round a middle for a broadleaf, stacked tiers for a conifer - not
+## two stacked prisms; leaves carry alpha 0 and bark 1, for the shader.
+func test_tree_stand_ins() -> void:
+	for kind in World.SPECIES:
+		var mesh := ChoppableTree.stand_in(kind)
+		var arrays := mesh.surface_get_arrays(0)
+		var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var cols: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+		var idx = arrays[Mesh.ARRAY_INDEX]
+		var tris := (idx as PackedInt32Array).size() / 3 if idx != null and not (idx as PackedInt32Array).is_empty() else verts.size() / 3
+		var name := String(kind.get("name", "?"))
+		var style: StringName = kind.get("style", &"cone")
+		if style == &"bare":
+			continue
+		check(tris >= (30 if style == &"palm" else 50) and tris <= 260, "%s's stand-in is %d triangles" % [name, tris])
+		var leaves := 0
+		var wood := 0
+		for c in cols:
+			if c.a < 0.5:
+				leaves += 1
+			else:
+				wood += 1
+		check(leaves > 0 and wood > 0, "%s's stand-in has %d leaf and %d bark points" % [name, leaves, wood])
+		# As tall as the tree, give or take.
+		var top := -INF
+		for v in verts:
+			top = maxf(top, v.y)
+		var h := (float(kind.height[0]) + float(kind.height[1])) * 0.5
+		check(top > h * 0.8 and top < h * 1.6, "%s's stand-in is %.1f m tall for a %.1f m tree" % [name, top, h])
+	done()
+
+## Shaders on: the ground and every merged tree and stand-in drawn with the
+## shaders; off: the plain materials, as before.
+func test_shaders_switch() -> void:
+	_setup(false)
+	var land := _region_land()
+	world.add_child(land)
+	await step(2)
+	var tree := ChoppableTree.new()
+	tree.manager = manager
+	tree.trunk_height = 9.0
+	tree.foliage_style = &"ball"
+	world.add_child(tree)
+	await step(3)
+	tree._merge()
+	check(tree.is_merged(), "the test tree did not merge")
+	var land_mesh: MeshInstance3D = land._land_meshes[0]
+	land.set_fancy(true)
+	ChoppableTree.set_fancy(true)
+	check(land_mesh.material_override is ShaderMaterial, "the ground has no shader with shaders on")
+	check(tree._merged.material_override is ShaderMaterial, "the tree has no shader with shaders on")
+	land.set_fancy(false)
+	ChoppableTree.set_fancy(false)
+	check(land_mesh.material_override is StandardMaterial3D, "the ground kept its shader with shaders off")
+	check(tree._merged.material_override is StandardMaterial3D, "the tree kept its shader with shaders off")
+	ChoppableTree.set_fancy(true)
+	done()
+
+## Birds: up in the air over the ground, round whoever they follow, and put
+## away at night.
+func test_birds() -> void:
+	_setup(false)
+	var land := _region_land()
+	world.add_child(land)
+	await step(2)
+	var focus := Node3D.new()
+	world.add_child(focus)
+	focus.global_position = Vector3(-200, land.height_at(-200, 100) + 1.0, 100)
+	var birds := Birds.new()
+	birds.setup(land)
+	birds.focus = focus
+	world.add_child(birds)
+	for i in 240:
+		await get_tree().process_frame
+	var low := 0
+	var far := 0
+	for b: Birds.Bird in birds._birds:
+		if b.pos.y < land.height_at(b.pos.x, b.pos.z) + 3.0:
+			low += 1
+		if Vector2(b.pos.x - focus.global_position.x, b.pos.z - focus.global_position.z).length() > Birds.LEASH + 120.0:
+			far += 1
+	check(birds._birds.size() >= 20, "only %d birds" % birds._birds.size())
+	check_eq(low, 0, "birds flying into the ground")
+	check_eq(far, 0, "birds wandered off")
+	birds.set_enabled(false)
+	check(not birds._mmi.visible, "birds still shown with birds off")
+	done()
+
+## Ostars has roads: from the plot to the main street, and one to each of the
+## traders and Summit Outfitters, ending just outside their yards.
+func test_ostars_roads() -> void:
+	var roads := World.ostars_roads()
+	check(roads.size() >= 5, "only %d roads on Ostars" % roads.size())
+	var ends: Array = []
+	for road in roads:
+		var pts: Array = road.route if road is Dictionary else road
+		ends.append(pts[0])
+		ends.append(pts[pts.size() - 1])
+	check(ends.has(Vector3(0, 0, 52)), "no road from the plot")
+	for key in ["lumber", "metal", "gems", "summit"]:
+		var at: Array = Ostars.SITES[key]
+		var c := Vector3(float(at[0]), 0, float(at[1]))
+		var nearest := INF
+		for e: Vector3 in ends:
+			nearest = minf(nearest, e.distance_to(c))
+		check(nearest < float(at[2]) + 12.0 and nearest > float(at[2]), "the road to %s ends %.0f m from it" % [key, nearest])
+	done()
+
+func test_ostars_forest() -> void:
+	_setup(false)
+	var land := _ostars_patch(420.0)
+	world.add_child(land)
+	await step(2)
+	var o: Ostars = land.shaper
+	var forester := Forester.new(land, o, World.SPECIES)
+	var grown := forester.grow(1500)
+	check(grown > 900, "only %d trees grew round home" % grown)
+	check(forester.stands.size() > 20, "the trees are not in stands (%d)" % forester.stands.size())
+	# The home wood, a short walk out, of easy trees.
+	check(forester.home_wood != Vector3.INF, "no wood by the plot")
+	var out := Vector2(forester.home_wood.x, forester.home_wood.z).length()
+	check(out >= Forester.HOME_WOOD.near - 1.0 and out <= Forester.HOME_WOOD.far + 1.0,
+		"the home wood is %.0f m out" % out)
+	check(forester.home_spots.size() >= 40, "the home wood has %d trees" % forester.home_spots.size())
+	# Every tree: somewhere it can stand, off the plot, and not in another.
+	var all: Array[Vector2] = []
+	var bad_wet := 0
+	var on_plot := 0
+	var off_mix := 0
+	for name in forester.spots:
+		var kind: Dictionary = forester.kinds[name]
+		for p: Vector3 in forester.spots[name]:
+			all.append(Vector2(p.x, p.z))
+			if land.water_depth(p.x, p.z) > float(kind.get("wet", 0.0)) + 0.05:
+				bad_wet += 1
+			if land.in_clear_zone(p.x, p.z, 5.0):
+				on_plot += 1
+			var mix: Dictionary = forester.mix_at(p.x, p.z)
+			if not mix.has(name):
+				off_mix += 1
+	for p in forester.home_spots:
+		all.append(Vector2(p.x, p.z))
+	check_eq(bad_wet, 0, "trees standing in water too deep for them")
+	check_eq(on_plot, 0, "trees on the plot")
+	check(float(off_mix) < float(all.size()) * 0.12, "%d of %d trees are not of their country" % [off_mix, all.size()])
+	var cells := {}
+	var close := 0
+	for p in all:
+		var c := Vector2i(floori(p.x / 4.0), floori(p.y / 4.0))
+		for dz in range(-1, 2):
+			for dx in range(-1, 2):
+				for q: Vector2 in cells.get(Vector2i(c.x + dx, c.y + dz), []):
+					if q.distance_to(p) < Forester.SPACING - 0.01:
+						close += 1
+		if not cells.has(c):
+			cells[c] = []
+		(cells[c] as Array).append(p)
+	check_eq(close, 0, "trees closer than %.1f m" % Forester.SPACING)
+	# Thick in the woods, thin in the open: the same ground grows the same forest.
+	var again := Forester.new(land, o, World.SPECIES)
+	check_eq(again.grow(1500), grown, "the same seed grew a different forest")
+	check(forester.wood_at(0.0, 0.0) == 0.0, "trees could grow on the plot")
+	done()
+
+func test_ostars_save_map() -> void:
+	_setup()
+	await step(2)
+	var was := WorldMap.current
+	var path := "user://test_map.json"
+	WorldMap.current = WorldMap.OSTARS
+	check(SaveSystem.save_game(plot, null, path), "saving failed")
+	check_eq(SaveSystem.summary(path).get("map"), WorldMap.OSTARS, "the save does not say it is Ostars")
+	WorldMap.current = WorldMap.ISLES
+	check(SaveSystem.save_game(plot, null, path), "saving failed")
+	check_eq(SaveSystem.summary(path).get("map"), WorldMap.ISLES, "the save does not say it is the islands")
+	# A save from before there were maps is on the islands; nonsense is too.
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	f.store_string(JSON.stringify({"version": 2, "economy": {"day": 2}}))
+	f.close()
+	check_eq(SaveSystem.summary(path).get("map"), WorldMap.ISLES, "an old save is not on the islands")
+	check_eq(WorldMap.valid("atlantis"), WorldMap.ISLES, "an unknown map is not the islands")
+	check_eq(WorldMap.valid("ostars"), WorldMap.OSTARS, "ostars is not a map")
+	SaveSystem.delete_save(path)
+	# An empty slot builds the map chosen for a new game; a used one its own.
+	var was_slot := SaveSystem.slot
+	var was_chosen := WorldMap.chosen
+	SaveSystem.slot = 6
+	var slot_path := SaveSystem.slot_path(6)
+	var kept := FileAccess.get_file_as_string(slot_path) if FileAccess.file_exists(slot_path) else ""
+	SaveSystem.delete_save(slot_path)
+	WorldMap.chosen = WorldMap.OSTARS
+	WorldMap.pick_for_slot()
+	check_eq(WorldMap.current, WorldMap.OSTARS, "a new game is not on the map chosen for it")
+	WorldMap.current = WorldMap.ISLES
+	check(SaveSystem.save_game(plot, null, slot_path), "saving to slot 6 failed")
+	WorldMap.pick_for_slot()
+	check_eq(WorldMap.current, WorldMap.ISLES, "a saved game is not built on its own map")
+	SaveSystem.delete_save(slot_path)
+	if kept != "":
+		var back := FileAccess.open(slot_path, FileAccess.WRITE)
+		back.store_string(kept)
+		back.close()
+	SaveSystem.slot = was_slot
+	WorldMap.chosen = was_chosen
+	WorldMap.current = was
+	# The checklist on a map with no yard or store leaves those steps out,
+	# and doing the rest still finishes it.
+	var t := Tutorial.new()
+	t.skip([&"sell", &"store", &"order"])
+	check_eq(t.steps.size(), Tutorial.STEPS.size() - 3, "the skipped steps are still on the list")
+	for step_def in t.steps:
+		check(not [&"sell", &"store", &"order"].has(step_def.id), "%s is still on the list" % step_def.id)
+	t.free()
+	done()
+
+func test_ostars_ore() -> void:
+	_setup(false)
+	var land := _ostars_patch(420.0)
+	world.add_child(land)
+	await step(2)
+	var pro := Prospector.new(land, land.shaper)
+	check(pro.hardness(0.0, 60.0) < 1.0, "home is hard country (%.2f)" % pro.hardness(0.0, 60.0))
+	var found := {}
+	for entry in pro.survey(4):
+		found[entry[0]] = (entry[1] as PackedVector3Array).size()
+	check(int(found.get(&"ore_tin", 0)) > 20, "no tin round home")
+	check(int(found.get(&"gem_quartz", 0)) > 20, "no quartz round home")
+	check(int(found.get(&"ore_gold", 0)) == 0, "gold in the easy country round home")
+	check(int(found.get(&"ore_platinum", 0)) == 0, "platinum round home")
+	# Up Orodruin the country is as hard as it gets.
+	var o: Ostars = land.shaper
+	check(o.sample(-1060.0, -1000.0)[1] > 150.0, "Orodruin is not up there")
+	done()
+
+func test_trader_models() -> void:
+	_setup(false)
+	for role in [NpcFigure.Role.LUMBERMAN, NpcFigure.Role.MINER, NpcFigure.Role.GRANNY, NpcFigure.Role.HELPER]:
+		var f := NpcFigure.new(role, "x")
+		world.add_child(f)
+		await step(2)
+		var who := String(NpcFigure.Role.keys()[role])
+		check(f.model != null, "%s has no model" % who)
+		for n in [&"Torso", &"Head", &"Hand_R", &"Knee_L", &"Finger_R2"]:
+			check(f._part.has(n), "%s has no %s" % [who, n])
+		if role == NpcFigure.Role.MINER or role == NpcFigure.Role.LUMBERMAN:
+			check(f._tool != null and f._tool.get_parent() == f._part[&"Hand_R"], "%s's tool is not in his hand" % who)
+		if role == NpcFigure.Role.GRANNY:
+			check(f._chair != null, "Granny has no rocking chair")
+			check(f.state == &"rock", "Granny is not rocking")
+		check(f.body != null, "%s has nothing to aim at" % who)
+	# The miner's day: work, then pace or rest, and back to work.
+	var m := NpcFigure.new(NpcFigure.Role.MINER, "Dusty")
+	m.post = Vector3(5, 0, 0)
+	m.position = m.post
+	m.work_at = Vector3(5, 0, -1.2)
+	m.pace_to = Vector3(5, 0, 5)
+	world.add_child(m)
+	var hits := [0]
+	m.struck.connect(func(_at: Vector3): hits[0] += 1)
+	var seen := {}
+	for i in 60 * 40:
+		await get_tree().process_frame
+		seen[m.state] = true
+		if seen.has(&"rest") and seen.has(&"pace") and hits[0] > 3:
+			break
+	check(hits[0] > 3, "the miner never struck his rock")
+	check(seen.has(&"rest") or seen.has(&"pace"), "the miner never took a break (%s)" % [seen.keys()])
+	done()
+
+func test_trader_yards() -> void:
+	_setup(false)
+	var yard := SellYard.new()
+	yard.setup(manager)
+	yard.accepts = [&"gem", &"jewel"]
+	yard.keeper = "Granny Opal"
+	yard.npc = NpcFigure.new(NpcFigure.Role.GRANNY, "Granny Opal")
+	world.add_child(yard)
+	await step(2)
+	var gem := spawn(&"gem_quartz", Vector3(1, 1, 1))
+	var log := spawn(&"wood_pine", Vector3(-2, 1, 1))
+	for item in [gem, log]:
+		item.owned = true
+	await step(30)
+	check(yard.stock().has(gem), "Granny does not want the quartz")
+	check(not yard.stock().has(log), "Granny wants the log")
+	var money := Economy.money
+	var sold := yard.sell_all()
+	check_eq(int(sold.count), 1, "Granny bought the wrong things")
+	check(Economy.money > money, "Granny did not pay")
+	check(is_instance_valid(log) and log.state != LooseItem.State.POOLED, "the log was taken")
+	check(yard.npc.saying() != "", "Granny said nothing as she paid")
+	done()
+
+func _post(kind: TradePost.Kind) -> TradePost:
+	var tp := TradePost.new()
+	tp.setup(kind, manager)
+	tp.ground = func(_x: float, _z: float) -> float: return 0.0
+	return tp
+
+func test_trader_order() -> void:
+	_setup(false)
+	manager.per_plot_cap = 800
+	var tp := _post(TradePost.Kind.METAL)
+	world.add_child(tp)
+	await step(5)
+	check(tp.counter != null and tp.helper != null, "the assay office has no counter or no helper")
+	# A truck backed into the bay.
+	var truck := Hauler.new()
+	truck.setup(manager, 0, &"pickup")
+	world.add_child(truck)
+	truck.global_position = tp.to_global(TradePost.BAY_CENTRE) + Vector3(0, truck.spawn_height(), 0)
+	await step(30)
+	Economy.from_dict({"money": 100000, "day": 1})
+	var price := tp.counter.price_of(&"ingot_iron")
+	check(price > Economy.price_of(&"ingot_iron"), "buying is no dearer than selling")
+	var msg := tp.counter.order(&"ingot_iron", 8)
+	check(msg.begins_with("ordered"), "the order was refused: %s" % msg)
+	check_eq(Economy.money, 100000 - price * 8, "the order was not paid for")
+	check_eq(tp.queued(), 8, "the order is not waiting to go out")
+	var frames := 0
+	while tp.queued() > 0 and frames < 60 * 60:
+		await get_tree().process_frame
+		frames += 1
+	await step(60)
+	check_eq(tp.queued(), 0, "the helper never finished loading")
+	var in_bed := 0
+	for item in manager.owned_items():
+		if item.item_id != &"ingot_iron":
+			continue
+		var local := truck.to_local(item.global_position)
+		if absf(local.x) < truck.bed_half_width + 0.3 and local.z > truck.bed_front - 0.3 and local.z < truck.bed_back + 0.3:
+			in_bed += 1
+	check_eq(in_bed, 8, "not everything went into the truck")
+	# No truck: onto the bay floor. And too dear: refused, nothing taken.
+	truck.queue_free()
+	await step(10)
+	Economy.from_dict({"money": 5, "day": 1})
+	check(not tp.counter.order(&"ingot_gold", 25).begins_with("ordered"), "an order it could not pay for went through")
+	check_eq(Economy.money, 5, "money went on an order that was refused")
+	done()
+
+func test_bjorns_tree() -> void:
+	_setup(false)
+	var tp := _post(TradePost.Kind.LUMBER)
+	var pine: Dictionary = {}
+	for kind in World.SPECIES:
+		if kind.name == "Pine":
+			pine = kind
+	tp.tree_builder = func(form_seed: int) -> Node3D:
+		var t := ChoppableTree.new()
+		t.manager = manager
+		t.wood_item = pine.item
+		t.species = "Pine"
+		t.seed_form(form_seed)
+		t.trunk_height = 8.0
+		t.trunk_radius = 0.3
+		return t
+	world.add_child(tp)
+	await step(10)
+	check(tp.tree != null, "Old Bjorn has no tree")
+	check(tp.keeper.state == &"work", "Old Bjorn is not working (%s)" % tp.keeper.state)
+	tp.tree.fell(Vector3(10, 0, 0))
+	await step(5)
+	check(tp.keeper.state == &"angry", "Old Bjorn does not mind his tree being felled (%s)" % tp.keeper.state)
+	check(NpcFigure.GRUMBLES.has(tp.keeper.saying()), "Old Bjorn said nothing (%s)" % tp.keeper.saying())
+	# It grows back, and he gets back to it.
+	tp._regrow = 0.05
+	await step(20)
+	check(tp.tree != null and is_instance_valid(tp.tree) and tp.tree.standing(), "his tree did not grow back")
+	for i in 60 * 6:
+		await get_tree().process_frame
+		if tp.keeper.state == &"work":
+			break
+	check(tp.keeper.state == &"work", "Old Bjorn did not go back to work (%s)" % tp.keeper.state)
 	done()

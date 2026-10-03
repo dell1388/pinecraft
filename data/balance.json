@@ -2,7 +2,7 @@
   "_note": "Balance knobs: speeds, prices, strengths and the rest of the game's feel in one place. Change a number, restart the game. Anything left out uses the value the game was tuned with. Per-item values, machine rates and vehicle stats live in their own tables (items.json, buildings.json, vehicles.json, upgrades.json); the multipliers here scale all of them at once. Your own settings and keys are not here - they are in your personal config file (Settings > Game > Open folder).",
 
   "player": {
-    "_about": "Moving and handling. walk_multiplier scales walking and sprinting on top of the boots. reach: how far you can use things (m). drag_strength_kg: how hard your hand pulls a dragged piece. drag_turn_rate: Shift+WASDQE turn speed (rad/s). throw_impulse: how hard RMB throws. swim_speed_factor: speed in deep water as a share of walking. fall_knock_speed: landing faster than this (m/s) knocks you over (about a 12 m drop). car_knock_speed: a vehicle closing on you faster than this (m/s) sends you flying.",
+    "_about": "Moving and handling. walk_multiplier scales walking and sprinting on top of the boots. reach: how far you can use things (m). drag_strength_kg: how hard your hand pulls a dragged piece. drag_turn_rate: Shift+WASDQE turn speed (rad/s). throw_impulse: how hard RMB throws. swim_speed_factor: speed in deep water as a share of walking. fall_knock_speed: landing faster than this (m/s) knocks you over (about a 12 m drop). car_knock_speed: a vehicle coming at you faster than this (m/s), under its own speed, sends you flying; running into a parked one does not.",
     "walk_multiplier": 1.0,
     "jump_velocity": 6.5,
     "reach": 4.5,
@@ -16,9 +16,10 @@
   },
 
   "explosives": {
-    "_about": "TNT. radius: how far a blast reaches (m). launch: how hard it throws a player at its heart (m/s). ore_hit_kg: the hammer-head weight it hits ore with at its heart (tier 2 ores take 30% of it, tier 3 3%). fuse_seconds: how long a lit fuse burns. The price is the TNT stick's cost in items.json.",
+    "_about": "TNT. radius: how far a blast reaches (m). launch: how hard it throws a player at its heart (m/s). chain_radius: how far it sets off other TNT (m). ore_hit_kg: the hammer-head weight it hits ore with at its heart (tier 2 ores take 30% of it, tier 3 3%). fuse_seconds: how long a lit fuse burns. The price is the TNT stick's cost in items.json.",
     "radius": 6.0,
-    "launch": 22.0,
+    "launch": 38.0,
+    "chain_radius": 8.0,
     "ore_hit_kg": 60.0,
     "fuse_seconds": 4.0
   },
@@ -90,8 +91,9 @@
   },
 
   "world": {
-    "_about": "Trees grow in groves of their own kind: tree_count is roughly how many there are across the map; grove_radius (m) is how big a grove is, grove_share how many of a kind stand in one rather than as strays. starter_forest_trees: the wood a short walk from the plot. vehicle_clearance: no tree or rock appears within this many metres of a vehicle. kill_plane_y: loose pieces below this height are put back on the surface (keep it under the deepest cave, about -90).",
+    "_about": "Trees grow in groves of their own kind: tree_count is roughly how many there are across the map; grove_radius (m) is how big a grove is, grove_share how many of a kind stand in one rather than as strays. starter_forest_trees: the wood a short walk from the plot. ostars_tree_count: how many trees stand on the Ostars map (its forests are grown in stands, thick in the woods and bare in the desert, so it carries more than the islands). vehicle_clearance: no tree or rock appears within this many metres of a vehicle. kill_plane_y: loose pieces below this height are put back on the surface (keep it under the deepest cave, about -90).",
     "tree_count": 14000,
+    "ostars_tree_count": 20000,
     "grove_radius": 55.0,
     "grove_share": 0.93,
     "starter_forest_trees": 90,

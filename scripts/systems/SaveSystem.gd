@@ -82,6 +82,8 @@ static func save_game(plot: Plot, player: Node3D = null, path: String = "",
 	var doc := {
 		"version": VERSION,
 		"saved_at": Time.get_datetime_string_from_system(true),
+		# Which map the game is on; a save without one is on the islands.
+		"map": String(WorldMap.current),
 		"economy": Economy.to_dict(),
 		"player_state": PlayerState.to_dict(),
 		"plot": plot.to_dict(),
@@ -218,6 +220,7 @@ static func summary(path: String = "") -> Dictionary:
 		"money": int(economy.get("money", 0)),
 		"buildings": (plot.get("buildings", []) as Array).size(),
 		"saved_at": String(doc.get("saved_at", "")),
+		"map": WorldMap.valid(doc.get("map", WorldMap.ISLES)),
 	}
 
 static func delete_save(path: String = "") -> void:

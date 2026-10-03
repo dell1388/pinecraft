@@ -176,6 +176,22 @@ func _trading_post() -> void:
 	yard.extents = Vector3(14.0, 4.0, 14.0)
 	yard.setup(_manager, _quests)
 	yard.premium = _premium
+	# Each trader is the one who knows the goods they pay extra for: Granny
+	# Opal for gems, a miner for ore and metal, a lumberman for the rest.
+	var role := NpcFigure.Role.LUMBERMAN
+	var who := "Old Hal"
+	if _premium.has(&"gem"):
+		role = NpcFigure.Role.GRANNY
+		who = "Granny Pearl"
+	elif _premium.has(&"ore") or _premium.has(&"metal"):
+		role = NpcFigure.Role.MINER
+		who = "Stoney Pete"
+	yard.keeper = who
+	var npc := NpcFigure.new(role, who)
+	npc.stationary = true
+	npc.position = Vector3(0, 0.1 if role == NpcFigure.Role.GRANNY else 0.0, -yard.extents.z * 0.5 + 1.4)
+	npc.rotation.y = PI
+	yard.npc = npc
 	add_child(yard)
 	_cabin(Vector3(0, 0, -13.0), Vector3(6.0, 3.0, 4.0), Color(0.62, 0.48, 0.32), ROOF)
 	# A sign on two posts saying what they want.

@@ -277,6 +277,9 @@ func _draw_tile(draws: Dictionary, key: Vector2i, xforms: Array, label: String,
 		draw.cast_shadow = shadows
 		if label == "Impostors":
 			draw.add_to_group(&"tree_impostors")
+			# The foliage shader, with shaders on (see ChoppableTree.set_fancy).
+			if ChoppableTree.fancy:
+				draw.material_override = ChoppableTree.foliage_material()
 		add_child(draw)
 		draws[key] = draw
 	draw.visibility_range_end = reach

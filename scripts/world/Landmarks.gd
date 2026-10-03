@@ -24,6 +24,8 @@ const KINDS := {
 	Terrain.Biome.WOODLAND: [0.16, 2.5, 9.0],
 	Terrain.Biome.DESERT: [0.20, 3.0, 12.0],
 	Terrain.Biome.SWAMP: [0.05, 2.0, 5.0],
+	Terrain.Biome.ICE: [0.0, 1.0, 1.0],
+	Terrain.Biome.ASH: [0.45, 3.5, 14.0],
 }
 const CAP := {
 	Terrain.Biome.MOUNTAIN: Color(0.40, 0.66, 0.40),
@@ -32,6 +34,8 @@ const CAP := {
 	Terrain.Biome.WOODLAND: Color(0.42, 0.74, 0.36),
 	Terrain.Biome.DESERT: Color(0.96, 0.84, 0.60),
 	Terrain.Biome.SWAMP: Color(0.44, 0.60, 0.30),
+	Terrain.Biome.ICE: Color(0.90, 0.95, 1.0),
+	Terrain.Biome.ASH: Color(0.22, 0.20, 0.21),
 }
 
 class MeshBuf:

@@ -183,8 +183,8 @@ func _orders() -> void:
 		for quest in quests.active:
 			_body.add_child(_order_row(quest))
 	if tutorial != null and Settings.flag(&"show_tutorial"):
-		_section("Getting started  %d / %d" % [tutorial.done_count(), Tutorial.STEPS.size()])
-		for step in Tutorial.STEPS:
+		_section("Getting started  %d / %d" % [tutorial.done_count(), tutorial.steps.size()])
+		for step in tutorial.steps:
 			var row := UIKit.hbox(10)
 			var is_done := tutorial.done(step.id)
 			var mark := UIKit.label("DONE" if is_done else "  -  ", "Small",

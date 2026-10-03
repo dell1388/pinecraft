@@ -697,8 +697,7 @@ func _take_player(who: Player) -> void:
 		return
 	held_player = who
 	who.crane_hold = true
-	who.tumble.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
-	who.tumble.freeze = true
+	who.set_held(true)
 	target = clamp_target(_frame().affine_inverse() * (who.tumble.global_position + Vector3.UP * 0.8))
 	_target_vel = Vector3.ZERO
 	crane_grabbed.emit(null)
@@ -708,7 +707,7 @@ func _take_player(who: Player) -> void:
 func _carry_player(delta: float) -> void:
 	var body := held_player.tumble
 	var jaw := jaw_world()
-	var want := jaw + Vector3.DOWN * 0.85
+	var want := jaw + Vector3.DOWN * held_player.hang_drop()
 	var moved := want - body.global_position
 	_held_vel = moved / maxf(delta, 0.0001)
 	var sway := Vector3(_held_vel.z, 0, -_held_vel.x).limit_length(3.0) * 0.12
@@ -850,8 +849,7 @@ func drop() -> LooseItem:
 		held_player = null
 		if is_instance_valid(who) and who.knocked():
 			who.crane_hold = false
-			who.tumble.freeze = false
-			who.tumble.linear_velocity = _held_vel.limit_length(6.0)
+			who.set_held(false, _held_vel.limit_length(6.0))
 		crane_released.emit(null)
 		return null
 	if held_vehicle != null:

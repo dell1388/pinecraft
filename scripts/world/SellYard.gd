@@ -18,6 +18,15 @@ const GATE := 8.0
 ## Out-of-town traders pay over the day's rate for what they are short of:
 ## item id or category -> multiplier. That is what makes the long haul pay.
 var premium: Dictionary = {}
+## What this yard buys, by category (wood, ore, gem...); empty buys it all.
+var accepts: Array = []
+## The trader, when there is one (NpcFigure): set before the yard is added.
+## He stands in for the blocky shopkeep, and wherever he wanders, talking to
+## him is talking to the yard.
+var npc: NpcFigure = null
+var sign_text: String = "SELL YARD"
+var hut_color: Color = Color(0.50, 0.37, 0.24)
+var board_color: Color = Color(0.20, 0.30, 0.22)
 
 var manager: LooseItemManager
 var quests: QuestLog
@@ -35,7 +44,18 @@ func _ready() -> void:
 
 ## Where the player has to stand to be heard.
 func shopkeep_position() -> Vector3:
+	if npc != null and is_instance_valid(npc):
+		return npc.global_position
 	return _keep.global_position
+
+## Whether this yard buys `item` at all.
+func takes(item: LooseItem) -> bool:
+	if item == null or not is_instance_valid(item):
+		return false
+	var def := GameData.item(item.item_id)
+	if def != null and not def.sellable:
+		return false
+	return accepts.is_empty() or (def != null and accepts.has(def.category))
 
 func contains(point: Vector3) -> bool:
 	var local := to_local(point)
@@ -50,8 +70,7 @@ func stock() -> Array[LooseItem]:
 	for item in manager.owned_items():
 		if item.state != LooseItem.State.FREE:
 			continue
-		var def := GameData.item(item.item_id)
-		if def != null and not def.sellable:
+		if not takes(item):
 			continue
 		if contains(item.global_position):
 			out.append(item)
@@ -87,12 +106,12 @@ func sell_all(carried: Array[LooseItem] = []) -> Dictionary:
 	for item in carried:
 		if not is_instance_valid(item) or items.has(item):
 			continue
-		var def := GameData.item(item.item_id)
-		if def != null and not def.sellable:
+		if not takes(item):
 			continue
 		items.append(item)
 	if items.is_empty():
-		last_receipt = "nothing of yours in the yard"
+		last_receipt = "nothing of yours in the yard" if accepts.is_empty() else \
+			"nothing in the yard %s buys (%s)" % [keeper, ", ".join(accepts.map(func(c): return String(c)))]
 		return {"count": 0, "total": 0, "bonus": 0}
 	var total := 0
 	var bonus := 0
@@ -117,6 +136,10 @@ func sell_all(carried: Array[LooseItem] = []) -> Dictionary:
 	session_total += total + bonus
 	if total + bonus > 0:
 		Sfx.play(&"cash", global_position)
+		if npc != null and is_instance_valid(npc):
+			npc.say(THANKS.get(npc.role, "Pleasure doing business!"), 3.0)
+			if npc.role == NpcFigure.Role.SHOPKEEP:
+				npc.gesture(&"cheer")
 	last_receipt = "sold %d piece(s) for $%d" % [items.size(), total]
 	if extra > 0:
 		last_receipt += "  (+$%d trader's premium)" % extra
@@ -124,6 +147,14 @@ func sell_all(carried: Array[LooseItem] = []) -> Dictionary:
 		last_receipt += "  (+$%d in filled orders)" % bonus
 	sold.emit(total + bonus, items.size())
 	return {"count": items.size(), "total": total, "bonus": bonus}
+
+## What each trader says as the money changes hands.
+const THANKS := {
+	NpcFigure.Role.GRANNY: "Ooh, lovely! Here you are, dearie.",
+	NpcFigure.Role.MINER: "Good rock. Here's your money.",
+	NpcFigure.Role.LUMBERMAN: "Fine timber. Pleasure.",
+	NpcFigure.Role.SHOPKEEP: "Pleasure doing business!",
+}
 
 # --- Geometry --------------------------------------------------------------
 
@@ -163,12 +194,15 @@ func _build() -> void:
 	_keep = Node3D.new()
 	_keep.position = Vector3(0, 0, -half_z + 1.4)
 	add_child(_keep)
-	_figure(_keep)
+	if npc != null:
+		add_child(npc)
+	else:
+		_figure(_keep)
 
 	# A hut behind the shopkeep, so the yard reads as somewhere staffed: plank
 	# walls, a pitched tin roof, a serving hatch, and a weighbridge in the yard.
 	var g := Greeble.new()
-	var wood := Color(0.50, 0.37, 0.24)
+	var wood := hut_color
 	var dark := wood.darkened(0.35)
 	var hut := Vector3(0, 0, -half_z - 1.2)
 	g.block(Vector3(4.0, 2.6, 3.0), hut + Vector3(0, 1.3, 0), wood)
@@ -181,11 +215,11 @@ func _build() -> void:
 	g.block(Vector3(2.3, 0.12, 0.5), hut + Vector3(0, 1.0, 1.7), dark)
 	g.lamp(Transform3D(Basis(), hut + Vector3(1.6, 2.3, 1.55)))
 	# A painted board over the hatch says what the place is.
-	g.box(Vector3(3.6, 0.7, 0.1), Transform3D(Basis(), hut + Vector3(0, 3.15, 1.62)), Color(0.20, 0.30, 0.22))
+	g.box(Vector3(3.6, 0.7, 0.1), Transform3D(Basis(), hut + Vector3(0, 3.15, 1.62)), board_color)
 	g.frame(Vector3(3.6, 0.7, 0.1), Transform3D(Basis(), hut + Vector3(0, 3.15, 1.62)), 0.06, Color(0.92, 0.76, 0.30))
 	var sign := Label3D.new()
 	sign.name = "Sign"
-	sign.text = "SELL YARD"
+	sign.text = sign_text
 	sign.font = UITheme.display_font()
 	sign.font_size = 96
 	sign.pixel_size = 0.0055
@@ -277,6 +311,8 @@ func _figure(parent: Node3D) -> void:
 func status_line() -> String:
 	var items := stock()
 	var wants := "" if premium.is_empty() else "  (pays %s)" % premium_text()
+	if not accepts.is_empty():
+		wants += "  (buys %s)" % ", ".join(accepts.map(func(c): return String(c)))
 	if items.is_empty():
 		return "%s: bring material into the yard and I will buy it%s" % [keeper, wants]
 	return "%s: [E] sell %d piece(s) in the yard for about $%d%s" % [

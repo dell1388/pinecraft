@@ -94,7 +94,7 @@ static func piece(piece_name: String) -> Mesh:
 		if scene != null:
 			var root := scene.instantiate()
 			for n in root.find_children("*", "MeshInstance3D", true, false):
-				var near := _brightened((n as MeshInstance3D).mesh)
+				var near := _brightened((n as MeshInstance3D).mesh, String(n.name) != "RootFlare")
 				_piece_meshes[String(n.name)] = near
 				_shared[near] = true
 				var far := _far_piece(String(n.name))
@@ -131,7 +131,10 @@ static func _far_lump() -> Mesh:
 	var faces := [[0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4], [11, 10, 2],
 		[10, 7, 6], [7, 1, 8], [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9], [4, 9, 5], [2, 4, 11],
 		[6, 2, 10], [8, 6, 7], [9, 8, 1]]
-	var lobes := [[Vector3(0, 0.1, 0), 0.72], [Vector3(0.45, -0.2, 0.2), 0.52], [Vector3(-0.4, -0.15, -0.3), 0.52]]
+	# Five lobes of different sizes, so the outline is a clump of leaves and
+	# not one smooth bun.
+	var lobes := [[Vector3(0, 0.12, 0), 0.62], [Vector3(0.48, -0.18, 0.22), 0.46], [Vector3(-0.44, -0.12, -0.3), 0.48],
+		[Vector3(0.1, -0.22, -0.5), 0.40], [Vector3(-0.2, 0.42, 0.28), 0.40]]
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	for lobe in lobes:
@@ -139,7 +142,7 @@ static func _far_lump() -> Mesh:
 			for k in [0, 2, 1]:
 				var p: Vector3 = (v[f[k]] / Vector3(v[f[k]]).length()) * float(lobe[1]) + (lobe[0] as Vector3)
 				var b := 0.62 + 0.38 * clampf(p.y * 0.5 + 0.5, 0.0, 1.0)
-				st.set_color(Color(b, b, b))
+				st.set_color(Color(b, b, b, 0.0))
 				st.add_vertex(p)
 	st.generate_normals()
 	return st.commit()
@@ -160,14 +163,145 @@ static func _far_tiers(tiers: Array) -> Mesh:
 			var p0 := Vector3(cos(a0) * r, y0 - 0.05 * h, sin(a0) * r)
 			var p1 := Vector3(cos(a1) * r, y0 - 0.05 * h, sin(a1) * r)
 			for q in [[p0, 0.8], [apex, 1.0], [p1, 0.8], [p1, 0.62], [under, 0.62], [p0, 0.62]]:
-				st.set_color(Color(q[1], q[1], q[1]))
+				st.set_color(Color(q[1], q[1], q[1], 0.0))
 				st.add_vertex(q[0])
 	st.generate_normals()
 	return st.commit()
 
+## A species' stand-in for the far distance (see ResourceField.impostor): a
+## trunk and a crown the shape of the real tree's - for a broadleaf a cluster
+## of leaf lumps round a middle one, for a conifer its stacked tiers, for a
+## palm its fronds - shaded lighter on top, in the tree's own colours (the
+## same way round as a built tree's, so near and far match). About a hundred
+## and twenty triangles.
+static func stand_in(kind: Dictionary) -> Mesh:
+	var h := (float(kind.height[0]) + float(kind.height[1])) * 0.5
+	var r := (float(kind.radius[0]) + float(kind.radius[1])) * 0.5
+	var bark: Color = kind.get("bark", Color(0, 0, 0, 0))
+	if bark.a <= 0.0:
+		bark = Color(0.40, 0.28, 0.18)
+	var leaf: Color = kind.leaf
+	var accent: Color = kind.get("accent", Color(0, 0, 0, 0))
+	var start := float(kind.start)
+	var style: StringName = kind.get("style", &"cone")
+	var crown := maxf(float(kind.crown[0]) * 0.45, float(kind.foliage) * 0.22)
+	crown = clampf(crown, r * 2.0, 5.0)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(String(kind.get("name", "tree")))
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var trunk_h := h * (start if style != &"bare" else 1.0)
+	if style == &"ball" or style == &"canopy" or style == &"puff":
+		trunk_h = maxf(h * start + crown * 0.62, h - crown * 0.9) - crown * 0.2
+	_stand_trunk(st, r, r * float(kind.taper), trunk_h, bark)
+	match style:
+		&"bare":
+			pass
+		&"ball", &"canopy", &"puff":
+			# Its top about at the tree's height, however low it branches.
+			var mid := maxf(h * start + crown * 0.62, h - crown * 0.9)
+			var flat := 0.8 if style == &"canopy" else 1.0
+			# The middle, then a ring round it, then one on top.
+			_stand_lump(st, Vector3(0, mid, 0), crown * 0.66, flat, leaf, rng)
+			var ring := 5
+			var turn := rng.randf() * TAU
+			for k in ring:
+				var a := turn + TAU * float(k) / float(ring) + rng.randf_range(-0.3, 0.3)
+				var out := crown * rng.randf_range(0.5, 0.62)
+				var tint := leaf.lightened(rng.randf_range(0.0, 0.08)) if k % 2 == 0 else leaf.darkened(rng.randf_range(0.0, 0.06))
+				if accent.a > 0.0 and k % 3 == 1:
+					tint = accent
+				_stand_lump(st, Vector3(cos(a) * out, mid + crown * rng.randf_range(-0.28, 0.16), sin(a) * out),
+					crown * rng.randf_range(0.4, 0.5), flat, tint, rng)
+			_stand_lump(st, Vector3(rng.randf_range(-0.2, 0.2) * crown, mid + crown * 0.5 * flat, rng.randf_range(-0.2, 0.2) * crown),
+				crown * 0.44, flat, leaf.lightened(0.05), rng)
+		&"palm":
+			var top := Vector3(0, h - 0.2, 0)
+			for k in 7:
+				var a := TAU * float(k) / 7.0 + rng.randf_range(-0.2, 0.2)
+				var dir := Vector3(cos(a), 0, sin(a))
+				var side := Vector3(-dir.z, 0, dir.x)
+				var reach := maxf(crown, 2.2)
+				var tip := top + dir * reach + Vector3(0, -reach * 0.45, 0)
+				var knee := top + dir * reach * 0.5 + Vector3(0, reach * 0.08, 0)
+				for tri in [[top, knee + side * 0.45, knee - side * 0.45], [knee - side * 0.45, knee + side * 0.45, tip]]:
+					for q in tri:
+						st.set_color(Color(leaf.r, leaf.g, leaf.b, 0.0))
+						st.add_vertex(q)
+					for q in [tri[0], tri[2], tri[1]]:
+						st.set_color(Color(leaf.r * 0.7, leaf.g * 0.7, leaf.b * 0.7, 0.0))
+						st.add_vertex(q)
+		_:
+			# A conifer's tiers, stacked up the trunk to the top.
+			var y0 := h * start * 0.75
+			var span := h * 1.04 - y0
+			var tiers := 4
+			for k in tiers:
+				var f := float(k) / float(tiers)
+				var rad := crown * 0.8 * (1.0 - f * 0.72)
+				var bottom := y0 + span * f * 0.82
+				var tall := span * (0.42 - f * 0.05)
+				_stand_tier(st, rad, bottom, tall, leaf.darkened(0.04 * float(tiers - k)), rng)
+	st.generate_normals()
+	var mesh := st.commit()
+	mesh.surface_set_material(0, plain_material())
+	return mesh
+
+static func _stand_trunk(st: SurfaceTool, r0: float, r1: float, tall: float, bark: Color) -> void:
+	var sides := 6
+	for i in sides:
+		var a0 := TAU * float(i) / float(sides)
+		var a1 := TAU * float(i + 1) / float(sides)
+		var p0 := Vector3(cos(a0) * r0, 0, sin(a0) * r0)
+		var p1 := Vector3(cos(a1) * r0, 0, sin(a1) * r0)
+		var q0 := Vector3(cos(a0) * r1, tall, sin(a0) * r1)
+		var q1 := Vector3(cos(a1) * r1, tall, sin(a1) * r1)
+		for q in [p0, q0, p1, p1, q0, q1]:
+			var b := 0.75 + 0.25 * clampf(q.y / maxf(tall, 0.01), 0.0, 1.0)
+			st.set_color(Color(bark.r * b, bark.g * b, bark.b * b, 1.0))
+			st.add_vertex(q)
+
+## One lump of leaves: an icosahedron, a little uneven, lighter on top.
+static func _stand_lump(st: SurfaceTool, at: Vector3, rad: float, flat: float, col: Color, rng: RandomNumberGenerator) -> void:
+	var t := (1.0 + sqrt(5.0)) / 2.0
+	var v: Array[Vector3] = [Vector3(-1, t, 0), Vector3(1, t, 0), Vector3(-1, -t, 0), Vector3(1, -t, 0),
+		Vector3(0, -1, t), Vector3(0, 1, t), Vector3(0, -1, -t), Vector3(0, 1, -t),
+		Vector3(t, 0, -1), Vector3(t, 0, 1), Vector3(-t, 0, -1), Vector3(-t, 0, 1)]
+	var faces := [[0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4], [11, 10, 2],
+		[10, 7, 6], [7, 1, 8], [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9], [4, 9, 5], [2, 4, 11],
+		[6, 2, 10], [8, 6, 7], [9, 8, 1]]
+	var spin := Basis(Vector3.UP, rng.randf() * TAU)
+	var pts: Array[Vector3] = []
+	for p in v:
+		var u := p.normalized() * rng.randf_range(0.88, 1.1)
+		pts.append(at + spin * Vector3(u.x * rad, u.y * rad * 0.82 * flat, u.z * rad))
+	for f in faces:
+		for k in [0, 2, 1]:
+			var p: Vector3 = pts[f[k]]
+			var b := 0.62 + 0.38 * clampf((p.y - at.y) / (rad * 1.6) + 0.5, 0.0, 1.0)
+			st.set_color(Color(col.r * b, col.g * b, col.b * b, 0.0))
+			st.add_vertex(p)
+
+## One tier of a conifer: an eight-sided skirt with a shaded underside.
+static func _stand_tier(st: SurfaceTool, rad: float, bottom: float, tall: float, col: Color, rng: RandomNumberGenerator) -> void:
+	var apex := Vector3(0, bottom + tall, 0)
+	var under := Vector3(0, bottom + 0.22 * tall, 0)
+	var turn := rng.randf() * TAU
+	for i in 8:
+		var a0 := turn + TAU * float(i) / 8.0
+		var a1 := turn + TAU * float(i + 1) / 8.0
+		var r0 := rad * rng.randf_range(0.9, 1.08)
+		var p0 := Vector3(cos(a0) * r0, bottom, sin(a0) * r0)
+		var p1 := Vector3(cos(a1) * rad, bottom, sin(a1) * rad)
+		for q in [[p0, 0.8], [apex, 1.0], [p1, 0.8], [p1, 0.6], [under, 0.6], [p0, 0.6]]:
+			st.set_color(Color(col.r * q[1], col.g * q[1], col.b * q[1], 0.0))
+			st.add_vertex(q[0])
+
 ## The shade painted into a piece, as a gentle 0.62..1 multiplier on the tint
 ## (the file keeps it in linear light, which reads far too dark on its own).
-static func _brightened(mesh: Mesh) -> Mesh:
+## Leaves are marked with alpha 0 (bark keeps 1), for the foliage shader: it
+## flutters and dapples leaves, not wood. Nothing else looks at the alpha.
+static func _brightened(mesh: Mesh, leaf: bool = false) -> Mesh:
 	if mesh == null or mesh.get_surface_count() == 0:
 		return mesh
 	var arrays := mesh.surface_get_arrays(0)
@@ -176,7 +310,7 @@ static func _brightened(mesh: Mesh) -> Mesh:
 		return mesh
 	for i in c.size():
 		var b := 0.62 + 0.38 * pow(clampf(c[i].r, 0.0, 1.0), 1.0 / 2.2)
-		c[i] = Color(b, b, b, 1.0)
+		c[i] = Color(b, b, b, 0.0 if leaf else 1.0)
 	arrays[Mesh.ARRAY_COLOR] = c
 	var out := ArrayMesh.new()
 	out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
@@ -355,6 +489,127 @@ func _add_marks() -> void:
 		_marks.append(mi)
 
 static var _merged_material: StandardMaterial3D
+static var _foliage_material: ShaderMaterial
+## The Shaders setting: merged trees and the far stand-ins drawn with the
+## foliage shader (swaying, leafy, lit through) rather than flat colour.
+static var fancy: bool = true
+
+## The plain material for a merged tree: its colours, as painted.
+static func plain_material() -> StandardMaterial3D:
+	if _merged_material == null:
+		_merged_material = StandardMaterial3D.new()
+		_merged_material.vertex_color_use_as_albedo = true
+		_merged_material.vertex_color_is_srgb = true
+		_merged_material.roughness = 0.95
+	return _merged_material
+
+## What a merged tree is drawn with now.
+static func merged_material() -> Material:
+	return foliage_material() if fancy else plain_material()
+
+## The foliage shader: the whole tree leans with the wind, more the higher up,
+## each at its own pace; the leaves flutter on top of that, are dappled with
+## small clusters of light and shade, and glow a little with the sun behind
+## them. Bark is left as it is. Leaves are told from wood by vertex alpha
+## (see _brightened).
+static func foliage_material() -> ShaderMaterial:
+	if _foliage_material == null:
+		var shader := Shader.new()
+		shader.code = FOLIAGE_SHADER
+		_foliage_material = ShaderMaterial.new()
+		_foliage_material.shader = shader
+		_foliage_material.set_shader_parameter(&"dapple", _dapple_texture())
+		# The trees' colours are painted as sRGB. Forward+ and Mobile light in
+		# linear, so they are converted, as the plain material does; the
+		# Compatibility renderer uses them as they are.
+		_foliage_material.set_shader_parameter(&"linearize",
+			0.0 if RenderingServer.get_current_rendering_method() == "gl_compatibility" else 1.0)
+		_foliage_material.set_shader_parameter(&"gust", _dapple_texture(true))
+	return _foliage_material
+
+## Shaders on or off: every merged tree and stand-in switched now.
+static func set_fancy(on: bool) -> void:
+	fancy = on
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null:
+		return
+	tree.call_group(&"tree_merged", "set", "material_override", merged_material())
+	tree.call_group(&"tree_impostors", "set", "material_override", foliage_material() if on else null)
+
+## Leaf clusters (cells of a cellular noise, darker at their edges), or soft
+## gusts of wind; tiling.
+static func _dapple_texture(soft: bool = false) -> Texture2D:
+	var noise := FastNoiseLite.new()
+	noise.seed = 17 if not soft else 31
+	if soft:
+		noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
+		noise.frequency = 0.03
+		noise.fractal_octaves = 2
+	else:
+		noise.noise_type = FastNoiseLite.TYPE_CELLULAR
+		noise.frequency = 0.045
+		noise.cellular_return_type = FastNoiseLite.RETURN_DISTANCE2_SUB
+		noise.fractal_type = FastNoiseLite.FRACTAL_NONE
+	var img := noise.get_seamless_image(128, 128, false, false, 0.1, true)
+	img.generate_mipmaps()
+	return ImageTexture.create_from_image(img)
+
+const FOLIAGE_SHADER := """
+shader_type spatial;
+render_mode cull_back;
+
+uniform sampler2D dapple : filter_linear_mipmap, repeat_enable;
+uniform sampler2D gust : filter_linear_mipmap, repeat_enable;
+uniform float wind = 1.0;
+uniform vec2 wind_dir = vec2(0.8, 0.6);
+uniform float linearize = 1.0;
+
+varying vec3 v_world;
+varying float v_leaf;
+
+vec3 to_linear(vec3 c) {
+	return mix(pow((c + vec3(0.055)) * (1.0 / 1.055), vec3(2.4)), c * (1.0 / 12.92), lessThan(c, vec3(0.04045)));
+}
+
+void vertex() {
+	vec3 root = MODEL_MATRIX[3].xyz;
+	float leaf = 1.0 - COLOR.a;
+	float h = max(VERTEX.y, 0.0);
+	float t = TIME;
+	float phase = dot(root.xz, vec2(0.131, 0.173));
+	float blow = textureLod(gust, root.xz * 0.012 - wind_dir * t * 0.035, 0.0).r;
+	// The whole tree leans, the top most.
+	float lean = wind * (sin(t * 0.8 + phase) * 0.3 + (blow - 0.3) * 1.3) * pow(min(h * 0.07, 2.0), 1.6) * 0.3;
+	vec3 along = (vec4(wind_dir.x, 0.0, wind_dir.y, 0.0) * MODEL_MATRIX).xyz;
+	along = normalize(along + vec3(0.00001));
+	VERTEX += along * lean;
+	// And the leaves flutter: each point by where it is, not which way its
+	// face points, so the corners the faces share move together and no
+	// crack opens between them.
+	vec3 flutter = vec3(sin(t * 4.3 + dot(VERTEX, vec3(2.3, 1.7, 2.9)) + phase),
+		sin(t * 3.7 + dot(VERTEX, vec3(1.9, 2.9, 2.1))),
+		sin(t * 4.9 + dot(VERTEX, vec3(2.7, 1.3, 1.9)) + phase));
+	VERTEX += flutter * leaf * wind * 0.03 * min(h * 0.25, 1.0);
+	v_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	v_leaf = leaf;
+	COLOR.rgb = mix(COLOR.rgb, to_linear(COLOR.rgb), linearize);
+}
+
+void fragment() {
+	vec3 c = COLOR.rgb;
+	float leaf = step(0.5, v_leaf);
+	// Clusters of leaves: brighter middles, darker gaps, over the clump.
+	vec3 n = abs(NORMAL);
+	float cells = texture(dapple, v_world.xz * 0.55).r * 0.5 + texture(dapple, v_world.xy * 0.55 + vec2(0.3, 0.7)).r * 0.25
+		+ texture(dapple, v_world.zy * 0.55 + vec2(0.6, 0.1)).r * 0.25;
+	float bright = mix(0.8, 1.13, smoothstep(0.1, 0.75, cells));
+	c *= mix(1.0, bright, leaf);
+	ALBEDO = c;
+	ROUGHNESS = mix(0.95, 0.8, leaf);
+	SPECULAR = mix(0.5, 0.3, leaf);
+	BACKLIGHT = c * 0.5 * leaf;
+}
+"""
 ## Merged meshes by species and seed: the same seed grows the same tree, so a
 ## tree that goes back to being a note and is built again reuses its mesh.
 static var _merged_cache: Dictionary = {}
@@ -387,15 +642,11 @@ func _merge() -> void:
 			if _merged_cache.size() >= MERGED_CACHE_MAX:
 				_merged_cache.clear()
 			_merged_cache[key] = [mesh, far_mesh]
-	if _merged_material == null:
-		_merged_material = StandardMaterial3D.new()
-		_merged_material.vertex_color_use_as_albedo = true
-		_merged_material.vertex_color_is_srgb = true
-		_merged_material.roughness = 0.95
 	_merged = MeshInstance3D.new()
 	_merged.name = "Merged"
 	_merged.mesh = mesh
-	_merged.material_override = _merged_material
+	_merged.material_override = merged_material()
+	_merged.add_to_group(&"tree_merged")
 	_merged.visibility_range_end = VIEW_RANGE
 	if field_shadows:
 		_merged.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -407,7 +658,8 @@ func _merge() -> void:
 		var far := MeshInstance3D.new()
 		far.name = "MergedFar"
 		far.mesh = far_mesh
-		far.material_override = _merged_material
+		far.material_override = merged_material()
+		far.add_to_group(&"tree_merged")
 		far.visibility_range_begin = NEAR_RANGE
 		far.visibility_range_begin_margin = 4.0
 		far.visibility_range_end = VIEW_RANGE

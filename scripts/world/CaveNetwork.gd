@@ -107,6 +107,65 @@ func plan(p_terrain: Terrain, zones: Array, links: Array, seed_value: int) -> vo
 		_repair(joined)
 	_prune_unreached()
 
+## The plan, kept in a file: it comes out the same every time for the same
+## land, and working it out is the slow part of the caves, so the next load
+## reads it back instead. `key` says what it was planned for; a plan made for
+## anything else (other land, other zones, another build of the game) is not
+## read back. Entrances are kept as their place in the terrain's cave list.
+func save_plan(path: String, key: String) -> void:
+	if path == "":
+		return
+	var saved: Array = []
+	for room: Dictionary in rooms:
+		var copy := room.duplicate()
+		copy["entrance"] = _entrance_index(room.entrance)
+		saved.append(copy)
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		return
+	f.store_var({"key": key, "rooms": saved, "tunnels": tunnels, "rng": _rng.state})
+
+## Reads back a plan saved for `key`, as if `plan` had just made it. False
+## (and nothing changed) when there is none for this key.
+func load_plan(p_terrain: Terrain, path: String, key: String, seed_value: int) -> bool:
+	if path == "" or not FileAccess.file_exists(path):
+		return false
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return false
+	var data: Variant = f.get_var()
+	if not (data is Dictionary) or String(data.get("key", "")) != key:
+		return false
+	var saved_rooms: Array = data.get("rooms", [])
+	var saved_tunnels: Array = data.get("tunnels", [])
+	for room: Dictionary in saved_rooms:
+		var ei := int(room.get("entrance", -1))
+		if ei >= p_terrain.caves.size():
+			return false
+	terrain = p_terrain
+	_rng.seed = seed_value
+	_rng.state = int(data.get("rng", _rng.state))
+	_noise.seed = seed_value
+	_noise.frequency = 0.9
+	rooms.clear()
+	for room: Dictionary in saved_rooms:
+		var ei := int(room.entrance)
+		room["entrance"] = terrain.caves[ei] if ei >= 0 else null
+		rooms.append(room)
+	tunnels.assign(saved_tunnels)
+	_grid.clear()
+	for ti in tunnels.size():
+		_index_tunnel(ti)
+	return true
+
+func _entrance_index(entrance: Variant) -> int:
+	if entrance == null:
+		return -1
+	for i in terrain.caves.size():
+		if is_same(terrain.caves[i], entrance):
+			return i
+	return -1
+
 ## Drops any cavern (and its tunnels) that no cave mouth leads to: one the
 ## tunnelling could not join up is a sealed bubble in the rock, never seen and
 ## never reached, with its ore wasted.
@@ -658,20 +717,40 @@ static func bend_radius(pts: PackedVector3Array, i: int, reach: int = 2) -> floa
 ## Eases out any bend tighter than the tube can take: each point on it is
 ## drawn toward the middle of its neighbours, a little at a time, until the
 ## line is smooth enough. The ends, square to their caverns' walls, stay put.
+##
+## Only the points whose bend may have changed since they were last found
+## easy enough are measured again (a point's bend hangs on it and the points
+## two either side), and the measuring is written out here rather than called:
+## the same points move in the same order as measuring every point every time
+## round, for a fraction of the work. Planning the caves is mostly this.
 static func _relax_bends(pts: PackedVector3Array, r: float) -> PackedVector3Array:
 	var tightest := min_bend(r) * 1.05
 	var out := pts.duplicate()
 	var keep := 2
+	var n := out.size()
+	var dirty := PackedByteArray()
+	dirty.resize(n)
+	dirty.fill(1)
 	for it in 120:
 		var moved := false
-		for i in range(keep, out.size() - keep):
-			if bend_radius(out, i) >= tightest:
+		for i in range(keep, n - keep):
+			if dirty[i] == 0:
 				continue
-			for j in [i - 1, i, i + 1]:
-				if j < keep or j >= out.size() - keep:
+			# bend_radius(out, i), inline.
+			var a := out[i - 2]
+			var b := out[i]
+			var c := out[i + 2]
+			var area := (b - a).cross(c - a).length() * 0.5
+			if area < 0.0001 or a.distance_to(b) * b.distance_to(c) * c.distance_to(a) / (4.0 * area) >= tightest:
+				dirty[i] = 0
+				continue
+			for j in range(i - 1, i + 2):
+				if j < keep or j >= n - keep:
 					continue
 				var mid := (out[j - 1] + out[j + 1]) * 0.5
 				out[j] = out[j].lerp(mid, 0.5)
+				for m in range(maxi(0, j - 2), mini(n, j + 3)):
+					dirty[m] = 1
 			moved = true
 		if not moved:
 			break

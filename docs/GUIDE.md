@@ -14,6 +14,7 @@ godot --path .                                               # play
 godot --headless --path . --fixed-fps 60 scenes/tests.tscn   # integration tests
 godot --headless --path . --fixed-fps 60 scenes/bench.tscn   # physics benchmark
 godot --headless --path . --fixed-fps 60 scenes/smoke_world.tscn  # boot the real world headless
+godot --path . scenes/boot_time.tscn -- --map=ostars         # time the loading screen
 godot --path . scenes/stress_test.tscn                       # physics playground
 ```
 
@@ -21,11 +22,31 @@ If you add a new script with a `class_name`, run
 `godot --headless --editor --quit --path .` once so the global class cache picks
 it up; headless runs resolve class names from that cache.
 
+### Loading
+
+The world is built behind the loading screen (`scripts/ui/Boot.gd`), in
+stages. The slow sums - the land's heights, its plates and their welding, the
+forests' stands, the prospecting and the cave plan - run on worker threads
+(`scripts/core/Workers.gd`), split over every core but a quarter of them, so
+the rest of the computer stays usable; and the loading screen goes on drawing
+meanwhile (capped at 60 frames a second), so the window never locks up.
+
+Two things are kept between loads, per map: the land (heights, rivers, roads,
+cave mouths) in `user://terrain_cache*.bin`, and the cave plan (every cavern
+and tunnel) in `user://cave_plan*.bin`. The first load after the land or the
+game changes works them out again, which is the slow load; after that they
+are read back. The cave plan is keyed on the land, the game's version and
+CaveNetwork's own source, so a new build always plans afresh once. Set
+`PROFILE_LOAD=1` to print how long each stage takes; `scenes/boot_time.tscn`
+runs the real loading screen and says how long the world took and the longest
+the screen went without drawing.
+
 ### Controls
 
 The game opens on a title screen over a flyover of the valley: **Continue**
 picks up the newest save (it tells you the slot, day, money and when it was
-saved), **Load Game** lists every save slot, **New Game** asks which slot to
+saved), **Load Game** lists every save slot, **New Game** asks which map
+(Pinecraft Isles or Ostars - see [The maps](#the-maps)) and which slot to
 start in, and Settings and Controls are there before you play. The full list
 of keys is on the Controls page and in the journal (F1), and the few that
 matter right now are always in the bottom-right corner.
@@ -231,7 +252,129 @@ its cell grid and a hazard-striped edge.
    up the mountain a golden statue, a fountain and a crystal beacon - are just
    for looks.
 
-## The map
+## The maps
+
+There are two, picked on the New Game page; each save slot remembers its own,
+and a co-op guest builds whichever the host is playing.
+
+- **Pinecraft Isles** - the home island and five more, with the town, the
+  sell yard, the quarry, outposts, roads and bridges. Everything below
+  [Ostars](#ostars) describes this one.
+- **Ostars, the Known Continent** - drawn after the owner's map, with its own
+  forests, ore by how hard the country is, and three traders instead of one
+  sell yard.
+
+### Ostars
+
+One big continent in the same 4.8 km square of sea (`scripts/world/Ostars.gd`
+is the terrain's *shaper*: it gives the biome and height at any point, and
+Terrain carves the rivers, the crater and the caves into that as usual). Home
+- the plot - is in the Silverflow Meadows in the middle, where it always is.
+
+| Where | What |
+|---|---|
+| North | The **Frostpeak Wilds** (snow crags, the Frostpeak range) and the **Frostpeak Tundra**: flat snowfields with frozen lakes (the new ICE biome - flat, nothing grows) |
+| Across the north | The **Avalanche Mountains**, snow-capped, over 200 m, with two passes through |
+| West | **Sylvenwood** (thick woods), the **Silverflow River** past home down to **Halyon Port**, **Mt. Orodruin** on the coast - a 250 m cone of ash (the new ASH biome) with a lava lake smoking in its crater - and over the **Aethel Sea** the **Great Sky Arch**, a rock causeway humped up out of the sea to the **Whispering Woods** on their island |
+| Middle | The **Shattered Desert** - plates of rock lifted in steps with cracks down to the sand between - the **Al-Khalid Sands** (dunes), and the **Emperor's Spine**, a sandstone ridge 38 m high with a flat top you can drive along, ramping down at both ends (the near end is a short walk north-east of home) |
+| South | The **Sunscorched Badlands** (mesas and gullies) and the **Meteor Crater of Kael** - starmetal lies in it |
+| South-west | The **Gulf of Krakens** |
+| East | The other **Whispering Woods**, the **Ostar River** past **Ostaros City** to the **Bay of the Wyrm**, **Sylvanwood** (maples and cherries, a little mahogany), the two **Mor'uk Bogs**, and the **Veiled Archipelago** off the coast |
+| South-east | The **Dragon's Teeth** - fangs of rock over 200 m - running out to their own island (black opal) |
+
+**Roads** (`World.ostars_roads`): the plot's drive runs down to a main street
+south of the town, with a lane up between the dealer and the works to the
+hardware store; the street runs west to Old Bjorn's yard and on to the sea at
+Granny Opal's, and east out of town, then north up through the foothills to
+Dusty's and over the pass to Summit Outfitters. The long roads are routed over
+the land - round the hills, switching back up the slopes - and each ends on
+the home side of its yard. Roads are quicker to drive, and nothing grows on
+them.
+
+**What is built** (`Ostars.SITES`, each levelled and facing home; no outposts
+or quarry): the town by home - the hardware store, the
+vehicle dealer and the machine works - Summit Outfitters up on the tundra past
+the Avalanche pass, and the three traders (see [Traders](#traders)): Old
+Bjorn's lumber yard at the edge of the meadows 270 m from home, Dusty's assay
+office up in the Avalanche foothills, and Granny Opal's by the sea at Halyon
+Port. The compass and the map always show the traders; every other named
+place is a "?" until you go there. Ostaros City's site is still empty.
+
+**Ore and gems by how hard the country is** (`scripts/world/Prospector.gd`).
+Every spot's hardness is its region's (meadows 0, forests 0.5, dunes 1,
+shattered desert 1.3, bogs 1.5, badlands 1.9, tundra 2.2, Orodruin 2.4, the
+Wilds and the Dragon's Teeth 2.6) plus one for every 70 m of height (up to
+2.5) plus a little for steepness. Each ore has its country and a band of
+hardness, and is thickest at the hard end of it:
+
+| Where | What |
+|---|---|
+| Round home (easy) | tin, quartz, limestone, iron |
+| The desert, the foothills, the bogs | zinc, copper, sandstone, slate, magnetite, amethyst, jade, cobalt |
+| Up the mountains and far out | silver, nickel, granite, obsidian, basalt, bismuth, marble, turquoise |
+| Only the hardest country | emerald, tungsten, gold, ruby, sunstone, platinum, lapis |
+
+Starmetal lies in the Meteor Crater of Kael, black opal on the Dragon's Tooth
+Isle, and the caves (a big network under the continent with a cave biome
+under each kind of country, and a small one under the Whispering Woods) have
+their own. The map caches to `user://terrain_cache_ostars.bin`, and the cave
+plan to `user://cave_plan_ostars.bin` (see Loading, below).
+
+**The forests are grown, not scattered** (`scripts/world/Forester.gd`):
+
+1. *How wooded the land is*, everywhere: each region has its own (Sylvenwood
+   and the Whispering Woods thick, the meadows light, the desert all but bare),
+   broken up by glades and patchiness, thicker along the rivers, thinning to
+   nothing at the treeline (120 m, 165 m in the snow), and nothing on ice, the
+   ridges, the beach or the plot.
+2. *Stands*: spots tried all over on a jittered grid, each kept by how wooded
+   it is there, sized by the same, with a leading and a second kind of tree
+   from the region's mix (willows and birches on a river bank, palms at a
+   desert river, pine, ironwood and spruce on any mountain).
+3. *Trees*: the budget shared between the stands by how much wood each holds,
+   and each stand's trees dropped in a clump round its middle - 70% its
+   leading kind, 20% its second, the rest anything in the mix. A rare tree
+   (ebony, mahogany, spirit trees) never leads a stand, so it turns up one
+   here and there rather than as a grove. Too wet for a kind, and something in
+   the mix that likes the wet takes the spot instead.
+   No two trees closer than 3.6 m.
+4. *Strays*: a few lone trees anywhere wooded enough.
+5. *The home wood*: 70 pine, birch and oak in the best patch 95-175 m from the
+   plot (the compass calls it the Home Woods).
+
+Each kind of tree then gets a field that keeps 85% of its spots stood and
+regrows on the rest. Ostars has three trees of its own, each cutting into a
+wood the game already has: **Whisperbark** (tall, pale, a blue-green head;
+birch), **Bog Cypress** (a fat trunk standing in the bog water; willow) and
+**Charred Snag** (burnt black on Orodruin; pine).
+
+### Traders
+
+Each place you sell at has its own trader, built in Blender like the
+lumberjack (`source/npc_build.py`, `assets/models/npc_*.glb`) and posed in code
+(`NpcFigure`). Talk to them wherever they are to sell what is in their yard;
+each buys only its own goods and leaves the rest on your rack.
+
+| Trader | Buys | What they do all day |
+|---|---|---|
+| **Old Bjorn** (lumber yard) | wood, lumber, goods | Chops at his own pine beside the yard, paces about, leans on his axe for a breather and wipes his brow. Fell his tree and he stamps and shakes his fists ("Oi! I didn't need your help!"), sulks with his arms folded, and is back at it when it grows again (45 s). You keep the log. |
+| **Dusty McGrath** (assay office) | ore, metal, stone, glass | Swings his pick at his great lump of ore (sparks fly), paces, leans on the pick. |
+| **Granny Opal** (gems) | gems, cut jewels | Rocks in her rocking chair on the porch all day, knitting; nods off now and then ("Zzz..."), looks up and says hello when you come by. |
+
+The lumber yard and the assay office also **sell** - Bjorn lumber, Dusty
+refined metal - at a shop counter beside the yard. [E] at the counter opens
+the order sheet: a price a piece for each (half as much again as it sells
+for), and 1, 5, 10 or 25 at a time, paid on the spot. Their helper (Pip at
+Bjorn's, Nugget at Dusty's - short, hi-vis vest, cap) carries the order out
+in armfuls to the **loading bay**: park your truck in the bay and it goes in
+the back, rows along the bed; no truck, and it is stacked on the bay floor.
+
+On the islands the Sell Yard's hand (the helper's model) waves you in and
+cheers a sale, and the trading posts have traders too: Granny Pearl at the
+Mire Gem Exchange, Stoney Pete (a miner) at the Frostline Post and Old Hal (a
+lumberman) at the Dune Trading Post - leaning on their tools at the counter.
+
+## The isles
 
 > **Current world (latest):** 4.8 km across. A home island 2.4 km wide, split
 > into big single-biome regions (the Greenwood round home, the Spine Mountains
@@ -246,7 +389,8 @@ its cell grid and a hazard-striped edge.
 > below sea level, all joined up - in seven cave biomes: river, desert,
 > crystal, ice (sapphires), fungal (glowcap mushrooms to fell), magma and the
 > abyss (diamonds). Generation is threaded and cached in
-> `user://terrain_cache.bin`; far trees and rocks stay dormant until you come
+> `user://terrain_cache.bin` (the cave plan in `user://cave_plan.bin`); far
+> trees and rocks stay dormant until you come
 > near, and decor streams in round you. Some of the detail below describes the
 > earlier, smaller map.
 
@@ -461,19 +605,27 @@ region that is not there.
 * **TNT** is sold by the stick at the hardware store (EXPLOSIVES, $50 each,
   always back on the shelf). Open the box, **[E]** on the stick lights a
   four-second fuse, then pick it up and throw it. A blast (`scripts/world/Blast.gd`)
-  throws players flying, blows loose things about, sets off other sticks nearby
-  and cracks ore apart: easy ores (tier 1) come to pieces, tier 2 ores take 30%
+  throws players a long way (38 m/s at its heart), blows loose things about,
+  sets off every other stick or box of TNT within 8 m a split second later -
+  lying about, on someone's rack or in their hand, so a pile goes up in a
+  ripple - and cracks ore apart: easy ores (tier 1) come to pieces, tier 2 ores take 30%
   of it, and the top ores and finest gems (tier 3) only 3% - barely a mark.
   Loose ore chunks in the blast crack in two the same way. The knobs are in the
   `explosives` section of `balance.json`.
 * **Getting knocked flying.** A long drop (landing faster than 16 m/s, about
-  twelve metres), a truck driving into you or a blast turns you into a ragdoll:
-  the body tumbles as a physics body with the lumberjack flopping about on it,
-  the camera stands off and watches (the mouse swings it round), and once you
-  have come to rest you get up where you lie. Whatever was on the rack goes
-  everywhere.
+  twelve metres), a truck driving into you (faster than 5 m/s under its own
+  speed - running into a parked one, or one creeping along, just stops you
+  against it) or a blast turns you into a ragdoll
+  (`scripts/player/Ragdoll.gd`): body, head, upper arms, forearms, thighs and
+  shins are each a physics body, jointed at the neck, shoulders, elbows, hips
+  and knees within a person's range, so every limb flails and flops on its
+  own. The camera stands off and follows (the mouse swings it round, it pulls
+  back the faster you go and shakes as you hit things), each hit on the ground
+  is a thud and a puff of dust, and a big knock sends your beanie flying. Once you have
+  lain still a second or two you pick yourself up where you are, hat back on.
+  Whatever was on the rack goes everywhere.
 * **Cranes pick up players.** Close the grapple (or drop the claw) on someone
-  and they come too, dangling by the shirt. Hold **jump** for a second to
+  and they come too, held by the body with arms and legs dangling. Hold **jump** for a second to
   wriggle free; otherwise they drop when the crane lets go.
 * **The crusher crushes players.** Fall (or be dropped) into its hopper and you
   go through: the camera watches the machine for a few seconds while ten Meat
@@ -615,6 +767,13 @@ store's Gear bay: a tuned engine, a turbo diesel and a big block (more pull,
 a little more top speed), and all-terrain, mud-terrain and lugged tyres with
 chains (more grip).
 
+**Towing.** Trucks with a hitch pull trailers [T] (and trailers with a hitch
+of their own make a train). The pickup has a `tow_limit` in vehicles.json:
+it pulls the utility trailer and anything lighter (the lawnmower trailer),
+counted by each trailer's empty weight, anywhere in its train; the logging and
+dump trailers and the low-loader are too heavy for it, and it says so. The
+hauler, log truck, dump truck and crane truck pull anything.
+
 **Recovering** a vehicle (C) sets it back on its wheels, at most once a second
 and not while it is down on its outriggers.
 
@@ -628,20 +787,78 @@ ground, the log, chunk or tree nearest the line of sight within a metre and a
 half, so it does not take pixel-perfect aim. The ring showing where it will
 catch is drawn only from the driver's seat.
 
+## The look: grass, flowers, leaves and birds
+
+All of it is only the look - nothing collides with it or can be picked - and
+all of it is set in Settings > Video (and by the presets: Low has shaders off
+and short grass, Medium shaders on and short grass, High shaders on and far
+grass).
+
+* **Grass and flowers** (`scripts/world/GrassField.gd`, the *Grass* setting:
+  off, short range 32 m, far 60 m). The ground round the camera is cut into
+  16 m chunks. Every chunk draws the same 1,936 tufts of five blades and 169
+  flowers (one MultiMesh each, made once and shared) and has its own 9 x 9
+  lattice of the ground under it - height, how grassy, how flowery, and the
+  colour of the plate there - which the vertex shader reads to stand each
+  tuft on the ground in the ground's own colour, or fold it away where
+  nothing grows: roads, water, rock and sand (anything not green), snow and
+  desert, the plot's concrete (kept clear however big the plot grows - the
+  levelled lawn round it is grassed), the shops' and traders' yards, cave
+  mouths. Flowers (red, yellow, white, purple, blue) come in patches, most in
+  the woodland meadows. Further off a chunk draws a half, then a quarter of
+  its tufts (the shader thins smoothly in between, so nothing pops), and at
+  the edge of the range they shrink into the ground. Blades are single
+  triangles with their normals up, cast no shadow, sway in gusts of wind
+  (with shaders on) and bend away from your legs. A chunk's lattice is made
+  a few rows a frame, a millisecond or so at most.
+* **The ground** with shaders on: grassy plates (green and facing up) get
+  drifts of lighter and darker, yellower and bluer green at a few sizes, a
+  fine speckle up close and a soft sheen instead of the plates' shine; rock,
+  sand and snow are as before (`Terrain.LAND_SHADER`).
+* **Leaves** with shaders on (`ChoppableTree.FOLIAGE_SHADER`): the whole tree
+  leans with the wind, more the higher up and each at its own pace, the
+  leaves flutter, are dappled with small clusters of light and shade, and
+  glow a little with the sun behind them. Bark is left as it is (leaves are
+  told from bark by vertex alpha: 0 on the leaf pieces, 1 on wood).
+* **Far trees** (`ChoppableTree.stand_in`) are no longer two stacked prisms
+  (the "buns"): a broadleaf is a cluster of leaf lumps round a middle one, a
+  conifer its stacked tiers, a palm its fronds, about 120 triangles, in the
+  same colours as a built tree (they used to come out brighter). The middle
+  distance's leaf clumps are five lumps, not three.
+* **Birds** (`scripts/world/Birds.gd`, the *Birds* setting): three flocks of
+  small dark birds wheeling over the country round you, a pair of gulls that
+  keep to the water, and a hawk circling high up; flapping in bursts and
+  gliding (in the shader), all one draw, gone to roost at night.
+
+The perf harness (`scenes/perf.tscn`) prints the grass's and the birds' time a
+frame.
+
 ## Models
 
 Nearly every mesh is built in code from primitives. The one exception is you.
 
-* **The player** is a barrel-shaped lumberjack with a huge ginger beard, a red
-  plaid shirt, braces, mittens and a tiny yellow beanie:
-  `assets/models/player.glb`, made in Blender to the game's own rules (flat
-  colours, boxes, eight-sided round parts, rough flat shading) with the
-  source in `source/player.blend` (Godot skips that folder). The model is six pivots - legs, torso,
-  arms, head - and `PlayerAvatar` poses them in code every frame; nothing is
-  keyframed in the file. Its base pose follows what you are doing: standing
+* **The traders** (`assets/models/npc_lumberman.glb`, `npc_miner.glb`,
+  `npc_granny.glb`, `npc_helper.glb`) are built by `source/npc_build.py` the
+  same way and with the same pivots, so `NpcFigure` poses them as the player
+  is posed. Each file has its props beside the person: the miner's pickaxe
+  and the lumberman's felling axe (put in the right hand in code, or stood on
+  their heads to lean on), Granny's rocking chair (she rocks with it).
+* **The player** is a barrel-shaped lumberjack with a huge ginger beard lying on
+  his belly (its strands carved into it), a red plaid shirt, braces, green work
+  gloves, domed work boots with laces and brass eyelets, and a yellow knit
+  beanie: `assets/models/player.glb`, built in Blender by a script kept in the
+  file (`source/player.blend`, text `player_build`: flat colours, faceted,
+  lightly rounded blocks). The model is pivots - hips (the body), head,
+  shoulders, elbows, wrists, each finger at the knuckle and halfway, thumbs,
+  hips, knees and ankles - and `PlayerAvatar` poses them in code every frame;
+  nothing is keyframed in the file. Knees bend as each leg comes through a
+  step and on landing, and fold to sit; elbows pump when sprinting, bend to
+  carry and wind up a swing; fingers close round a tool, the wheel or the
+  levers and hang loose otherwise; stood still, he shifts his weight from leg
+  to leg. Its base pose follows what you are doing: standing
   (breathing), walking and sprinting (short quick steps, arms swinging), in the
   air (arms out, windmilling on a long drop, a squash on landing), swimming (a
-  doggy paddle), wading (mittens held up out of the wet), carrying a load
+  doggy paddle), wading (hands held up out of the wet), carrying a load
   (across the chest, leaning back), dragging (reaching for the grabbed point,
   both hands on anything heavy), holding a tool (over the shoulder), at the
   wheel (hands on it, turning it as you steer), working a crane or loader
@@ -861,6 +1078,11 @@ rule below is enforced in one place rather than per object.
   lip, where a piece that has reached a machine, bin or chute is dropped into
   it. Splitters are powered-roller plates: each piece gets an output when it
   lands and a friction-limited push toward it, so heavy pieces turn slowly.
+  The **3-Way Splitter** is in build mode with the belts ($510): a 3 x 3 plate
+  level with a belt's deck, one belt in at the back and belts off its left,
+  front and right, dealing pieces out to each in turn. Aim at a side and press
+  [R] to lock that way (a red-and-white gate comes down across it, and pieces
+  go out the open ways only); [R] again opens it. Locks are kept in the save.
   Items entering a machine still become counters in its buffer.
 * **Trigger volumes are geometry-checked.** `Area3D.get_overlapping_bodies()` can
   report a body that is no longer really inside — pooled items are detached

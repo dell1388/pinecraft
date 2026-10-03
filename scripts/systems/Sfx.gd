@@ -118,6 +118,7 @@ func _make_all() -> void:
 	_sounds[&"grind"] = _wav(_synth(0.6, _grind, true))
 	_sounds[&"boom"] = _wav(_synth(1.8, _boom, true))
 	_sounds[&"squish"] = _wav(_synth(0.45, _squish, true))
+	_sounds[&"thud"] = _wav(_synth(0.35, _thud, true))
 	_sounds[&"fuse"] = _wav(_synth(0.5, _fuse), true)
 
 ## A stick of TNT going off: a hard crack, a deep thump, a rolling rumble.
@@ -126,6 +127,10 @@ static func _boom(t: float, n: float) -> float:
 	var thump := sin(TAU * lerpf(70.0, 32.0, clampf(t / 0.4, 0.0, 1.0)) * t) * exp(-t * 5.0) * 0.9
 	var rumble := n * exp(-t * 2.2) * 0.45 * (0.7 + 0.3 * sin(TAU * 9.0 * t))
 	return clampf(crack + thump + rumble, -1.0, 1.0)
+
+## A body hitting the ground: a dull, heavy whump.
+static func _thud(t: float, n: float) -> float:
+	return sin(TAU * lerpf(95.0, 45.0, t / 0.35) * t) * exp(-t * 14.0) * 0.9 + n * exp(-t * 40.0) * 0.35
 
 ## Something soft going through the crusher.
 static func _squish(t: float, n: float) -> float:

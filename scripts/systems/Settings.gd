@@ -45,6 +45,9 @@ const DEFAULTS := {
 	&"bloom": true,
 	&"view_distance": 600.0,
 	&"moving_sun": true,
+	&"shaders": true,         ## swaying grass and trees, leafy trees, grassy ground
+	&"grass": 2,              ## 0 off, 1 short range, 2 far
+	&"birds": true,
 	# Interface
 	&"ui_scale": 1.0,
 	&"show_hints": true,
@@ -89,6 +92,9 @@ const NOTES := {
 	&"bloom": "Glow round bright things",
 	&"view_distance": "How far you can see, in metres (150 to 1200)",
 	&"moving_sun": "false keeps it mid-morning all day",
+	&"shaders": "true: grass and trees sway in the wind, leaves look leafy, the ground looks grassy. false: plain and flat (a little quicker)",
+	&"grass": "Grass and flowers over the ground round you: 0 off, 1 short range, 2 far",
+	&"birds": "Birds in the sky",
 	&"ui_scale": "Interface size, 0.75 to 1.5",
 	&"show_hints": "Key hints in the bottom-right corner",
 	&"show_rig_banner": "The crane / winch / loader controls banner while driving",
@@ -109,11 +115,15 @@ const NOTES := {
 ## The graphics presets: what each sets. Low is for integrated graphics and
 ## older cards; High is everything on.
 const PRESETS := [
-	{&"shadows": 1, &"ambient_occlusion": false, &"bloom": false, &"anti_aliasing": 1, &"render_scale": 0.8, &"view_distance": 400.0},
-	{&"shadows": 1, &"ambient_occlusion": false, &"bloom": true, &"anti_aliasing": 1, &"render_scale": 1.0, &"view_distance": 500.0},
-	{&"shadows": 2, &"ambient_occlusion": true, &"bloom": true, &"anti_aliasing": 2, &"render_scale": 1.0, &"view_distance": 600.0},
+	{&"shadows": 1, &"ambient_occlusion": false, &"bloom": false, &"anti_aliasing": 1, &"render_scale": 0.8, &"view_distance": 400.0,
+		&"shaders": false, &"grass": 1},
+	{&"shadows": 1, &"ambient_occlusion": false, &"bloom": true, &"anti_aliasing": 1, &"render_scale": 1.0, &"view_distance": 500.0,
+		&"shaders": true, &"grass": 1},
+	{&"shadows": 2, &"ambient_occlusion": true, &"bloom": true, &"anti_aliasing": 2, &"render_scale": 1.0, &"view_distance": 600.0,
+		&"shaders": true, &"grass": 2},
 ]
-const PRESET_KEYS := [&"shadows", &"ambient_occlusion", &"bloom", &"anti_aliasing", &"render_scale", &"view_distance"]
+const PRESET_KEYS := [&"shadows", &"ambient_occlusion", &"bloom", &"anti_aliasing", &"render_scale", &"view_distance",
+	&"shaders", &"grass"]
 var _applying_preset: bool = false
 
 ## Sets every video setting from a preset (0 low, 1 medium, 2 high).
@@ -133,7 +143,17 @@ var _values: Dictionary = {}
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	load_from(path)
+	# Everything but fullscreen now; fullscreen once the window is up (see
+	# _place_window), because switched on this early, as the game starts, the
+	# window can come up screen-sized but still where the plain window was
+	# put - hanging off the bottom and right of the screen.
+	_starting = true
 	apply_display()
+	_starting = false
+	_place_window.call_deferred()
+
+var _starting: bool = false
+var _placing: bool = false
 
 func value(key: StringName) -> Variant:
 	return _values.get(key, DEFAULTS.get(key))
@@ -269,14 +289,66 @@ func invert_y() -> bool:
 func flag(key: StringName) -> bool:
 	return bool(value(key))
 
+## Fullscreen or a plain window, as set, and then a check that it is where it
+## should be. Run in the editor's Game view the editor owns the window - where
+## it is and how big - so it is left alone.
+func _set_window_mode(window: Window) -> void:
+	if Engine.is_embedded_in_editor():
+		return
+	var fullscreen: bool = value(&"fullscreen")
+	if (window.mode == Window.MODE_FULLSCREEN) != fullscreen:
+		window.mode = Window.MODE_FULLSCREEN if fullscreen else Window.MODE_WINDOWED
+		_place_window.call_deferred()
+
+## Once the window is up: the mode as set, then, a few frames on, a look at
+## where the window actually is. Fullscreen has to cover its screen from the
+## screen's corner; if it came up anywhere else it goes back to a window,
+## centred, and fullscreen again from there. A plain window has to fit on its
+## screen; if it hangs off, it is shrunk to fit and centred.
+func _place_window() -> void:
+	if _placing or DisplayServer.get_name() == "headless" or not is_inside_tree():
+		return
+	_placing = true
+	var window := get_window()
+	_set_window_mode(window)
+	for i in 3:
+		await get_tree().process_frame
+	_placing = false
+	if Engine.is_embedded_in_editor():
+		return
+	var screen := window.current_screen
+	var origin := DisplayServer.screen_get_position(screen)
+	var screen_size := DisplayServer.screen_get_size(screen)
+	if window.mode == Window.MODE_FULLSCREEN:
+		if (window.position - origin).length() <= 2:
+			return
+		window.mode = Window.MODE_WINDOWED
+		await get_tree().process_frame
+		window.size = _windowed_size(screen_size)
+		window.position = origin + (screen_size - window.size) / 2
+		await get_tree().process_frame
+		window.mode = Window.MODE_FULLSCREEN
+	elif window.mode == Window.MODE_WINDOWED:
+		var usable := DisplayServer.screen_get_usable_rect(screen)
+		if usable.grow(8).encloses(Rect2i(window.get_position_with_decorations(), window.get_size_with_decorations())):
+			return
+		window.size = _windowed_size(usable.size)
+		window.move_to_center()
+
+## The window's own size (the project's), no bigger than 90% of the room.
+func _windowed_size(room: Vector2i) -> Vector2i:
+	var want := Vector2i(int(ProjectSettings.get_setting("display/window/size/viewport_width", 1600)),
+		int(ProjectSettings.get_setting("display/window/size/viewport_height", 900)))
+	var fit := minf(1.0, minf(float(room.x) * 0.9 / float(want.x), float(room.y) * 0.9 / float(want.y)))
+	return Vector2i(int(float(want.x) * fit), int(float(want.y) * fit))
+
 ## Window-level settings. A headless run has no window to change.
 func apply_display() -> void:
 	if DisplayServer.get_name() == "headless" or not is_inside_tree():
 		return
 	var window := get_window()
-	var fullscreen: bool = value(&"fullscreen")
-	if (window.mode == Window.MODE_FULLSCREEN) != fullscreen:
-		window.mode = Window.MODE_FULLSCREEN if fullscreen else Window.MODE_WINDOWED
+	if not _starting:
+		_set_window_mode(window)
 	DisplayServer.window_set_vsync_mode(
 		DisplayServer.VSYNC_ENABLED if value(&"vsync") else DisplayServer.VSYNC_DISABLED)
 	window.scaling_3d_scale = clampf(float(value(&"render_scale")), 0.5, 1.0)

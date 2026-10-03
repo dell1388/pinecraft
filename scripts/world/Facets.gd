@@ -16,6 +16,8 @@ extends RefCounted
 ## share the points along their edges exactly, so the panels meet without a
 ## crack.
 
+const Workers := preload("res://scripts/core/Workers.gd")
+
 const TILE := 64                 ## cells per tile side
 const MAX_LEAF := 32             ## the biggest plate, in cells
 const WELD_DEGREES := 9.0        ## neighbours flatter than this weld together
@@ -35,13 +37,18 @@ class TileBuf:
 	var normals := PackedVector3Array()
 	var colors := PackedColorArray()
 	var buckets: Dictionary = {}              ## Vector2i -> PackedInt32Array of tri indices
+	var edge_keys := PackedInt64Array()       ## per triangle edge, for welding (see _edge_key)
 
 func _init(p_terrain: Terrain) -> void:
 	terrain = p_terrain
 
 # --- Building ----------------------------------------------------------------
 
-func build() -> void:
+## The tiles are built across the worker threads, then welded on one. Given
+## the tree (loading behind the boot screen), both run while frames go by, so
+## the screen keeps drawing (see Workers).
+func build(tree: SceneTree = null) -> void:
+	_find_rims()
 	var cells := terrain._cells
 	tiles_x = int(ceil(float(cells) / float(TILE)))
 	var count := tiles_x * tiles_x
@@ -53,16 +60,26 @@ func build() -> void:
 		t.x1 = mini(cells, t.x0 + TILE)
 		t.z1 = mini(cells, t.z0 + TILE)
 		tiles.append(t)
-	var task := WorkerThreadPool.add_group_task(_build_tile, count, -1, true, "facets")
-	WorkerThreadPool.wait_for_group_task_completion(task)
+	await Workers.group(_build_tile, count, "facets", tree)
 	# Welded across the whole map at once, so a plate can run over a tile's
 	# edge like any other seam-free stretch.
-	_weld_all()
-	for t: TileBuf in tiles:
-		for k in t.tris.size() / 3:
-			_bucket(t, k, t.tris[k * 3], t.tris[k * 3 + 1], t.tris[k * 3 + 2])
+	await Workers.one(_weld_all, "facets weld", tree)
 
 func _build_tile(i: int) -> void:
+	_tile_triangles(i)
+	# Each tile's index for finding the triangle under a point: welding only
+	# changes normals and colours, so it can be made now, tile by tile.
+	var t: TileBuf = tiles[i]
+	for k in t.tris.size() / 3:
+		_bucket(t, k, t.tris[k * 3], t.tris[k * 3 + 1], t.tris[k * 3 + 2])
+	# And each edge's key for the welding, here where the tiles are done side
+	# by side rather than there, where the whole map is one after another.
+	t.edge_keys.resize(t.tris.size())
+	for k in t.tris.size() / 3:
+		for e in 3:
+			t.edge_keys[k * 3 + e] = _edge_key(t.tris[k * 3 + e], t.tris[k * 3 + (e + 1) % 3])
+
+func _tile_triangles(i: int) -> void:
 	var t: TileBuf = tiles[i]
 	var points := {}                           # Vector2i grid point -> leaf size
 	_split(t, t.x0, t.z0, maxi(t.x1 - t.x0, t.z1 - t.z0), points)
@@ -130,6 +147,8 @@ func _split(t: TileBuf, x: int, z: int, size: int, points: Dictionary) -> void:
 ## to the cell - so every plate under a road lies on its flat bed and none
 ## pokes up through it - and the water's edge to two.
 func _needs(x0: int, z0: int, x1: int, z1: int, size: int) -> int:
+	if _on_rim(x0, z0, x1, z1):
+		return 1
 	var stride := maxi(1, size / 8)
 	var wet := false
 	var dry := false
@@ -150,6 +169,68 @@ func _needs(x0: int, z0: int, x1: int, z1: int, size: int) -> int:
 	if wet and dry:
 		return 2
 	return 0
+
+# --- Levelled ground -------------------------------------------------------------
+
+## Where the land was levelled for something built on it - the player's plot
+## (a square) and every build site (a disc: the shops, the traders' yards,
+## the outposts, the cave mouths) - the plates follow the grid cell by cell
+## round the edge of the level, from a little inside it out to where it has
+## eased back into the country. Otherwise a big plate reaching from the level
+## out over the rising ground round it lies across the level at a slant and
+## comes up through the plot's concrete, or through a shop's floor.
+## Made once, before the tiles, as plain numbers the worker threads only read:
+## squares [centre x, z, from, to] in distance out from the centre along
+## either axis; discs [centre x, z, from, to] in distance from the centre.
+var _rim_squares := PackedFloat32Array()
+var _rim_discs := PackedFloat32Array()
+## How far inside the level the cell-by-cell band starts, in cells.
+const RIM_INSIDE := 2
+
+func _find_rims() -> void:
+	_rim_squares = PackedFloat32Array()
+	_rim_discs = PackedFloat32Array()
+	var inside := float(RIM_INSIDE) * Terrain.CELL
+	for zone in terrain.clear_zones:
+		var c: Vector3 = zone.centre
+		var half := float(zone.half)
+		_rim_squares.append_array(PackedFloat32Array([c.x, c.z, maxf(0.0, half - inside),
+			half + float(zone.margin) + Terrain.CELL]))
+	for site in terrain.build_sites:
+		var c: Vector3 = site.centre
+		var r := float(site.radius)
+		# Levelled out to the radius, eased back over nearly half as far again
+		# (Terrain._flatten_sites).
+		_rim_discs.append_array(PackedFloat32Array([c.x, c.z, maxf(0.0, r - inside), r * 1.45 + Terrain.CELL]))
+
+## Does the square of grid cells cross the edge of any levelled ground?
+func _on_rim(x0: int, z0: int, x1: int, z1: int) -> bool:
+	if _rim_squares.is_empty() and _rim_discs.is_empty():
+		return false
+	var ax := -terrain.half_extent + float(x0) * Terrain.CELL
+	var bx := -terrain.half_extent + float(x1) * Terrain.CELL
+	var az := -terrain.half_extent + float(z0) * Terrain.CELL
+	var bz := -terrain.half_extent + float(z1) * Terrain.CELL
+	for i in range(0, _rim_squares.size(), 4):
+		var cx := _rim_squares[i]
+		var cz := _rim_squares[i + 1]
+		# Nearest and farthest the square gets from the centre, counted the
+		# way a square is: the bigger of the two axes.
+		var near := maxf(maxf(0.0, maxf(ax - cx, cx - bx)), maxf(0.0, maxf(az - cz, cz - bz)))
+		var far := maxf(maxf(absf(ax - cx), absf(bx - cx)), maxf(absf(az - cz), absf(bz - cz)))
+		if near <= _rim_squares[i + 3] and far >= _rim_squares[i + 2]:
+			return true
+	for i in range(0, _rim_discs.size(), 4):
+		var cx := _rim_discs[i]
+		var cz := _rim_discs[i + 1]
+		var dx_near := maxf(0.0, maxf(ax - cx, cx - bx))
+		var dz_near := maxf(0.0, maxf(az - cz, cz - bz))
+		var dx_far := maxf(absf(ax - cx), absf(bx - cx))
+		var dz_far := maxf(absf(az - cz), absf(bz - cz))
+		if dx_near * dx_near + dz_near * dz_near <= _rim_discs[i + 3] * _rim_discs[i + 3] \
+				and dx_far * dx_far + dz_far * dz_far >= _rim_discs[i + 2] * _rim_discs[i + 2]:
+			return true
+	return false
 
 ## How far the ground strays from a flat plate across the square's corners.
 func _error(x0: int, z0: int, x1: int, z1: int) -> float:
@@ -189,6 +270,8 @@ const BIOME_TOLERANCE := {
 	Terrain.Biome.MOUNTAIN: 2.2,
 	Terrain.Biome.TAIGA: 1.5,
 	Terrain.Biome.SNOW: 2.0,
+	Terrain.Biome.ICE: 0.4,
+	Terrain.Biome.ASH: 1.8,
 }
 
 ## The points along a tile's four edges. An edge is split on its own terms -
@@ -284,10 +367,7 @@ func _weld_all() -> void:
 			var g := offsets[ti] + k
 			normals[g] = t.face_n[k]
 			for e in 3:
-				var a := _key(t.tris[k * 3 + e])
-				var b := _key(t.tris[k * 3 + (e + 1) % 3])
-				var key := [a, b] if a < b else [b, a]
-				var h := hash(key)
+				var h := t.edge_keys[k * 3 + e]
 				if edges.has(h):
 					var j: int = edges[h]
 					if normals[g].dot(normals[j]) > limit:
@@ -337,11 +417,19 @@ func _weld_all() -> void:
 				t.normals[k * 3 + v] = nn
 				t.colors[k * 3 + v] = col
 	plates = sum_n.size()
+	for t: TileBuf in tiles:
+		t.edge_keys = PackedInt64Array()
 
 var plates: int = 0
 ## Plates bigger than this (in doubled square metres, as summed above) are
 ## coloured triangle by triangle.
 const BIG_PLATE := 300.0
+
+## An edge as a key, the same whichever way round it runs.
+static func _edge_key(p: Vector3, q: Vector3) -> int:
+	var a := _key(p)
+	var b := _key(q)
+	return hash([a, b] if a < b else [b, a])
 
 ## A vertex as a key: to the centimetre, so both tiles' copies of a shared
 ## edge point agree.
@@ -387,6 +475,70 @@ func height(x: float, z: float) -> float:
 			if not is_nan(y):
 				return y
 	return NAN
+
+## The colour of the plate over a point (its own shade, as drawn), or a
+## colour with alpha 0 off the plates.
+func color_at(x: float, z: float) -> Color:
+	if tiles.is_empty():
+		return Color(0, 0, 0, 0)
+	var gx := int(floor((x + terrain.half_extent) / Terrain.CELL))
+	var gz := int(floor((z + terrain.half_extent) / Terrain.CELL))
+	var tx := clampi(gx / TILE, 0, tiles_x - 1)
+	var tz := clampi(gz / TILE, 0, tiles_x - 1)
+	for dz in [0, -1, 1]:
+		for dx in [0, -1, 1]:
+			var ux: int = tx + dx
+			var uz: int = tz + dz
+			if ux < 0 or uz < 0 or ux >= tiles_x or uz >= tiles_x:
+				continue
+			var t: TileBuf = tiles[uz * tiles_x + ux]
+			var k := _triangle_in(t, x, z)
+			if k >= 0 and t.colors.size() > k * 3:
+				return t.colors[k * 3]
+	return Color(0, 0, 0, 0)
+
+## The plate over a point: [height, colour], or empty off the plates.
+func plate_at(x: float, z: float) -> Array:
+	if tiles.is_empty():
+		return []
+	var gx := int(floor((x + terrain.half_extent) / Terrain.CELL))
+	var gz := int(floor((z + terrain.half_extent) / Terrain.CELL))
+	var tx := clampi(gx / TILE, 0, tiles_x - 1)
+	var tz := clampi(gz / TILE, 0, tiles_x - 1)
+	var p := Vector2(x, z)
+	for dz in [0, -1, 1]:
+		for dx in [0, -1, 1]:
+			var ux: int = tx + dx
+			var uz: int = tz + dz
+			if ux < 0 or uz < 0 or ux >= tiles_x or uz >= tiles_x:
+				continue
+			var t: TileBuf = tiles[uz * tiles_x + ux]
+			var key := Vector2i(int(floor(x / BUCKET)), int(floor(z / BUCKET)))
+			if not t.buckets.has(key):
+				continue
+			for k in (t.buckets[key] as PackedInt32Array):
+				var a := t.tris[k * 3]
+				var b := t.tris[k * 3 + 1]
+				var c := t.tris[k * 3 + 2]
+				var bc := _barycentric(p, Vector2(a.x, a.z), Vector2(b.x, b.z), Vector2(c.x, c.z))
+				if bc.x >= -0.0001 and bc.y >= -0.0001 and bc.z >= -0.0001:
+					return [a.y * bc.x + b.y * bc.y + c.y * bc.z, t.colors[k * 3] if t.colors.size() > k * 3 else Color(0.3, 0.5, 0.2)]
+	return []
+
+## The triangle of a tile over a point, or -1.
+func _triangle_in(t: TileBuf, x: float, z: float) -> int:
+	var key := Vector2i(int(floor(x / BUCKET)), int(floor(z / BUCKET)))
+	if not t.buckets.has(key):
+		return -1
+	var p := Vector2(x, z)
+	for k in (t.buckets[key] as PackedInt32Array):
+		var a := t.tris[k * 3]
+		var b := t.tris[k * 3 + 1]
+		var c := t.tris[k * 3 + 2]
+		var bc := _barycentric(p, Vector2(a.x, a.z), Vector2(b.x, b.z), Vector2(c.x, c.z))
+		if bc.x >= -0.0001 and bc.y >= -0.0001 and bc.z >= -0.0001:
+			return k
+	return -1
 
 func _height_in(t: TileBuf, x: float, z: float) -> float:
 	var key := Vector2i(int(floor(x / BUCKET)), int(floor(z / BUCKET)))

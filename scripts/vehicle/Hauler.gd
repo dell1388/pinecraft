@@ -56,6 +56,10 @@ var hitch_offset: Vector3 = Vector3.ZERO       ## a truck's hitch, in its frame
 var tongue_offset: Vector3 = Vector3.ZERO      ## a trailer's coupling, in its frame
 var towing: Hauler = null
 var towed_by: Hauler = null
+## The heaviest trailer this truck will pull, by the trailer's own weight
+## (kg), from `tow_limit` in vehicles.json; 0 pulls anything. The pickup
+## takes the utility trailer and anything lighter, and not the big ones.
+var tow_limit: float = 0.0
 var _hitch_joint: PinJoint3D
 var _stand: CollisionShape3D
 var _stand_mesh: Node3D
@@ -189,6 +193,7 @@ func _apply_spec() -> void:
 	display_name = String(spec.get("display_name", "Vehicle"))
 	style = StringName(spec.get("style", "truck"))
 	mass = float(spec.get("mass", 900))
+	tow_limit = float(spec.get("tow_limit", 0.0))
 	engine_force_max = float(spec.get("engine", 16000))
 	max_speed = float(spec.get("max_speed", 22))
 	tyre_grip = float(spec.get("grip", 1.7))
@@ -1584,6 +1589,9 @@ func hitch(trailer: Hauler) -> String:
 		return "already towing the %s" % towing.display_name.to_lower()
 	if trailer.towed_by != null:
 		return "that trailer is hitched to something else"
+	var too_heavy := can_tow(trailer)
+	if too_heavy != "":
+		return too_heavy
 	var gap := trailer.tongue_point().distance_to(hitch_point())
 	if gap > HITCH_REACH:
 		return "back up to it: the hitch is %.1f m from the coupling" % gap
@@ -1607,6 +1615,33 @@ func hitch(trailer: Hauler) -> String:
 	trailer.towed_by = self
 	trailer.set_stand(false)
 	return ""
+
+## Whether the truck at the head of this train can pull `trailer`: "" if it
+## can, or why not. A trailer counts by its own weight, empty; one hitched on
+## behind another trailer is still the truck's to pull, so it counts the same.
+func can_tow(trailer: Hauler) -> String:
+	var puller := lead()
+	if puller.tow_limit <= 0.0 or trailer == null:
+		return ""
+	if float(trailer.spec.get("mass", trailer.mass)) <= puller.tow_limit + 0.5:
+		return ""
+	var most := Hauler.heaviest_trailer_within(puller.tow_limit)
+	return "the %s is too heavy for the %s - it pulls the %s or anything lighter" % [
+		trailer.display_name.to_lower(), puller.display_name.to_lower(), most.to_lower() if most != "" else "lightest trailers"]
+
+## The name of the heaviest trailer weighing no more than `limit` kg.
+static func heaviest_trailer_within(limit: float) -> String:
+	var best := ""
+	var best_mass := -1.0
+	for id in GameData.vehicles:
+		var v: Dictionary = GameData.vehicles[id]
+		if not bool(v.get("trailer", false)):
+			continue
+		var m := float(v.get("mass", 0.0))
+		if m <= limit + 0.5 and m > best_mass:
+			best_mass = m
+			best = String(v.get("display_name", id))
+	return best
 
 ## Lets the trailer go, where it stands, down on its leg.
 func unhitch() -> Hauler:

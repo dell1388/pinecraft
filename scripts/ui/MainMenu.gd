@@ -119,7 +119,8 @@ func refresh() -> void:
 	_load_button.visible = SaveSystem.any_save()
 	if has_save:
 		var when := UIKit.ago(String(info.saved_at))
-		_save_line.text = "Slot %d   ·   Day %d   ·   %s   ·   %d building%s%s" % [SaveSystem.slot,
+		_save_line.text = "Slot %d   ·   %s   ·   Day %d   ·   %s   ·   %d building%s%s" % [SaveSystem.slot,
+			WorldMap.title(WorldMap.valid(info.get("map", WorldMap.ISLES))),
 			int(info.day), UIKit.money(int(info.money)), int(info.buildings),
 			"" if int(info.buildings) == 1 else "s",
 			("   ·   saved " + when) if when != "" else ""]
@@ -144,10 +145,8 @@ func _focus_first() -> void:
 			(b as Button).grab_focus()
 			return
 
+## Always the page, even with no saves yet: it is where the map is picked.
 func _on_new_game() -> void:
-	if not SaveSystem.any_save():
-		new_game_requested.emit()
-		return
 	_open_page("New game", _slots(SavePanel.Mode.NEW))
 
 func _slots(mode: SavePanel.Mode) -> Control:
@@ -279,7 +278,12 @@ func _on_join(address: String) -> void:
 		_coop_status.text = ("could not join: %s. " % (result[1] if result[1] != "" else "no answer from %s:%d" % [host_part, port])) \
 			+ "Check the host has pressed Host this game, the address is theirs, and their firewall lets the game in (UDP %d)." % port
 		return
-	# Connected: save this world, then build the host's and join it.
+	# Connected: the host says which map first (a moment); then save this
+	# world, and build the host's and join it.
+	var waited_map := 0.0
+	while Net.host_map == &"" and waited_map < 4.0 and Net.is_client():
+		await get_tree().create_timer(0.1, true).timeout
+		waited_map += 0.1
 	if world != null:
 		world.call("quick_save")
 	skip_once = true

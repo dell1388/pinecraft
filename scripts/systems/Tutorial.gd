@@ -30,6 +30,13 @@ const STEPS := [
 
 const POLL := 0.25
 
+## The steps this world has: all of them, bar any `skip` takes out (Ostars has
+## no yard, store or orders to send you to).
+var steps: Array = STEPS
+
+func skip(ids: Array) -> void:
+	steps = STEPS.filter(func(step: Dictionary) -> bool: return not ids.has(step.id))
+
 var player: Player
 var plot: Plot
 var store: Node3D
@@ -74,18 +81,18 @@ func finished() -> bool:
 
 ## The first step not yet done, or -1 when the list is finished.
 func current_index() -> int:
-	for i in STEPS.size():
-		if not done(STEPS[i].id):
+	for i in steps.size():
+		if not done(steps[i].id):
 			return i
 	return -1
 
 func current() -> Dictionary:
 	var i := current_index()
-	return {} if i < 0 else STEPS[i]
+	return {} if i < 0 else steps[i]
 
 func done_count() -> int:
 	var n := 0
-	for step in STEPS:
+	for step in steps:
 		if done(step.id):
 			n += 1
 	return n
@@ -110,14 +117,14 @@ func _met(id: StringName) -> bool:
 ## Marks every step up to the furthest one that is met.
 func evaluate() -> void:
 	var furthest := -1
-	for i in STEPS.size():
-		if _met(STEPS[i].id):
+	for i in steps.size():
+		if _met(steps[i].id):
 			furthest = i
 	if furthest < 0:
 		return
 	var changed := false
 	for i in furthest + 1:
-		var step: Dictionary = STEPS[i]
+		var step: Dictionary = steps[i]
 		if not done(step.id):
 			PlayerState.tutorial_done.append(step.id)
 			step_completed.emit(step)

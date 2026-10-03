@@ -9,6 +9,8 @@ func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		var kv := String(a).trim_prefix("--").split("=")
 		args[kv[0]] = kv[1] if kv.size() > 1 else "1"
+	if args.has("map"):
+		WorldMap.forced = WorldMap.valid(args["map"])
 	world = load("res://scenes/world.tscn").instantiate()
 	world.show_menu = false
 	world.autosave = false
@@ -307,6 +309,11 @@ func shot_menu() -> void:
 	for i in 10:
 		await get_tree().process_frame
 	await snap("main_controls")
+	WorldMap.chosen = WorldMap.OSTARS
+	world.main_menu._on_new_game()
+	for i in 10:
+		await get_tree().process_frame
+	await snap("main_new_game")
 
 func shot_axe() -> void:
 	var p := world.player
@@ -1164,13 +1171,17 @@ func shot_crush() -> void:
 	m.position = mpos
 	world.add_child(m)
 	await _frames(20)
+	# The wheels from above, before.
+	await look(m.global_transform * Vector3(0.6, 4.2, 2.2), m.global_transform * Vector3(0, 1.4, 0))
+	await snap("crusher_wheels")
 	p.global_position = m.global_transform * Vector3(0, InlineMachine.DECK_THICKNESS + m.canopy_height() + InlineMachine.HOPPER_DEPTH + 0.8, 0)
+	# Halfway drawn in: the blood.
 	for i in 60 * 3:
 		await get_tree().physics_frame
-		if p.crushed() and i > 140:
+		if p.grinding() and p._grind_t > 1.4:
 			break
-	await _frames(5)
-	await snap("slop_crusher")
+	await look(m.global_transform * Vector3(1.4, 3.6, 3.0), m.global_transform * Vector3(0, 1.6, 0))
+	await snap("crusher_grinding")
 
 ## The TNT on the hardware store's shelf.
 func shot_tntshelf() -> void:
@@ -1187,3 +1198,270 @@ func shot_tntshelf() -> void:
 			await snap("tnt_shelf_wide")
 			return
 	print("no TNT on the shelf")
+
+## The ragdoll: a big knock filmed from a fixed camera, frame by frame, then
+## him dangling from a crane.
+func shot_ragdoll() -> void:
+	Settings.set_value(&"moving_sun", false, false)
+	world.hud.visible = false
+	var p: Player = world.player
+	var base := world.plot.global_position + Vector3(-10, 0, 22)
+	base.y = world.terrain.height_at(base.x, base.z)
+	p.global_position = base + Vector3(0, 0.2, 0)
+	p.rotation.y = 0.0
+	await _frames(40)
+	var cam := Camera3D.new()
+	world.add_child(cam)
+	cam.global_position = base + Vector3(9.0, 3.2, 7.5)
+	cam.look_at(base + Vector3(3.5, 1.4, 0), Vector3.UP)
+	cam.current = true
+	await _frames(5)
+	await snap("rd_0")
+	p.knock(Vector3(11, 12, -2))
+	var marks := [6, 14, 24, 36, 55, 90]
+	var n := 0
+	var follow := p.global_position
+	for i in 600:
+		await get_tree().process_frame
+		if p.knocked():
+			follow = follow.lerp(p.tumble.global_position, 0.25)
+		cam.global_position = follow + Vector3(4.5, 1.8, 4.0)
+		cam.look_at(follow + Vector3(0, 0.3, 0), Vector3.UP)
+		if n < marks.size() and i == marks[n]:
+			await snap("rd_%d" % (n + 1))
+			n += 1
+		if n >= marks.size() and not p.knocked():
+			break
+	for i in 90:
+		await get_tree().process_frame
+	await snap("rd_up")
+	# Dangling from a crane, arms and legs hanging.
+	var truck := Hauler.new()
+	truck.setup(world.manager, 0, &"crane_truck")
+	world.add_child(truck)
+	var tpos := base + Vector3(-10, 0, 10)
+	tpos.y = world.terrain.height_at(tpos.x, tpos.z) + truck.spawn_height()
+	truck.global_position = tpos
+	await _frames(60)
+	truck.rig.set_operating(true)
+	var frame := truck.global_transform
+	p.global_position = frame * Vector3(3.6, 0.0, 1.0)
+	await _frames(20)
+	truck.rig._take_player(p)
+	truck.rig.target = truck.rig.clamp_target(truck.rig.target + Vector3(0, 2.2, 0))
+	for i in 150:
+		await get_tree().physics_frame
+	var hang := p.tumble.global_position
+	cam.global_position = hang + Vector3(3.5, 0.6, 3.5)
+	cam.look_at(hang + Vector3(0, -0.4, 0), Vector3.UP)
+	await _frames(10)
+	await snap("rd_crane")
+
+## Walking and sprinting from the side, close, to see the knees and elbows.
+func shot_gait() -> void:
+	Settings.set_value(&"moving_sun", false, false)
+	world.hud.visible = false
+	var p: Player = world.player
+	var base := world.plot.global_position + Vector3(-10, 0, 22)
+	base.y = world.terrain.height_at(base.x, base.z)
+	p.global_position = base + Vector3(0, 0.2, 0)
+	p.rotation.y = PI * 0.5          # walking along -x
+	await _frames(30)
+	var cam := Camera3D.new()
+	world.add_child(cam)
+	cam.current = true
+	Input.action_press("move_forward")
+	for i in 70:
+		await get_tree().physics_frame
+		cam.global_position = p.global_position + Vector3(0, 1.0, 3.2)
+		cam.look_at(p.global_position + Vector3(0, 0.75, 0), Vector3.UP)
+		if i in [40, 47, 54, 61]:
+			await snap("gait_walk_%d" % i)
+	Input.action_press("sprint")
+	for i in 70:
+		await get_tree().physics_frame
+		cam.global_position = p.global_position + Vector3(0, 1.0, 3.2)
+		cam.look_at(p.global_position + Vector3(0, 0.75, 0), Vector3.UP)
+		if i in [40, 45, 50, 55]:
+			await snap("gait_run_%d" % i)
+	Input.action_release("sprint")
+	Input.action_release("move_forward")
+
+## A line of TNT going up one after another.
+func shot_chain() -> void:
+	Settings.set_value(&"moving_sun", false, false)
+	world.hud.visible = false
+	var base := world.plot.global_position + Vector3(-14, 0, 24)
+	base.y = world.terrain.height_at(base.x, base.z)
+	world.player.global_position = base + Vector3(0, 0, 40)
+	var sticks: Array = []
+	for i in 6:
+		var at := base + Vector3(float(i) * 3.5, 0.6, 0)
+		at.y = world.terrain.height_at(at.x, at.z) + 0.3
+		sticks.append(world.manager.spawn(&"tnt_stick", Transform3D(Basis(), at), 0))
+	await _frames(30)
+	await look(base + Vector3(9, 6, 16), base + Vector3(9, 0.5, 0))
+	Blast.light(sticks[0], world.manager, 0.05)
+	for k in 6:
+		await get_tree().create_timer(0.12).timeout
+		await snap("chain_%d" % k)
+
+# --- Ostars (run with --map=ostars) --------------------------------------------------
+
+## The whole map from above (the journal's map image), and the country from a
+## few places on it.
+func shot_ostars() -> void:
+	var img: Image = world.terrain.map_image(2)
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("user://shots"))
+	img.save_png("user://shots/ostars_map.png")
+	print("saved ostars_map")
+	if world.forester != null:
+		print("forest: ", world.forester.census(), " stands ", world.forester.stands.size())
+	var views := [
+		["ostars_home", Vector3(40, 45, 140), Vector3(0, 0, 0)],
+		["ostars_sylvenwood", Vector3(-380, 90, -60), Vector3(-700, 10, -260)],
+		["ostars_orodruin", Vector3(-620, 140, -700), Vector3(-1080, 150, -980)],
+		["ostars_spine", Vector3(300, 70, 60), Vector3(700, 30, 520)],
+		["ostars_tundra", Vector3(700, 90, -1450), Vector3(900, 10, -1850)],
+		["ostars_arch", Vector3(-1250, 60, -250), Vector3(-1640, 10, -380)],
+		["ostars_teeth", Vector3(900, 110, 1100), Vector3(1400, 80, 1550)],
+		["ostars_bogs", Vector3(1150, 45, 550), Vector3(1450, 0, 760)],
+		["ostars_kael", Vector3(180, 110, 1250), Vector3(180, 0, 1450)],
+		["ostars_whispering", Vector3(-1700, 70, -150), Vector3(-1940, 10, -360)],
+		["ostars_in_sylvenwood", Vector3(-640, 6, -200), Vector3(-760, 8, -300)],
+		["ostars_in_whispering", Vector3(-1900, 6, -300), Vector3(-2000, 10, -420)],
+		["ostars_on_spine", Vector3(430, 42, 190), Vector3(800, 38, 640)],
+		["ostars_in_bog", Vector3(1400, 5, 700), Vector3(1520, 3, 820)],
+		["ostars_home_ground", Vector3(0, 4, 40), Vector3(-100, 6, -160)],
+	]
+	var only: String = args.get("view", "")
+	for v in views:
+		if only != "" and not String(v[0]).contains(only):
+			continue
+		var from: Vector3 = v[1]
+		var at: Vector3 = v[2]
+		# Stand the player below the camera so the forest round it wakes up.
+		world.player.global_position = world.terrain.place(Vector3(from.x, 0, from.z), 1.0)
+		for i in 40:
+			await get_tree().process_frame
+		await look(from + Vector3(0, world.terrain.height_at(from.x, from.z), 0), at)
+		for i in 30:
+			await get_tree().process_frame
+		await snap(v[0])
+
+## The look of the land: meadow and woods at eye level, the woods from a
+## way off, and from up high. Run with --map=ostars or isles; --view=<part of a
+## name> for one.
+func shot_scenery() -> void:
+	Settings.set_value(&"moving_sun", false, false)
+	var home_wood: Vector3 = world.starter_forest if world.starter_forest != Vector3.INF else Vector3(80, 0, 80)
+	var views := [
+		["scenery_meadow", Vector3(10, 1.7, 60), Vector3(-20, 1.0, -40)],
+		["scenery_wood_edge", home_wood + Vector3(26, 1.7, 26), home_wood],
+		["scenery_far_woods", Vector3(-380, 30, -60), Vector3(-700, 10, -260)],
+		["scenery_high", Vector3(60, 60, 160), Vector3(-40, 0, 0)],
+		["scenery_close", Vector3(4, 1.2, 30), Vector3(2, 0.2, 24)],
+	]
+	var only: String = args.get("view", "")
+	for v in views:
+		if only != "" and not String(v[0]).contains(only):
+			continue
+		var from: Vector3 = v[1]
+		var at: Vector3 = v[2]
+		world.player.global_position = world.terrain.place(Vector3(from.x, 0, from.z), 1.0)
+		for i in 60:
+			await get_tree().process_frame
+		var ground := world.terrain.height_at(from.x, from.z)
+		await look(from + Vector3(0, ground, 0), Vector3(at.x, world.terrain.height_at(at.x, at.z) + at.y, at.z))
+		for i in 30:
+			await get_tree().process_frame
+		await snap(v[0])
+
+## How many trees are built (not stand-ins) round a few spots: the cost of a
+## forest. Run with and without --map=ostars.
+func shot_treecount() -> void:
+	var spots := [Vector3(0, 0, 0), Vector3(-700, 0, -260), Vector3(-1940, 0, -360), Vector3(1200, 0, -700),
+		Vector3(120, 0, 120), world.starter_forest if world.starter_forest != Vector3.INF else Vector3.ZERO]
+	for at in spots:
+		world.player.global_position = world.terrain.place(at, 1.0)
+		for i in 10:
+			await get_tree().process_frame
+		var built := world.trees().size()
+		var near := 0
+		for e in world.census():
+			var p: Vector3 = e.pos
+			if String(e.what).begins_with("wood_") and Vector2(p.x - at.x, p.z - at.z).length() < 120.0:
+				near += 1
+		print("at %s: %d trees built, %d standing within 120 m, fps %d" % [at, built, near, Engine.get_frames_per_second()])
+
+## Ostars' traders and shops (run with --map=ostars): each place from the
+## front, an order carried out to the bay, and Old Bjorn's tree felled.
+func shot_traders() -> void:
+	Economy.add_money(5000)
+	for tp in world.trade_posts:
+		var front := tp.global_transform * Vector3(4.0, 9.0, 30.0)
+		world.player.global_position = tp.global_transform * Vector3(0, 1.0, 14.0)
+		for i in 30:
+			await get_tree().process_frame
+		await look(front, tp.global_transform * Vector3(2.0, 1.5, 0.0))
+		for i in 20:
+			await get_tree().process_frame
+		await snap("place_%s" % String(TradePost.Kind.keys()[tp.kind]).to_lower())
+	# Close up on each trader.
+	for tp in world.trade_posts:
+		var k := tp.keeper
+		world.player.global_position = k.global_transform * Vector3(0, 1.0, -5.0)
+		for i in 40:
+			await get_tree().process_frame
+		await look(k.global_transform * Vector3(1.6, 1.7, -3.2), k.global_transform * Vector3(0, 1.0, 0))
+		await snap("trader_%s" % String(TradePost.Kind.keys()[tp.kind]).to_lower())
+	# An order at Bjorn's, carried out to the bay floor.
+	var lumber: TradePost = world.trade_posts[0]
+	print("order: ", lumber.counter.order(&"lumber_pine", 6))
+	world.player.global_position = lumber.global_transform * Vector3(15.0, 1.0, 14.0)
+	await look(lumber.global_transform * Vector3(6.0, 6.0, 16.0), lumber.global_transform * Vector3(14.0, 0.5, 0.0))
+	var t := 0.0
+	while lumber.queued() > 0 and t < 60.0:
+		await get_tree().process_frame
+		t += get_process_delta_time()
+		if int(t * 10.0) % 40 == 0:
+			pass
+	for i in 60:
+		await get_tree().process_frame
+	await snap("order_delivered")
+	var in_bay := 0
+	for item in world.manager.owned_items():
+		var local := lumber.to_local(item.global_position) - TradePost.BAY_CENTRE
+		if absf(local.x) < 4.0 and absf(local.z) < 6.0:
+			in_bay += 1
+	print("delivered to the bay: %d (queue %d, took %.0f s)" % [in_bay, lumber.queued(), t])
+	# Fell Bjorn's tree.
+	if lumber.tree != null:
+		world.player.global_position = lumber.global_transform * Vector3(-10.0, 1.0, 4.0)
+		lumber.tree.fell(world.player.global_position)
+		for i in 30:
+			await get_tree().process_frame
+		await look(lumber.keeper.global_transform * Vector3(2.5, 2.0, -4.0), lumber.keeper.global_transform * Vector3(0, 1.3, 0))
+		await snap("bjorn_angry")
+		print("bjorn: ", lumber.keeper.state, " says '", lumber.keeper.saying(), "'")
+
+## The isles' yard hand and the trading posts' traders.
+func shot_yardkeep() -> void:
+	var k: NpcFigure = world.depot.npc
+	world.player.global_position = k.global_transform * Vector3(0, 1.0, -4.0)
+	for i in 40:
+		await get_tree().process_frame
+	await look(k.global_transform * Vector3(1.4, 1.6, -3.4), k.global_transform * Vector3(0, 0.9, 0))
+	await snap("yardkeep")
+	var n := 0
+	for o in world.outposts:
+		if o.yard == null or o.yard.npc == null:
+			continue
+		var t: NpcFigure = o.yard.npc
+		world.player.global_position = t.global_transform * Vector3(0, 1.0, -5.0)
+		for i in 40:
+			await get_tree().process_frame
+		await look(t.global_transform * Vector3(1.6, 1.8, -3.8), t.global_transform * Vector3(0, 0.9, 0))
+		await snap("outpost_trader_%d" % n)
+		print("outpost ", o.place_name, ": ", t.display_name)
+		n += 1

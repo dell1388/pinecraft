@@ -22,11 +22,13 @@ const PLANTING := {
 	Terrain.Biome.DESERT: [["cactus", 0.04], ["scrub", 0.10]],
 	Terrain.Biome.MOUNTAIN: [["grass", 0.10], ["shard", 0.04]],
 	Terrain.Biome.SNOW: [["drift", 0.12]],
+	Terrain.Biome.ASH: [["shard", 0.05], ["scrub", 0.03]],
 }
 ## Boulders per terrain cell, by biome.
 const BOULDERS := {
 	Terrain.Biome.WOODLAND: 0.006, Terrain.Biome.TAIGA: 0.01, Terrain.Biome.SWAMP: 0.002,
 	Terrain.Biome.DESERT: 0.008, Terrain.Biome.MOUNTAIN: 0.012, Terrain.Biome.SNOW: 0.008,
+	Terrain.Biome.ASH: 0.014,
 }
 
 var terrain: Terrain
@@ -355,7 +357,7 @@ func _boulder(g: Greeble, body: StaticBody3D, at: Vector3, biome: Terrain.Biome)
 		Vector3(-size * 0.5, size * 0.2, -size * 0.3)), base.darkened(0.06))
 	if biome == Terrain.Biome.SNOW:
 		g.box(Vector3(size * 1.2, size * 0.12, size * 0.9), frame * Transform3D(Basis(), Vector3(0, size * 0.92, 0)), Color(0.96, 0.97, 1.0))
-	elif biome != Terrain.Biome.DESERT:
+	elif biome != Terrain.Biome.DESERT and biome != Terrain.Biome.ASH and biome != Terrain.Biome.ICE:
 		g.box(Vector3(size * 0.9, size * 0.08, size * 0.6), frame * Transform3D(Basis(), Vector3(-size * 0.1, size * 0.91, 0.1)), Color(0.30, 0.50, 0.24))
 	var cs := CollisionShape3D.new()
 	var box := BoxShape3D.new()

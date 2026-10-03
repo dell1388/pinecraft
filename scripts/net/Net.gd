@@ -33,6 +33,10 @@ var client_side: Object = null
 ## The world on screen is a copy of a host's. Sticks when the connection goes,
 ## so that copy is never saved over the guest's own game.
 var guest_world: bool = false
+## The map the host is playing (WorldMap), told to a guest the moment it
+## connects, so it builds the same one. Empty until then.
+var host_map: StringName = &""
+signal map_known(id: StringName)
 
 func _ready() -> void:
 	# The name you played under and the host you joined last time.
@@ -97,6 +101,7 @@ func join(p_address: String, p_port: int = PORT) -> String:
 	if host_name == "":
 		return "type the host's IP address"
 	var peer := ENetMultiplayerPeer.new()
+	host_map = &""
 	var err := peer.create_client(host_name, host_port)
 	if err != OK:
 		return "could not reach %s:%d (%s) - check the address" % [host_name, host_port, error_string(err)]
@@ -124,6 +129,8 @@ func _on_peer_connected(id: int) -> void:
 	if OS.has_environment("NET_TRACE"):
 		print("[net] peer connected ", id, " mode ", mode)
 	if is_host():
+		# First thing a guest hears: which map to build.
+		h_map.rpc_id(id, String(WorldMap.current))
 		peer_joined.emit(id)
 
 func _on_peer_disconnected(id: int) -> void:
@@ -156,6 +163,13 @@ func _on_server_gone() -> void:
 	if client_side != null:
 		client_side.call("on_host_gone")
 	left.emit()
+
+# --- Host -> guest, before anything else ---------------------------------------
+
+@rpc("authority", "reliable")
+func h_map(id: String) -> void:
+	host_map = WorldMap.valid(id)
+	map_known.emit(host_map)
 
 # --- Guest -> host ---------------------------------------------------------------
 

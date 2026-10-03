@@ -4,16 +4,19 @@ extends RefCounted
 ## TNT: lighting a stick, and what happens when one goes off.
 ##
 ## A lit stick fizzes for a few seconds (pick it up and throw it, or run),
-## then goes off: players nearby are thrown flying (they go limp - see
-## Player.knock), loose things are blown about, other sticks nearby catch,
-## and ore in the ground is cracked apart - easy ores come to pieces, the
+## then goes off: players nearby are thrown a long way (they go limp - see
+## Player.knock), loose things are blown about, every other stick (or box of
+## sticks) in reach goes off too a split second later - lying about, on
+## someone's rack or in their hand - and ore in the ground is cracked apart - easy ores come to pieces, the
 ## middle ones are knocked about, the top ones (platinum, sunstone,
 ## starmetal, the finest gems) barely notice. Loose ore chunks in the blast
 ## crack in two the same way.
 
 ## How far a blast reaches, and how hard it throws a player at its heart.
 static var RADIUS: float = Balance.num("explosives.radius", 6.0)
-static var LAUNCH: float = Balance.num("explosives.launch", 22.0)
+static var LAUNCH: float = Balance.num("explosives.launch", 38.0)
+## How far a blast sets off other TNT (a little further than it throws things).
+static var CHAIN_RADIUS: float = Balance.num("explosives.chain_radius", 8.0)
 ## The hammer-head weight a blast hits ore with, at its heart.
 static var ORE_HIT_KG: float = Balance.num("explosives.ore_hit_kg", 60.0)
 ## Seconds a lit fuse burns.
@@ -33,6 +36,16 @@ static func light(item: LooseItem, manager: LooseItemManager, seconds: float = -
 	item.get_tree().current_scene.add_child(f)
 	return true
 
+## TNT, loose or still in its box.
+static func explosive(item: LooseItem) -> bool:
+	return item != null and (item.item_id == &"tnt_stick" or item.item_id == &"box_tnt_stick")
+
+## Sets another stick off a moment after a blast reaches it: a quick ripple,
+## not all at once.
+static func _chain(item: LooseItem, manager: LooseItemManager) -> void:
+	if explosive(item) and item.state != LooseItem.State.POOLED and not lit(item):
+		light(item, manager, randf_range(0.06, 0.2))
+
 ## Whether this item's fuse is burning.
 static func lit(item: LooseItem) -> bool:
 	return item != null and is_instance_valid(item) and item.has_meta("fuse")
@@ -45,7 +58,7 @@ static func detonate(host: Node, at: Vector3, manager: LooseItemManager) -> int:
 	var space := (host as Node3D).get_world_3d().direct_space_state if host is Node3D else root.get_viewport().world_3d.direct_space_state
 	var q := PhysicsShapeQueryParameters3D.new()
 	var sphere := SphereShape3D.new()
-	sphere.radius = RADIUS
+	sphere.radius = maxf(RADIUS, CHAIN_RADIUS)
 	q.shape = sphere
 	q.transform = Transform3D(Basis(), at)
 	q.collision_mask = Layers.PLAYER | Layers.LOOSE | Layers.TREE | Layers.VEHICLE
@@ -64,26 +77,33 @@ static func detonate(host: Node, at: Vector3, manager: LooseItemManager) -> int:
 		if o is Player:
 			var p := o as Player
 			var centre := p.global_position + Vector3.UP * 0.9
+			# TNT on his rack or in his hand goes up with him.
+			for carried in p.held:
+				if is_instance_valid(carried):
+					_chain(carried, manager)
+			if p.dragged != null and is_instance_valid(p.dragged):
+				_chain(p.dragged, manager)
 			var k := _falloff(centre, at)
 			if k > 0.0:
+				# Thrown hard even near the edge (the square root), up and away.
+				var throw := LAUNCH * sqrt(k)
 				var away := (centre - at)
 				away.y = maxf(away.y, 0.0)
-				p.knock(away.normalized() * LAUNCH * k + Vector3.UP * LAUNCH * 0.45 * k)
+				p.knock(away.normalized() * throw + Vector3.UP * throw * 0.6)
 				reached += 1
 		elif o is OreRock:
 			if _hit_rock(o as OreRock, at):
 				reached += 1
 		elif o is LooseItem:
 			var item := o as LooseItem
+			if item.global_position.distance_to(at) <= CHAIN_RADIUS:
+				_chain(item, manager)
 			if item.state != LooseItem.State.FREE:
 				continue
 			var k := _falloff(item.global_position, at)
 			if k <= 0.0:
 				continue
 			reached += 1
-			if item.item_id == &"tnt_stick" and not lit(item):
-				# Sticks nearby go up too, a moment later.
-				light(item, manager, randf_range(0.15, 0.45))
 			var away := (item.global_position - at).normalized() + Vector3.UP * 0.6
 			item.apply_central_impulse(away.normalized() * item.mass * 12.0 * k)
 			_crack_loose(item, k, manager)

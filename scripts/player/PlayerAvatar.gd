@@ -4,7 +4,9 @@ extends Node3D
 ## The lumberjack you play as: the model in assets/models/player.glb, posed in
 ## code every frame from what the player is doing. Nothing is keyframed in the
 ## file - the model is six pivots (legs, torso, arms, head) and this works them,
-## the same way the rest of the game is built in code.
+## the same way the rest of the game is built in code. Each arm bends at the
+## elbow and wrist, each leg at the knee and ankle, and each hand has four
+## fingers and a thumb that close round a handle or a wheel.
 ##
 ## There are two kinds of motion:
 ##
@@ -28,7 +30,14 @@ extends Node3D
 ## when the host has sent it, and wins over what this machine can see.
 
 const MODEL := "res://assets/models/player.glb"
-const PARTS: Array[StringName] = [&"Leg_L", &"Leg_R", &"Torso", &"Arm_L", &"Arm_R", &"Head"]
+const PARTS: Array[StringName] = [&"Leg_L", &"Leg_R", &"Torso", &"Arm_L", &"Arm_R", &"Head",
+	&"Elbow_L", &"Elbow_R", &"Hand_L", &"Hand_R", &"Knee_L", &"Knee_R", &"Foot_L", &"Foot_R",
+	&"Finger_L0", &"Finger_L1", &"Finger_L2", &"Finger_L3", &"Thumb_L",
+	&"Finger_R0", &"Finger_R1", &"Finger_R2", &"Finger_R3", &"Thumb_R",
+	&"FingerTip_L0", &"FingerTip_L1", &"FingerTip_L2", &"FingerTip_L3", &"ThumbTip_L",
+	&"FingerTip_R0", &"FingerTip_R1", &"FingerTip_R2", &"FingerTip_R3", &"ThumbTip_R"]
+## Where a tool's grip sits in the right hand, in the hand's own frame.
+const GRIP := Vector3(0.0, -0.09, 0.0)
 
 ## His hip pivots above his feet, from the hips to the top of his hat, and
 ## how far the underside of a thigh is below the hip pivot when sitting.
@@ -63,6 +72,7 @@ var model: Node3D
 var _part := {}              ## name -> Node3D
 var _rest := {}              ## name -> rest rotation (Euler)
 var _now := {}               ## name -> current rotation (Euler), smoothed
+var _rest_pos := {}          ## name -> where the pivot sits on its parent
 var _root_now := Vector3.ZERO
 var _meshes: Array[GeometryInstance3D] = []
 var _tool: MeshInstance3D
@@ -116,19 +126,21 @@ func _ready() -> void:
 				node.reparent(torso, true)
 	for n in _part:
 		_rest[n] = (_part[n] as Node3D).rotation
+		_rest_pos[n] = (_part[n] as Node3D).position
 		_now[n] = _rest[n]
 	for m in model.find_children("*", "GeometryInstance3D", true, false):
 		_meshes.append(m as GeometryInstance3D)
 	_tool = MeshInstance3D.new()
 	_tool.name = "ToolInHand"
 	_tool.visible = false
+	var hand := _part.get(&"Hand_R") as Node3D
 	var arm := _part.get(&"Arm_R") as Node3D
-	if arm != null:
-		arm.add_child(_tool)
+	if hand != null or arm != null:
+		(hand if hand != null else arm).add_child(_tool)
 		# Gripped near the bottom of the handle, pointing forward out of the
 		# fist, blade leading the swing.
 		var b := Basis(Vector3.RIGHT, -PI * 0.5) * Basis(Vector3.UP, PI * 0.5)
-		_tool.transform = Transform3D(b, HAND + b * Vector3(0, -0.08, 0))
+		_tool.transform = Transform3D(b, (GRIP if hand != null else HAND) + b * Vector3(0, -0.08, 0))
 		_meshes.append(_tool)
 	_next_fidget = randf_range(6.0, 11.0)
 	_apply_identity()
@@ -224,6 +236,10 @@ func _process(delta: float) -> void:
 	var pose := _base_pose(delta)
 	_overlay_gesture(pose, delta)
 	_blend(pose, delta)
+	# Limp: the ragdoll has his body, head, arms and legs.
+	var rd: Variant = player.get("ragdoll")
+	if rd != null and is_instance_valid(rd):
+		(rd as Ragdoll).pose_model()
 
 # --- What he is doing --------------------------------------------------------
 
@@ -256,7 +272,10 @@ func _current_mode(delta: float) -> StringName:
 func _place() -> void:
 	var body := _limp_body()
 	if body != null:
-		# Knocked flying: he goes wherever the tumbling body goes, head over
+		if player.get("ragdoll") != null:
+			# The ragdoll places each part itself.
+			return
+		# Knocked flying as one capsule: he goes wherever it goes, head over
 		# heels with it.
 		global_transform = body.global_transform * Transform3D(Basis(), Vector3.DOWN * Player.TUMBLE_HIPS)
 		return
@@ -334,6 +353,8 @@ func _base_pose(delta: float) -> Dictionary:
 			_limp(p)
 		_:
 			_walking(p, delta)
+	if _mode != &"ragdoll":
+		_joints(p)
 	# Breathing, whatever else is going on: the belly rises, the arms drift.
 	_add(p, &"Torso", Vector3(0.015 * breathe, 0, 0))
 	_add(p, &"Arm_L", Vector3(0, 0, -0.03 * breathe))
@@ -423,6 +444,195 @@ func _airborne(p: Dictionary) -> void:
 		p[&"Arm_L"] = Vector3(1.25, 0, 0.2)
 		p[&"Arm_R"] = Vector3(1.25, 0, -0.2)
 
+## Elbows, knees and fingers, for whatever the body is doing. Elbows bend
+## forward (+x), knees back (-x); a curl of 0 is an open hand, 1.5 a fist.
+func _joints(p: Dictionary) -> void:
+	var knee_l := 0.06
+	var knee_r := 0.06
+	var elbow_l := 0.22
+	var elbow_r := 0.22
+	var curl_l := 0.4
+	var curl_r := 0.4
+	var s := sin(_phase)
+	var c := cos(_phase)
+	match _mode:
+		&"foot":
+			# The leg coming through lifts its foot; sprinting, the arms pump
+			# bent.
+			var bend := 0.95 * minf(_gait, 1.4)
+			knee_l += bend * maxf(0.0, c)
+			knee_r += bend * maxf(0.0, -c)
+			var pump := clampf(_gait - 0.7, 0.0, 1.0)
+			elbow_l += 1.0 * pump + 0.15 * _gait
+			elbow_r += 1.0 * pump + 0.15 * _gait
+			# Each arm bends a little more as it swings forward.
+			elbow_l += 0.3 * minf(_gait, 1.0) * maxf(0.0, -s)
+			elbow_r += 0.3 * minf(_gait, 1.0) * maxf(0.0, s)
+			curl_l += 0.6 * pump
+			curl_r += 0.6 * pump
+			# Stood still, he shifts his weight slowly from leg to leg.
+			var idle := 1.0 - clampf(_gait * 4.0, 0.0, 1.0)
+			var shift := sin(_t * 0.45)
+			knee_l += 0.1 * idle * maxf(0.0, shift)
+			knee_r += 0.1 * idle * maxf(0.0, -shift)
+		&"air":
+			knee_l = 0.9
+			knee_r = 0.35
+			elbow_l = 0.45
+			elbow_r = 0.45
+			curl_l = 0.1
+			curl_r = 0.1
+		&"swim":
+			knee_l = 0.5 + 0.4 * s
+			knee_r = 0.5 - 0.4 * s
+			elbow_l = 0.6
+			elbow_r = 0.6
+			curl_l = 0.05
+			curl_r = 0.05
+		&"drive", &"operate":
+			# Sat down: shins straight down from the seat, hands on the wheel
+			# or the levers.
+			knee_l = 1.5
+			knee_r = 1.5
+			elbow_l = 0.55
+			elbow_r = 0.55
+			curl_l = 1.35
+			curl_r = 1.35
+		&"build":
+			elbow_r = 0.05
+			curl_r = 0.7
+	if _carrying():
+		elbow_l = 0.55
+		elbow_r = 0.55
+		curl_l = 0.9
+		curl_r = 0.9
+	elif _drag() != null:
+		elbow_l = 0.1
+		elbow_r = 0.1
+		curl_l = 1.3
+		curl_r = 1.3
+	elif _tool_id != &"":
+		# The tool up over his shoulder, fist closed round the handle.
+		elbow_r = 0.95
+		curl_r = 1.45
+	if _land > 0.0:
+		knee_l += 1.0 * _land
+		knee_r += 1.0 * _land
+	# A swing winds the elbows up, then snaps them straight through the blow.
+	if _gesture == &"swing":
+		var k := _g_t / maxf(_g_len, 0.01)
+		var wind := 1.3 * (1.0 - smoothstep(0.3, 0.5, k)) * smoothstep(0.0, 0.2, k)
+		elbow_r += wind
+		elbow_l += wind * 0.6
+	elif _gesture == &"throw" or _gesture == &"pick_up":
+		var k := _g_t / maxf(_g_len, 0.01)
+		elbow_l += 0.8 * sin(k * PI)
+		elbow_r += 0.8 * sin(k * PI)
+	_bend(p, knee_l, knee_r, elbow_l, elbow_r, curl_l, curl_r)
+
+func _bend(p: Dictionary, knee_l: float, knee_r: float, elbow_l: float, elbow_r: float, curl_l: float, curl_r: float) -> void:
+	p[&"Knee_L"] = _rest.get(&"Knee_L", Vector3.ZERO) + Vector3(-knee_l, 0, 0)
+	p[&"Knee_R"] = _rest.get(&"Knee_R", Vector3.ZERO) + Vector3(-knee_r, 0, 0)
+	# The foot stays roughly level as the knee bends.
+	p[&"Foot_L"] = _rest.get(&"Foot_L", Vector3.ZERO) + Vector3(knee_l * 0.35, 0, 0)
+	p[&"Foot_R"] = _rest.get(&"Foot_R", Vector3.ZERO) + Vector3(knee_r * 0.35, 0, 0)
+	p[&"Elbow_L"] = _rest.get(&"Elbow_L", Vector3.ZERO) + Vector3(elbow_l, 0, 0)
+	p[&"Elbow_R"] = _rest.get(&"Elbow_R", Vector3.ZERO) + Vector3(elbow_r, 0, 0)
+	_curl(p, &"L", curl_l)
+	_curl(p, &"R", curl_r)
+
+## Closes a hand: each finger rolls in at the knuckle and again halfway (the
+## little finger most), the thumb folds across. The model's rest pose is a
+## relaxed, half-open hand; a curl of about 1.3 on top of it is a fist.
+func _curl(p: Dictionary, side: StringName, amount: float) -> void:
+	var sign := FINGER_CURL_SIGN * (1.0 if side == &"L" else -1.0)
+	var open := amount - REST_CURL
+	for i in 4:
+		var n := StringName("Finger_%s%d" % [side, i])
+		var tip := StringName("FingerTip_%s%d" % [side, i])
+		p[n] = _rest.get(n, Vector3.ZERO) + Vector3(0, 0, sign * open * (0.9 + 0.06 * float(i)))
+		p[tip] = _rest.get(tip, Vector3.ZERO) + Vector3(0, 0, sign * open * 1.05)
+	var t := StringName("Thumb_%s" % side)
+	var tt := StringName("ThumbTip_%s" % side)
+	p[t] = _rest.get(t, Vector3.ZERO) + Vector3(0.35 * open, 0, 0)
+	p[tt] = _rest.get(tt, Vector3.ZERO) + Vector3(0.4 * open, 0, 0)
+
+## How curled the fingers already are in the model as built.
+const REST_CURL := 0.4
+
+## Which way round the fingers turn to close toward the palm.
+const FINGER_CURL_SIGN := 1.0
+
+## A model pivot by name (for the ragdoll to build itself from).
+func part(n: StringName) -> Node3D:
+	return _part.get(n) as Node3D
+
+## Back from being limp: the pose eases up from however he was lying.
+var _recover := 0.0
+func recover() -> void:
+	for n in _part:
+		var node := _part[n] as Node3D
+		_now[n] = node.rotation
+		# The ragdoll moved the pivots about; each goes back on its joint.
+		node.position = _rest_pos[n]
+	_recover = 0.7
+	_mode = &"foot"
+
+# --- His hat ---------------------------------------------------------------------
+
+var _hat: RigidBody3D = null
+var _hat_meshes: Array[Node3D] = []
+
+## Knocked clean off: the beanie flies away on its own, to be found again
+## when he gets up.
+func lose_hat(fling: Vector3) -> void:
+	if model == null or (_hat != null and is_instance_valid(_hat)):
+		return
+	_hat_meshes.clear()
+	for n in model.find_children("Beanie*", "Node3D", true, false):
+		if (n as Node3D).visible:
+			_hat_meshes.append(n)
+	if _hat_meshes.is_empty():
+		return
+	var world := player.get_parent() as Node3D if player != null else null
+	if world == null:
+		return
+	var hat := RigidBody3D.new()
+	hat.name = "Hat"
+	hat.mass = 0.4
+	hat.collision_layer = 0
+	hat.collision_mask = Layers.WORLD | Layers.KERB | Layers.VEHICLE | Layers.LOOSE | Layers.MACHINE
+	hat.angular_damp = 1.0
+	world.add_child(hat)
+	hat.global_transform = _hat_meshes[0].global_transform.orthonormalized()
+	var cs := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(0.4, 0.2, 0.38)
+	cs.shape = box
+	cs.position = Vector3(0, 0.02, 0)
+	hat.add_child(cs)
+	for m in _hat_meshes:
+		var copy := m.duplicate() as Node3D
+		hat.add_child(copy)
+		copy.global_transform = m.global_transform
+		m.visible = false
+	hat.linear_velocity = fling
+	hat.angular_velocity = Vector3(randf_range(-9, 9), randf_range(-6, 6), randf_range(-9, 9))
+	_hat = hat
+
+## Back on his head.
+func restore_hat() -> void:
+	if _hat != null and is_instance_valid(_hat):
+		_hat.queue_free()
+	_hat = null
+	for m in _hat_meshes:
+		if is_instance_valid(m):
+			m.visible = true
+	_hat_meshes.clear()
+
+func hat_off() -> bool:
+	return _hat != null and is_instance_valid(_hat)
+
 ## The tumbling body he is flopping about on, or null.
 func _limp_body() -> RigidBody3D:
 	if player.has_method("knocked") and player.knocked():
@@ -432,6 +642,12 @@ func _limp_body() -> RigidBody3D:
 ## Limp: arms and legs flung out and flopping with the spin; hanging from a
 ## crane's grapple, arms up and legs dangling, kicking now and then.
 func _limp(p: Dictionary) -> void:
+	if player.get("ragdoll") != null:
+		# The limbs are the ragdoll's; the hands hang open and floppy.
+		var loose := 0.25 + 0.2 * sin(_t * 7.0)
+		_curl(p, &"L", loose)
+		_curl(p, &"R", 0.25 + 0.2 * sin(_t * 6.1 + 1.0))
+		return
 	var body := _limp_body()
 	var spin := body.angular_velocity.length() + body.linear_velocity.length() * 0.3 if body != null else 0.0
 	var flop := sin(_t * 11.0) * clampf(spin * 0.06, 0.05, 0.7)
@@ -667,7 +883,12 @@ static func _add(p: Dictionary, n: StringName, v: Vector3) -> void:
 
 func _blend(p: Dictionary, delta: float) -> void:
 	# Quick enough that a chop lands, soft enough that changes of pose flow.
-	var k := 1.0 - exp(-(30.0 if _gesture != &"" else 14.0) * delta)
+	var rate := 30.0 if _gesture != &"" else 14.0
+	if _recover > 0.0:
+		# Getting up: slower, so he visibly picks himself up.
+		_recover = maxf(0.0, _recover - delta)
+		rate = 5.0
+	var k := 1.0 - exp(-rate * delta)
 	for n in _part:
 		_now[n] = (_now[n] as Vector3).lerp(p.get(n, _rest[n]), k)
 		(_part[n] as Node3D).rotation = _now[n]

@@ -175,9 +175,10 @@ func on_guest_event(peer: int, ev: Dictionary) -> void:
 		"fcfg":
 			var fe: Variant = _nodes.get(int(ev.get("id", -1)), null)
 			if fe != null and String(fe[1]) == "b":
-				var f := (fe[0] as Dictionary).node as Filter
-				if f != null and ev.get("state") is Dictionary:
-					f.from_dict(ev.state)
+				# A filter's rules, or which ways a splitter has locked.
+				var f: Node = (fe[0] as Dictionary).node
+				if (f is Filter or f is Splitter) and ev.get("state") is Dictionary:
+					f.call("from_dict", ev.state)
 		"hotbar":
 			if p.kit != null:
 				p.kit.set_hotbar(int(ev.get("slot", -1)), StringName(String(ev.get("id", ""))))

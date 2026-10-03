@@ -13,7 +13,12 @@ extends StaticBody3D
 ## face normal, which is what makes the hills read as facets rather than as a
 ## blurry blanket, and it is also what the doc asks for.
 
-enum Biome { WOODLAND, SWAMP, DESERT, MOUNTAIN, TAIGA, SNOW }
+const Workers := preload("res://scripts/core/Workers.gd")
+
+## ICE and ASH only turn up on the maps that ask for them (the frozen lakes and
+## the volcano's slopes on Ostars): nothing grows on ice, and ash is charred
+## country.
+enum Biome { WOODLAND, SWAMP, DESERT, MOUNTAIN, TAIGA, SNOW, ICE, ASH }
 
 ## Metres per quad. Bigger is coarser and cheaper; this is the knob for both.
 const CELL := 6.0
@@ -120,6 +125,19 @@ var _mesa := FastNoiseLite.new()
 const SHORE_BASE := 1.5
 ## The land as welded plates (the region map), once built.
 var facets: Facets
+## A hand-drawn country instead of the islands and regions: an object with
+## `sample(x, z) -> [biome, height]` (called from worker threads, so it only
+## reads) and `key() -> String` (for the map cache). Rivers, features, caves
+## and everything after the heights work on it the same as ever.
+var shaper: Object = null
+
+## Drawn as welded plates with the toon colours (the region map, or a shaped one).
+func _plated() -> bool:
+	return not regions.is_empty() or shaper != null
+
+## Open water all round, out past the edge of the map.
+func _open_sea() -> bool:
+	return not islands.is_empty() or shaper != null
 
 ## Flat ground, per biome: the tops of the terraces.
 const BIOME_COLORS := {
@@ -129,6 +147,8 @@ const BIOME_COLORS := {
 	Biome.MOUNTAIN: Color(0.47, 0.47, 0.45),
 	Biome.TAIGA: Color(0.26, 0.44, 0.31),
 	Biome.SNOW: Color(0.88, 0.91, 0.96),
+	Biome.ICE: Color(0.70, 0.86, 0.96),
+	Biome.ASH: Color(0.24, 0.22, 0.23),
 }
 ## Steep ground, per biome: the risers between terraces, and cliffs.
 const CLIFF_COLORS := {
@@ -138,6 +158,8 @@ const CLIFF_COLORS := {
 	Biome.MOUNTAIN: Color(0.42, 0.42, 0.45),
 	Biome.TAIGA: Color(0.41, 0.40, 0.37),
 	Biome.SNOW: Color(0.60, 0.65, 0.74),
+	Biome.ICE: Color(0.56, 0.70, 0.82),
+	Biome.ASH: Color(0.30, 0.20, 0.18),
 }
 ## Faces steeper than this (the normal's vertical part) are drawn as rock.
 const CLIFF_NORMAL_Y := 0.82
@@ -157,6 +179,8 @@ const TERRACE_STEP := {
 	Biome.MOUNTAIN: 4.0,
 	Biome.TAIGA: 2.5,
 	Biome.SNOW: 3.5,
+	Biome.ICE: 0.0,
+	Biome.ASH: 3.0,
 }
 ## Where in each band the riser starts. Higher is flatter tops and steeper risers.
 const TERRACE_EDGE := 0.74
@@ -171,6 +195,8 @@ const BIOME_HEIGHT := {
 	Biome.MOUNTAIN: [14.0, 34.0],
 	Biome.TAIGA: [3.5, 10.0],
 	Biome.SNOW: [10.0, 22.0],
+	Biome.ICE: [4.0, 0.0],
+	Biome.ASH: [14.0, 30.0],
 }
 
 func _ready() -> void:
@@ -195,6 +221,12 @@ signal finished_generating()
 func _pause(what: String) -> void:
 	if loading_hook.is_valid():
 		await loading_hook.call(what)
+
+## Behind the boot screen, the tree: the big jobs on the worker threads let
+## frames go by while they work, so the screen keeps drawing (see Workers).
+## Otherwise null, and they are simply waited for.
+func _loading_tree() -> SceneTree:
+	return get_tree() if loading_hook.is_valid() and is_inside_tree() else null
 
 func _road_km() -> float:
 	var metres := 0.0
@@ -305,6 +337,24 @@ func _hole_near(ix: int, iz: int) -> bool:
 				return true
 	return false
 
+## The ground at a point, in one look: [height (NAN over a hole), colour].
+func ground_sample(x: float, z: float) -> Array:
+	if facets != null:
+		var hit := facets.plate_at(x, z)
+		if not hit.is_empty():
+			return hit
+	var h := height_at(x, z)
+	return [h, BIOME_COLORS.get(biome_at(x, z), Color(0.34, 0.56, 0.23))]
+
+## The colour the ground is drawn at a point: its plate's, on the region
+## maps; otherwise its biome's grass.
+func ground_color(x: float, z: float) -> Color:
+	if facets != null:
+		var c := facets.color_at(x, z)
+		if c.a > 0.0:
+			return c
+	return BIOME_COLORS.get(biome_at(x, z), Color(0.34, 0.56, 0.23))
+
 func height_at_point(point: Vector3) -> float:
 	return height_at(point.x, point.z)
 
@@ -328,7 +378,7 @@ func biome_mix() -> Dictionary:
 	return mix
 
 func biome_name(biome: Biome) -> String:
-	return ["woodland", "swamp", "desert", "mountains", "taiga", "snowland"][int(biome)]
+	return ["woodland", "swamp", "desert", "mountains", "taiga", "snowland", "ice", "ash"][int(biome)]
 
 ## How deep the water is over a point. Zero on dry land.
 func water_depth(x: float, z: float) -> float:
@@ -490,7 +540,7 @@ func generate() -> void:
 			road_paths.size(), bridges.size(), caves.size()])
 	else:
 		await _pause("No map cache yet: shaping the hills, valleys and coasts, %s height points - the slow part, done once" % UIKit.money((_cells + 1) * (_cells + 1)).replace("$", ""))
-		_fill_heights()
+		await _fill_heights()
 		_lap("heights")
 		await _pause("Cutting %d rivers to the sea, with their fords" % rivers.size())
 		_holes.resize(_cells * _cells)
@@ -532,7 +582,7 @@ func generate() -> void:
 		_save_cache()
 	_block_bridges()
 	await _pause("Building the ground mesh and its collision (%d chunks)" % int(pow(ceil(float(_cells) / float(CHUNK)), 2.0)))
-	_build_mesh()
+	await _build_mesh()
 	_lap("mesh")
 	await _pause("Working out what hides what, so hidden land is not drawn")
 	_build_occluders()
@@ -550,8 +600,7 @@ func _fill_heights() -> void:
 	var bufs: Array = []
 	for i in rows:
 		bufs.append(RowBuf.new())
-	var task := WorkerThreadPool.add_group_task(_fill_row.bind(bufs), rows, -1, true, "terrain rows")
-	WorkerThreadPool.wait_for_group_task_completion(task)
+	await Workers.group(_fill_row.bind(bufs), rows, "terrain rows", _loading_tree())
 	_heights = PackedFloat32Array()
 	_biomes = PackedByteArray()
 	for buf: RowBuf in bufs:
@@ -573,6 +622,9 @@ func _fill_row(iz: int, bufs: Array) -> void:
 func _cache_key() -> String:
 	var config := [GENERATOR_VERSION, half_extent, noise_seed, islands, regions, features, rivers,
 		roads, build_sites, site_requests, spur_sites, driveways, cave_count, clear_zones]
+	# A shaped country has its own key (and the islands' key is left as it was).
+	if shaper != null:
+		config.append(String(shaper.call("key")))
 	return str(hash(var_to_str(config)))
 
 func _load_cache() -> bool:
@@ -612,6 +664,11 @@ func _save_cache() -> void:
 
 var _key_at_start: String = ""
 
+## What this land was made from, as the map cache knows it: the same key, the
+## same land.
+func cache_key() -> String:
+	return _key_at_start
+
 var _lap_ms: int = 0
 
 func _lap(what: String) -> void:
@@ -622,6 +679,14 @@ func _lap(what: String) -> void:
 
 ## Biome and height at a point, from one read of the noise.
 func _sample(x: float, z: float) -> Array:
+	if shaper != null:
+		var shaped: Array = shaper.call("sample", x, z)
+		var feature := _feature_at(x, z)
+		if feature.size() > 0:
+			# A crater's rock is its bowl and rim; past that, the country round it.
+			var fb: int = feature[1] if not _crater_near(x, z) or _crater_bowl(x, z) else shaped[0]
+			shaped = [fb, lerpf(float(shaped[1]), float(feature[2]), float(feature[0]))]
+		return shaped
 	if not regions.is_empty():
 		return _sample_regions(x, z)
 	var isle := _island_at(x, z)
@@ -904,6 +969,20 @@ static func pit_space(f: Dictionary, x: float, z: float) -> Vector2:
 ## Back from the pit's round frame to the map.
 static func from_pit_space(f: Dictionary, q: Vector2) -> Vector2:
 	return (f.centre as Vector2) + Vector2(q.x * float(f.get("stretch", 1.0)), q.y).rotated(float(f.get("angle", 0.0)))
+
+## In a crater's scorched bowl (as far out as it is drawn scorched).
+func _crater_bowl(x: float, z: float) -> bool:
+	for f in features:
+		if String(f.kind) == "crater" and Vector2(x, z).distance_to(f.centre) < float(f.radius) * 1.3:
+			return true
+	return false
+
+## Within reach of a crater at all (its rim eases out a long way).
+func _crater_near(x: float, z: float) -> bool:
+	for f in features:
+		if String(f.kind) == "crater" and Vector2(x, z).distance_to(f.centre) < float(f.radius) * 2.7:
+			return true
+	return false
 
 ## Nothing grows in a crater.
 func _in_crater(x: float, z: float) -> bool:
@@ -1737,9 +1816,90 @@ func _distance_to_path(point: Vector3, path: Array) -> Vector2:
 ## shape holds the whole country.
 const CHUNK := 32
 
+## The land's own meshes (not the water or the sea bed), and what they are
+## drawn with plain; with shaders on they get the ground shader instead.
+var _land_meshes: Array[MeshInstance3D] = []
+var _land_plain: Material
+var _land_fancy: ShaderMaterial
+var _fancy: bool = true
+
+## Shaders on or off for the ground.
+func set_fancy(on: bool) -> void:
+	_fancy = on
+	var mat: Material = _land_plain
+	if on and _land_plain != null:
+		if _land_fancy == null:
+			_land_fancy = _make_land_shader()
+		mat = _land_fancy
+	for mi in _land_meshes:
+		if is_instance_valid(mi):
+			mi.material_override = mat
+
+## The ground with shaders on: the plates' own colours and grain as before,
+## and where the ground is grass - green and facing up - drifts of lighter and
+## darker, yellower and bluer green across it at a few sizes, a fine speckle
+## like blades up close, and a soft sheen rather than the plates' shine.
+func _make_land_shader() -> ShaderMaterial:
+	var shader := Shader.new()
+	shader.code = LAND_SHADER
+	var m := ShaderMaterial.new()
+	m.shader = shader
+	m.set_shader_parameter(&"grain", Textures.detail("grass"))
+	var noise := FastNoiseLite.new()
+	noise.seed = 57
+	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
+	noise.frequency = 0.02
+	noise.fractal_octaves = 3
+	var img := noise.get_seamless_image(256, 256, false, false, 0.1, true)
+	img.generate_mipmaps()
+	m.set_shader_parameter(&"patches", ImageTexture.create_from_image(img))
+	var plated := _plated()
+	m.set_shader_parameter(&"plain_roughness", 0.62 if plated else 1.0)
+	m.set_shader_parameter(&"plain_specular", 0.6 if plated else 0.5)
+	return m
+
+const LAND_SHADER := """
+shader_type spatial;
+
+uniform sampler2D grain : filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D patches : filter_linear_mipmap, repeat_enable;
+uniform float grain_metres = 6.0;
+uniform float plain_roughness = 0.62;
+uniform float plain_specular = 0.6;
+
+varying vec3 v_world;
+varying vec3 v_normal;
+
+void vertex() {
+	v_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	v_normal = normalize(mat3(MODEL_MATRIX) * NORMAL);
+}
+
+void fragment() {
+	vec3 base = COLOR.rgb;
+	vec3 w = abs(v_normal);
+	w /= (w.x + w.y + w.z);
+	vec3 p = v_world / grain_metres;
+	float g = texture(grain, p.zy).r * w.x + texture(grain, p.xz).r * w.y + texture(grain, p.xy).r * w.z;
+	vec3 c = base * g;
+	float green = smoothstep(0.015, 0.07, base.g - max(base.r, base.b)) * smoothstep(0.72, 0.9, v_normal.y);
+	float big = texture(patches, v_world.xz / 160.0).r;
+	float mid = texture(patches, v_world.xz / 41.0 + vec2(0.37, 0.71)).r;
+	float fine = texture(patches, v_world.xz / 2.3 + vec2(0.13, 0.29)).r;
+	vec3 meadow = c * mix(0.82, 1.12, big) * mix(0.92, 1.07, mid);
+	meadow = mix(meadow, meadow * vec3(1.12, 1.06, 0.74), smoothstep(0.58, 0.82, mid) * 0.5);
+	meadow = mix(meadow, meadow * vec3(0.84, 0.97, 0.92), smoothstep(0.62, 0.86, big) * 0.4);
+	meadow *= mix(0.9, 1.07, fine);
+	c = mix(c, meadow, green);
+	ALBEDO = c;
+	ROUGHNESS = mix(plain_roughness, 0.95, green);
+	SPECULAR = mix(plain_specular, 0.28, green);
+}
+"""
+
 func _build_mesh() -> void:
 	var mat: StandardMaterial3D
-	if regions.is_empty():
+	if not _plated():
 		mat = StandardMaterial3D.new()
 		mat.vertex_color_use_as_albedo = true
 		mat.roughness = 1.0
@@ -1749,8 +1909,11 @@ func _build_mesh() -> void:
 		mat = Textures.material("grass", 6.0).duplicate()
 		mat.roughness = 0.62
 		mat.metallic_specular = 0.6
-	if not regions.is_empty():
-		_build_plates(mat)
+	_land_plain = mat
+	if _plated():
+		await _build_plates(mat)
+		if _fancy:
+			set_fancy(true)
 		return
 	var chunks := int(ceil(float(_cells) / float(CHUNK)))
 	var bufs: Array = []
@@ -1758,9 +1921,7 @@ func _build_mesh() -> void:
 		bufs.append(ChunkBuf.new())
 	# The triangles for each chunk are worked out across the worker threads;
 	# the meshes and shapes are made here, on the main one.
-	var task := WorkerThreadPool.add_group_task(_chunk_task.bind(bufs, chunks), chunks * chunks,
-		-1, true, "terrain chunks")
-	WorkerThreadPool.wait_for_group_task_completion(task)
+	await Workers.group(_chunk_task.bind(bufs, chunks), chunks * chunks, "terrain chunks", _loading_tree())
 	var sea := PackedVector3Array()
 	var water := PackedVector3Array()
 	for buf: ChunkBuf in bufs:
@@ -1785,12 +1946,15 @@ func _build_mesh() -> void:
 		mi.mesh = mesh
 		mi.material_override = mat
 		add_child(mi)
+		_land_meshes.append(mi)
 		var cs := CollisionShape3D.new()
 		var shape := ConcavePolygonShape3D.new()
 		shape.set_faces(buf.verts)
 		cs.shape = shape
 		add_child(cs)
 	_build_sheets(sea, water)
+	if _fancy:
+		set_fancy(true)
 
 ## Occluders: the ground as seen by the renderer's occlusion culling, so a
 ## wood behind a hill is not drawn at all. A coarse copy of the land, one
@@ -1855,7 +2019,7 @@ static func _all_below(verts: PackedVector3Array, y: float) -> bool:
 ## shape per tile, and the water over every wet cell.
 func _build_plates(mat: Material) -> void:
 	facets = Facets.new(self)
-	facets.build()
+	await facets.build(_loading_tree())
 	for t: Facets.TileBuf in facets.tiles:
 		if t.tris.is_empty():
 			continue
@@ -1871,6 +2035,7 @@ func _build_plates(mat: Material) -> void:
 		mi.mesh = mesh
 		mi.material_override = mat
 		add_child(mi)
+		_land_meshes.append(mi)
 		var cs := CollisionShape3D.new()
 		var shape := ConcavePolygonShape3D.new()
 		shape.set_faces(t.tris)
@@ -1951,9 +2116,9 @@ func _build_sheets(sea: PackedVector3Array, water: PackedVector3Array) -> void:
 		add_child(_flat_mesh(sea, bed, "SeaBed"))
 	var mat := StandardMaterial3D.new()
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.albedo_color = Color(0.18, 0.34, 0.46, 0.72) if regions.is_empty() else Color(0.10, 0.42, 0.78, 0.86)
+	mat.albedo_color = Color(0.18, 0.34, 0.46, 0.72) if not _plated() else Color(0.10, 0.42, 0.78, 0.86)
 	mat.roughness = 0.15
-	mat.metallic = 0.2 if regions.is_empty() else 0.05
+	mat.metallic = 0.2 if not _plated() else 0.05
 	var outer := PackedVector3Array()
 	var h := half_extent
 	var far := half_extent * 4.0
@@ -1968,7 +2133,7 @@ func _build_sheets(sea: PackedVector3Array, water: PackedVector3Array) -> void:
 	add_child(_flat_mesh(water, mat, "Water"))
 	# The sea bed goes on past the edge of the map too, so open water looks
 	# the same inside the map and out.
-	if not islands.is_empty():
+	if _open_sea():
 		var bed_out := PackedVector3Array()
 		for i in range(0, outer.size()):
 			bed_out.append(Vector3(outer[i].x, SEA_FLOOR, outer[i].z))
@@ -2084,6 +2249,8 @@ const TOON_GROUND := {
 	Biome.MOUNTAIN: Color(0.32, 0.52, 0.26),
 	Biome.TAIGA: Color(0.20, 0.48, 0.30),
 	Biome.SNOW: Color(0.95, 0.97, 1.0),
+	Biome.ICE: Color(0.66, 0.86, 0.98),
+	Biome.ASH: Color(0.25, 0.23, 0.24),
 }
 const TOON_ROCK := {
 	Biome.WOODLAND: Color(0.52, 0.53, 0.58),
@@ -2092,6 +2259,8 @@ const TOON_ROCK := {
 	Biome.MOUNTAIN: Color(0.55, 0.55, 0.60),
 	Biome.TAIGA: Color(0.49, 0.50, 0.56),
 	Biome.SNOW: Color(0.68, 0.73, 0.84),
+	Biome.ICE: Color(0.60, 0.76, 0.90),
+	Biome.ASH: Color(0.33, 0.22, 0.20),
 }
 const TOON_BEACH := Color(0.97, 0.89, 0.66)
 
@@ -2286,7 +2455,7 @@ func _plan_caves() -> void:
 		"Crystal Throat", "Wormhole Drift", "Lantern Gallery", "Hollow King", "Blackwater Sink",
 		"Sandglass Hole", "Rimefall", "Moonmilk Grotto", "Cinder Vent", "Spore Hollow",
 		"Drowned Stair", "Whistling Adit", "Bramble Pit", "Gull's Throat", "Lastlight"]
-	var spacing := 150.0 if islands.is_empty() else 280.0
+	var spacing := 150.0 if not _open_sea() else 280.0
 	var zones: Array = cave_zones if not cave_zones.is_empty() else \
 		[{"centre": Vector2.ZERO, "radius": INF, "count": cave_count}]
 	for zone in zones:
@@ -2398,7 +2567,7 @@ func _cave_score(entrance: Vector3, dir: Vector3) -> float:
 	# Some cover is enough; beyond that prefer caves nearer the middle of the
 	# map, so they are a trip but not a pilgrimage. On an island map they are
 	# spread about instead, near and far alike.
-	if not islands.is_empty():
+	if _open_sea():
 		return minf(spare, 6.0) + float(hash(Vector2i(int(entrance.x), int(entrance.z))) % 1000) / 50.0
 	return minf(spare, 6.0) + 60.0 / (1.0 + entrance.length() / 100.0)
 
@@ -2422,7 +2591,7 @@ func map_image(px_per_cell: int = 2) -> Image:
 			if height < WATER_LEVEL - 0.05:
 				color = Color(0.20, 0.42, 0.60).darkened(clampf(-height * 0.08, 0.0, 0.3))
 			else:
-				color = _face_color(ix, iz, height, normal) if regions.is_empty() \
+				color = _face_color(ix, iz, height, normal) if not _plated() \
 					else _map_color(ix, iz, height)
 				color = color.darkened(clampf(0.35 - normal.dot(sun) * 0.45, 0.0, 0.4))
 			img.set_pixel(ix, iz, color)
