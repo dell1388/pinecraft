@@ -63,6 +63,7 @@ func _run_all() -> void:
 	await _test(&"the sky round the day: a red-gold sun low down, white at noon, the dawn in the east", test_atmosphere)
 	await _test(&"birds fly round you, above the ground, and roost at night", test_birds)
 	await _test(&"birds stay hidden until they have flown (not piled on the plot on the menu)", test_birds_hidden_until_flown)
+	await _test(&"sounds: the recordings are played, the loops go round, the music circles", test_recorded_sounds)
 	await _test(&"a mixed wood far off: each species its own stand-in", test_mixed_stand_ins)
 	await _test(&"ostars: each save remembers its map", test_ostars_save_map)
 	await _test(&"ostars: roads from home to the town and every trader", test_ostars_roads)
@@ -7865,6 +7866,36 @@ func test_shaders_switch() -> void:
 	check(land_mesh.material_override is StandardMaterial3D, "the ground kept its shader with shaders off")
 	check(tree._merged.material_override is StandardMaterial3D, "the tree kept its shader with shaders off")
 	ChoppableTree.set_fancy(true)
+	done()
+
+## Every sound with a recording in assets/sounds plays the recording, not the
+## one made from arithmetic, and the loops (engines, the hum) go round; the
+## music is the track in assets/music, looped, on its own bus that turns it
+## round your head.
+func test_recorded_sounds() -> void:
+	var found := 0
+	for name in Sfx._sounds.keys():
+		var path: String = Sfx.SOUNDS_DIR + String(name) + ".wav"
+		if not ResourceLoader.exists(path) or name == &"engine":
+			continue
+		found += 1
+		var stream: AudioStream = Sfx._sounds[name]
+		check(stream != null and stream.resource_path == path, "%s does not play its recording" % name)
+		if stream is AudioStreamWAV:
+			var looped := Sfx.LOOPED.has(name)
+			var wav := stream as AudioStreamWAV
+			check((wav.loop_mode == AudioStreamWAV.LOOP_FORWARD) == looped,
+				"%s %s" % [name, "does not loop" if looped else "loops when it should not"])
+			if looped:
+				check(wav.loop_end > int(wav.mix_rate), "%s loops over only %d frames" % [name, wav.loop_end])
+	check(found >= 7, "only %d recorded sounds found in %s" % [found, Sfx.SOUNDS_DIR])
+	var track := Sfx.music_track()
+	check(track != null, "no music track at %s" % Sfx.MUSIC_FILE)
+	if track is AudioStreamOggVorbis:
+		check((track as AudioStreamOggVorbis).loop, "the music does not loop")
+	var bus := AudioServer.get_bus_index(Sfx.MUSIC_BUS)
+	check(bus >= 0 and AudioServer.get_bus_effect_count(bus) == 3, "the music has no bus of its own to go round on")
+	check(Sfx._music.bus == Sfx.MUSIC_BUS, "the music does not play on its bus")
 	done()
 
 ## Birds: up in the air over the ground, round whoever they follow, and put

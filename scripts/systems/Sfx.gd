@@ -1,9 +1,10 @@
 extends Node
 
-## Autoload. Every sound in the game, made here from scratch rather than read
-## from files: a few lines of arithmetic each (a thunk, a clink, a crash, an
-## engine note) turned into samples once, at start-up. A first pass - good
-## enough to play with, easy to swap for recorded sounds later.
+## Autoload. Every sound in the game. A sound with a recording in SOUNDS_DIR
+## (assets/sounds/<name>.wav - real recordings from Freesound, see SOURCES.md
+## there) plays that; any other is made here from scratch - a few lines of
+## arithmetic (a thunk, a clink, a crash, an engine note) turned into samples
+## once, at start-up - so a missing file never leaves the game silent.
 ##
 ## play() is fire-and-forget, at a spot in the world or flat (the interface);
 ## loop() gives a looping player to hang on something, like an engine. The
@@ -12,7 +13,7 @@ extends Node
 const RATE := 22050
 const POOL := 20
 
-var _sounds: Dictionary = {}          ## name -> AudioStreamWAV
+var _sounds: Dictionary = {}          ## name -> AudioStream (a recording, or made here)
 var _pool3d: Array[AudioStreamPlayer3D] = []
 var _pool2d: Array[AudioStreamPlayer] = []
 var _next3d: int = 0
@@ -34,12 +35,17 @@ func _ready() -> void:
 		add_child(q)
 		_pool2d.append(q)
 	_music = AudioStreamPlayer.new()
+	_music.bus = _music_bus()
 	add_child(_music)
 	Settings.changed.connect(func(_k): _apply_volume())
 	# Headless (tests, a dedicated host) there is nothing to hear.
 	if DisplayServer.get_name() != "headless":
-		_music_thread = Thread.new()
-		_music_thread.start(_build_music)
+		var track := music_track()
+		if track != null:
+			_start_music.call_deferred(track)
+		else:
+			_music_thread = Thread.new()
+			_music_thread.start(_build_music)
 
 func _exit_tree() -> void:
 	if _music_thread != null and _music_thread.is_started():
@@ -47,7 +53,7 @@ func _exit_tree() -> void:
 
 ## Plays a sound once: at `at` (a Vector3) in the world, or flat when null.
 func play(sound: StringName, at: Variant = null, volume_db: float = 0.0, pitch: float = 1.0) -> void:
-	var stream: AudioStreamWAV = _sounds.get(sound)
+	var stream: AudioStream = _sounds.get(sound)
 	if stream == null or DisplayServer.get_name() == "headless":
 		return
 	var vol := volume_db + _db(&"sfx_volume")
@@ -91,9 +97,111 @@ func _apply_volume() -> void:
 	if _music != null:
 		_music.volume_db = _db(&"music_volume") + 2.0
 
+# --- The music: a track that circles round your head (8D) ------------------------
+
+## The music, when there is a file for it (looped); otherwise one is made here.
+const MUSIC_FILE := "res://assets/music/night_shift.ogg"
+## Seconds for the music to go once round your head.
+const MUSIC_ORBIT := 16.0
+const MUSIC_BUS := &"Music"
+
+static func music_track() -> AudioStream:
+	if not ResourceLoader.exists(MUSIC_FILE):
+		return null
+	var stream := load(MUSIC_FILE) as AudioStream
+	if stream is AudioStreamOggVorbis:
+		(stream as AudioStreamOggVorbis).loop = true
+	elif stream is AudioStreamWAV:
+		(stream as AudioStreamWAV).loop_mode = AudioStreamWAV.LOOP_FORWARD
+		(stream as AudioStreamWAV).loop_end = int(stream.get_length() * (stream as AudioStreamWAV).mix_rate)
+	return stream
+
+var _orbit: float = 0.0
+var _pan: AudioEffectPanner
+var _muffle: AudioEffectLowPassFilter
+var _mono: AudioEffectStereoEnhance
+
+## The music's own bus: folded to one voice, then muffled a little when it is
+## behind you and panned to the side it is on, so it seems to go round you.
+func _music_bus() -> StringName:
+	var idx := AudioServer.get_bus_index(MUSIC_BUS)
+	if idx < 0:
+		AudioServer.add_bus()
+		idx = AudioServer.bus_count - 1
+		AudioServer.set_bus_name(idx, MUSIC_BUS)
+		AudioServer.set_bus_send(idx, &"Master")
+		_mono = AudioEffectStereoEnhance.new()
+		_mono.pan_pullout = 0.0
+		_muffle = AudioEffectLowPassFilter.new()
+		_muffle.cutoff_hz = 20000.0
+		_pan = AudioEffectPanner.new()
+		AudioServer.add_bus_effect(idx, _mono)
+		AudioServer.add_bus_effect(idx, _muffle)
+		AudioServer.add_bus_effect(idx, _pan)
+	return MUSIC_BUS
+
+func _process(delta: float) -> void:
+	if _pan == null:
+		return
+	var on := Settings.flag(&"music_8d")
+	var idx := AudioServer.get_bus_index(MUSIC_BUS)
+	for k in 3:
+		AudioServer.set_bus_effect_enabled(idx, k, on)
+	if not on:
+		return
+	_orbit = fposmod(_orbit + delta * TAU / MUSIC_ORBIT, TAU)
+	# 0 in front, a quarter round on the right, half round behind you.
+	var side := sin(_orbit)
+	var behind := (1.0 - cos(_orbit)) * 0.5
+	_pan.pan = side * 0.9
+	_muffle.cutoff_hz = lerpf(18000.0, 4200.0, behind)
+	AudioServer.set_bus_volume_db(idx, -2.5 * behind)
+
 # --- Making the sounds ------------------------------------------------------------
 
+## Where the recorded sounds live, one file per sound, named as it is played.
+const SOUNDS_DIR := "res://assets/sounds/"
+## The sounds that go round and round (engines, the machine hum, a fuse).
+const LOOPED := [&"engine", &"hum", &"fuse", &"engine_big_diesel", &"engine_plant", &"engine_v8",
+	&"engine_diesel", &"engine_flat4", &"engine_thumper", &"engine_two_stroke"]
+
 func _make_all() -> void:
+	_make_synth()
+	_load_recorded()
+
+## Swaps in every recording there is for the sound made here.
+func _load_recorded() -> void:
+	for name in _sounds.keys():
+		var stream := recorded(name)
+		if stream != null:
+			_sounds[name] = stream
+	# The generic engine is the hauler's diesel when it has no file of its own.
+	if recorded(&"engine") == null:
+		var diesel := recorded(&"engine_diesel")
+		if diesel != null:
+			_sounds[&"engine"] = diesel
+
+## The recording of `name`, set to loop if it is one that goes round, or null.
+static func recorded(name: StringName) -> AudioStream:
+	for ext in ["wav", "ogg"]:
+		var path: String = SOUNDS_DIR + String(name) + "." + String(ext)
+		if not ResourceLoader.exists(path):
+			continue
+		var stream := load(path) as AudioStream
+		if stream == null:
+			continue
+		var looped := LOOPED.has(name)
+		if stream is AudioStreamWAV:
+			var wav := stream as AudioStreamWAV
+			wav.loop_mode = AudioStreamWAV.LOOP_FORWARD if looped else AudioStreamWAV.LOOP_DISABLED
+			wav.loop_begin = 0
+			wav.loop_end = int(wav.get_length() * wav.mix_rate) if looped else 0
+		elif stream is AudioStreamOggVorbis:
+			(stream as AudioStreamOggVorbis).loop = looped
+		return stream
+	return null
+
+func _make_synth() -> void:
 	_sounds[&"chop"] = _wav(_synth(0.22, _chop))
 	_sounds[&"fall"] = _wav(_synth(1.6, _fall, true))
 	_sounds[&"clink"] = _wav(_synth(0.35, _clink))
@@ -329,7 +437,7 @@ func _build_music() -> void:
 	var stream := _wav(out, true)
 	call_deferred("_start_music", stream)
 
-func _start_music(stream: AudioStreamWAV) -> void:
+func _start_music(stream: AudioStream) -> void:
 	_music.stream = stream
 	_apply_volume()
 	_music.play()

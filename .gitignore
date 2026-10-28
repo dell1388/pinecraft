@@ -8,3 +8,4 @@ bench_progress.log
 tests_stdout.txt
 test_results.txt
 perf_log.txt
+.freesound_key
