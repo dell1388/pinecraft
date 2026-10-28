@@ -53,10 +53,12 @@ float fbm(vec2 p) {
 
 // The sky's own colour in direction d, before sun, clouds and stars.
 vec3 base_sky(vec3 d, vec3 s) {
-	float up = max(d.y, 0.0);
+	float up = clamp(d.y, 0.0, 1.0);
 	vec2 dh = normalize(d.xz + vec2(1e-5, 0.0));
 	vec2 sh = normalize(s.xz + vec2(1e-5, 0.0));
-	float toward = dot(dh, sh) * 0.5 + 0.5;
+	// Clamped: a hair below 0 from rounding, and pow() of it is NaN on some
+	// graphics cards - a column of NaN pixels the bloom turned into balls.
+	float toward = clamp(dot(dh, sh) * 0.5 + 0.5, 0.0, 1.0);
 
 	vec3 zen_day = vec3(0.13, 0.36, 0.84);
 	vec3 hor_day = vec3(0.60, 0.78, 0.95);
@@ -70,7 +72,7 @@ vec3 base_sky(vec3 d, vec3 s) {
 	vec3 zen = mix(zen_night, mix(zen_day, zen_dusk, dusk), day);
 	vec3 hor = mix(hor_night, mix(hor_day, hor_dusk, dusk), day);
 	// At either end of the day the colour stays low down, under a blue sky.
-	vec3 col = mix(zen, hor, pow(1.0 - up, mix(4.0, 6.5, dusk)));
+	vec3 col = mix(zen, hor, pow(clamp(1.0 - up, 0.0, 1.0), mix(4.0, 6.5, dusk)));
 	// The glowing band low on the sun's side at either end of the day.
 	col += vec3(1.0, 0.32, 0.06) * exp(-up * 12.0) * pow(toward, 6.0) * dusk * mix(0.3, 0.6, day);
 	// Pink just above it, fading up into the blue.
@@ -103,7 +105,7 @@ void sky() {
 			float h = hash3(cell);
 			if (h > 0.9968) {
 				vec3 centre = cell + 0.5 + (vec3(hash3(cell + 1.3), hash3(cell + 2.7), hash3(cell + 4.1)) - 0.5) * 0.5;
-				float star = smoothstep(0.32, 0.0, length(sp - centre));
+				float star = 1.0 - smoothstep(0.0, 0.32, length(sp - centre));
 				float bright = (h - 0.9968) / 0.0032;
 				// Each star its own brightness (no TIME here: a sky that uses it is
 				// redrawn into the reflections every frame).

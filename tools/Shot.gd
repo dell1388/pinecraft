@@ -1538,3 +1538,21 @@ func shot_skies() -> void:
 			for k in 20:
 				await get_tree().process_frame
 			await snap(name)
+
+## As you play: on foot in the meadow by the plot, through the player's own
+## camera (whatever view the settings give), at --hours (default 9), looking
+## round in four directions. For checking the lighting as players see it.
+func shot_ingame() -> void:
+	Settings.set_value(&"moving_sun", true, false)
+	var h := float(args.get("hours", "9"))
+	Economy.day_time = fposmod(h - 6.0, 24.0) / 24.0 * Economy.day_length()
+	world.player.global_position = world.terrain.place(Vector3(20, 0, 70), 1.0)
+	for i in 60:
+		await get_tree().process_frame
+	for dir in [["north", 0.0], ["east", -PI / 2.0], ["south", PI], ["west", PI / 2.0]]:
+		if args.has("view") and not String(dir[0]).contains(args["view"]):
+			continue
+		world.player.rotation.y = dir[1]
+		for i in 30:
+			await get_tree().process_frame
+		await snap("ingame_%s_%s" % [h, dir[0]])
