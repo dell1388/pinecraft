@@ -193,6 +193,9 @@ var _fancy_sky: bool = false
 var _cloud_drift: Vector2 = Vector2.ZERO
 ## How golden the hour is (shader sky), 0 outside dawn and dusk.
 var _twilight: float = 0.0
+## Seconds until the shader sky is next repainted.
+var _sky_repaint: float = 0.0
+const SKY_REPAINT_SECONDS := 2.0
 ## How much daylight there is, 1 at noon to 0 at midnight, and how dark it is
 ## (the other way round, eased so dusk is short).
 var daylight: float = 1.0
@@ -2422,13 +2425,16 @@ func _set_fancy_lighting(on: bool) -> void:
 	if on and _shader_sky == null:
 		_shader_sky = Atmosphere.sky_material()
 	environment.sky.sky_material = _shader_sky if on else _sky
-	# The shader sky changes every frame (the sun moves, the clouds drift, the
-	# stars twinkle), so its reflections are redrawn every frame, smoothly.
-	# Lit a little at a time instead, the light pumped up and down about once
-	# a second - a flash every second at night.
-	environment.sky.process_mode = Sky.PROCESS_MODE_REALTIME if on else Sky.PROCESS_MODE_AUTOMATIC
+	# The sky's reflections are worked out properly and spread over a few
+	# frames, and only when the sky is repainted (every few seconds, see
+	# _paint_shader_sky): redrawn every frame they were rough and noisy -
+	# the world flickered and shiny spots flared into balls in the bloom.
+	environment.sky.process_mode = Sky.PROCESS_MODE_INCREMENTAL if on else Sky.PROCESS_MODE_AUTOMATIC
 	environment.sky.radiance_size = Sky.RADIANCE_SIZE_256
-	sun.light_angular_distance = 0.6 if on else 0.0
+	# Hard-edged sun shadows: soft ones are worked out by sampling, which
+	# shimmers as you move.
+	sun.light_angular_distance = 0.0
+	_sky_repaint = 0.0
 	if not on:
 		environment.fog_sun_scatter = 0.18
 	# No light shafts: Godot's volumetric haze, however faint, threw stacks of
@@ -2511,7 +2517,15 @@ func _update_sun() -> void:
 func _paint_shader_sky(elevation: float, azimuth: float, height: float, dusk: float) -> void:
 	if _shader_sky == null:
 		return
-	_cloud_drift += Vector2(0.0011, 0.0004) * get_process_delta_time()
+	# Repainted every few seconds, not every frame: the sun and the light
+	# change slowly, and each repaint makes the sky's reflections be worked
+	# out again.
+	var dt := get_process_delta_time()
+	_cloud_drift += Vector2(0.0011, 0.0004) * dt
+	_sky_repaint -= dt
+	if _sky_repaint > 0.0:
+		return
+	_sky_repaint = SKY_REPAINT_SECONDS
 	_shader_sky.set_shader_parameter(&"sun_dir", Atmosphere.direction(elevation, azimuth))
 	_shader_sky.set_shader_parameter(&"moon_dir", Atmosphere.direction(50.0, azimuth + 180.0))
 	_shader_sky.set_shader_parameter(&"sun_color", Atmosphere.sun_colour(height))

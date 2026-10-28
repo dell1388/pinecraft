@@ -105,7 +105,9 @@ void sky() {
 				vec3 centre = cell + 0.5 + (vec3(hash3(cell + 1.3), hash3(cell + 2.7), hash3(cell + 4.1)) - 0.5) * 0.5;
 				float star = smoothstep(0.32, 0.0, length(sp - centre));
 				float bright = (h - 0.9968) / 0.0032;
-				float twinkle = 0.65 + 0.35 * sin(TIME * (2.0 + h * 9.0) + h * 300.0);
+				// Each star its own brightness (no TIME here: a sky that uses it is
+				// redrawn into the reflections every frame).
+				float twinkle = 0.55 + 0.45 * fract(h * 7919.0);
 				col += vec3(1.0, 0.94, 0.86) * star * (0.4 + 1.6 * bright) * twinkle * night * smoothstep(0.0, 0.25, d.y);
 			}
 		}
@@ -147,6 +149,11 @@ void sky() {
 			float fade = smoothstep(0.0, 0.18, d.y);
 			col = mix(col, cloud, density * fade * 0.96);
 		}
+	}
+	// The reflections never see anything brighter than white: a hot spot
+	// there flares off every shiny surface into a ball in the bloom.
+	if (AT_CUBEMAP_PASS) {
+		col = min(col, vec3(1.0));
 	}
 	COLOR = col;
 }
