@@ -5,6 +5,7 @@ extends Node3D
 ## the player and the HUD, plus save/load and vehicle handling.
 
 const Workers := preload("res://scripts/core/Workers.gd")
+const Atmosphere := preload("res://scripts/world/Atmosphere.gd")
 
 ## 4.8 km across: a big home island and five more round it, joined by bridges
 ## and a causeway - bar one, which only a tunnel under the sea reaches.
@@ -186,6 +187,12 @@ var moon: DirectionalLight3D
 ## Where a winch to hand would hook on, if you pressed the key now.
 var winch_reticle: WinchReticle
 var _sky: ProceduralSkyMaterial
+## The sky with shaders on (see Atmosphere), made when first wanted.
+var _shader_sky: ShaderMaterial
+var _fancy_sky: bool = false
+var _cloud_drift: Vector2 = Vector2.ZERO
+## How golden the hour is (shader sky), 0 outside dawn and dusk.
+var _twilight: float = 0.0
 ## How much daylight there is, 1 at noon to 0 at midnight, and how dark it is
 ## (the other way round, eased so dusk is short).
 var daylight: float = 1.0
@@ -2396,12 +2403,42 @@ func _apply_all_settings() -> void:
 	birds.set_enabled(Settings.flag(&"birds"))
 	terrain.set_fancy(fancy)
 	ChoppableTree.set_fancy(fancy)
+	_set_fancy_lighting(fancy)
 	if not Settings.flag(&"moving_sun"):
 		sun.rotation_degrees = Vector3(-52, -38, 0)
 		sun.light_color = Color(1.0, 0.95, 0.86)
 		sun.light_energy = 1.25
 		sun.visible = true
 		moon.visible = false
+
+## Shaders on: the shader sky (sunrises and sunsets, clouds, stars, the moon),
+## soft-edged shadows that blur with distance from what casts them, and a
+## faint haze in the air that the low sun shines shafts of light through.
+## Off: the plain sky and hard shadows, as before.
+func _set_fancy_lighting(on: bool) -> void:
+	_fancy_sky = on
+	if on and _shader_sky == null:
+		_shader_sky = Atmosphere.sky_material()
+	environment.sky.sky_material = _shader_sky if on else _sky
+	# The sky is lit into the scene a little at a time rather than redrawn
+	# every frame (it changes slowly, and the stars twinkle).
+	environment.sky.process_mode = Sky.PROCESS_MODE_INCREMENTAL if on else Sky.PROCESS_MODE_AUTOMATIC
+	environment.sky.radiance_size = Sky.RADIANCE_SIZE_128 if on else Sky.RADIANCE_SIZE_256
+	sun.light_angular_distance = 0.6 if on else 0.0
+	if not on:
+		environment.fog_sun_scatter = 0.18
+	# Light shafts (Forward+ only; the Compatibility renderer has none).
+	environment.volumetric_fog_enabled = on
+	environment.volumetric_fog_density = 0.0022
+	environment.volumetric_fog_albedo = Color(0.92, 0.94, 1.0)
+	environment.volumetric_fog_anisotropy = 0.7
+	environment.volumetric_fog_length = 160.0
+	environment.volumetric_fog_detail_spread = 2.0
+	environment.volumetric_fog_ambient_inject = 0.15
+	environment.volumetric_fog_sky_affect = 0.0
+	sun.light_volumetric_fog_energy = 1.0
+	moon.light_volumetric_fog_energy = 0.4
+	_update_sun()
 
 ## Day and night. The sun rises at five and sets at nine, crossing the sky
 ## on a long arc; the sky and the haze go gold at either end of the day and
@@ -2417,28 +2454,64 @@ const DAY_HAZE := Color(0.62, 0.78, 0.92)
 const NIGHT_HAZE := Color(0.05, 0.07, 0.12)
 
 func _update_sun() -> void:
+	var elevation := 52.0
+	var azimuth := -38.0
+	if Settings.flag(&"moving_sun"):
+		var h := Economy.hour()
+		# Up from 5:00 to 21:00, on an arc that carries on below the horizon
+		# either side, so dawn and dusk come and go smoothly.
+		var t := (h - 5.0) / 16.0
+		var arc := maxf(sin(t * PI), -0.35) if t > -0.25 and t < 1.25 else -0.35
+		elevation = arc * 64.0
+		azimuth = lerpf(-110.0, 110.0, clampf(t, 0.0, 1.0))
+	var height := sin(deg_to_rad(elevation))
+	daylight = smoothstep(-0.10, 0.30, height)
+	night = 1.0 - smoothstep(-0.20, 0.0, height)
 	if not Settings.flag(&"moving_sun"):
 		daylight = 1.0
 		night = 0.0
-		_paint_sky(1.0, 0.0)
-		return
-	var h := Economy.hour()
-	# Up from 5:00 to 21:00.
-	var t := (h - 5.0) / 16.0
-	var arc := sin(clampf(t, 0.0, 1.0) * PI) if t >= 0.0 and t <= 1.0 else -0.2
-	var elevation := arc * 64.0
-	var azimuth := lerpf(-110.0, 110.0, clampf(t, 0.0, 1.0))
-	daylight = smoothstep(-0.05, 0.35, arc)
-	night = 1.0 - smoothstep(-0.12, 0.06, arc)
-	sun.rotation_degrees = Vector3(-maxf(elevation, 4.0), azimuth, 0.0)
-	sun.light_color = Color(1.0, 0.62, 0.42).lerp(Color(1.0, 0.96, 0.88), smoothstep(0.05, 0.4, arc))
-	sun.light_energy = lerpf(0.0, 1.3, daylight)
+	var dusk := Atmosphere.dusk_amount(height) if Settings.flag(&"moving_sun") else 0.0
+	# The light never comes from below the horizon: it slides along it and fades.
+	sun.rotation_degrees = Vector3(-maxf(elevation, 3.0), azimuth, 0.0)
+	if _fancy_sky:
+		sun.light_color = Atmosphere.sun_colour(height)
+		# Low sun: less of it gets through the air.
+		sun.light_energy = lerpf(0.0, 1.3, daylight) * lerpf(0.7, 1.0, smoothstep(0.0, 0.35, height))
+	else:
+		sun.light_color = Color(1.0, 0.62, 0.42).lerp(Color(1.0, 0.96, 0.88), smoothstep(0.05, 0.4, height))
+		sun.light_energy = lerpf(0.0, 1.3, daylight)
+	if not Settings.flag(&"moving_sun"):
+		sun.light_color = Color(1.0, 0.95, 0.86)
+		sun.light_energy = 1.25
 	sun.visible = daylight > 0.01
 	# The moon rides opposite the sun.
 	moon.rotation_degrees = Vector3(-50.0, azimuth + 180.0, 0.0)
 	moon.light_energy = 0.45 * night
 	moon.visible = night > 0.01
 	_paint_sky(daylight, night)
+	_twilight = dusk if _fancy_sky else 0.0
+	if _fancy_sky:
+		_paint_shader_sky(elevation, azimuth, height, dusk)
+
+## The shader sky's uniforms, and the haze to match it: towards the sun the
+## haze glows with it, most of all at either end of the day.
+func _paint_shader_sky(elevation: float, azimuth: float, height: float, dusk: float) -> void:
+	if _shader_sky == null:
+		return
+	_cloud_drift += Vector2(0.0011, 0.0004) * get_process_delta_time()
+	_shader_sky.set_shader_parameter(&"sun_dir", Atmosphere.direction(elevation, azimuth))
+	_shader_sky.set_shader_parameter(&"moon_dir", Atmosphere.direction(50.0, azimuth + 180.0))
+	_shader_sky.set_shader_parameter(&"sun_color", Atmosphere.sun_colour(height))
+	_shader_sky.set_shader_parameter(&"day", daylight)
+	_shader_sky.set_shader_parameter(&"dusk", dusk)
+	_shader_sky.set_shader_parameter(&"night", night)
+	_shader_sky.set_shader_parameter(&"cloud_offset", _cloud_drift)
+	var haze := Atmosphere.horizon_colour(daylight, dusk)
+	_shader_sky.set_shader_parameter(&"haze_color", haze)
+	_haze = haze
+	environment.fog_sun_scatter = lerpf(0.18, 0.55, dusk)
+	# The haze shines the sun's colour in the shafts at sunrise and sunset.
+	environment.volumetric_fog_density = lerpf(0.0018, 0.004, dusk) * (1.0 - underground)
 
 func _paint_sky(day: float, dark: float) -> void:
 	if _sky == null:
@@ -2508,7 +2581,9 @@ func _update_underground(delta: float) -> void:
 		environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 		# The night sky lights little, so the ambient is lifted a touch to
 		# keep the land readable by moonlight.
-		environment.ambient_light_energy = OUTDOOR_AMBIENT * lerpf(1.0, 2.2, night)
+		# At twilight the sky is still bright on one side but lights little,
+		# so the land is lifted a touch more then too.
+		environment.ambient_light_energy = OUTDOOR_AMBIENT * lerpf(1.0, 2.2, night) * (1.0 + _twilight * 0.8)
 	environment.fog_light_color = _haze.lerp(Color(0.03, 0.03, 0.05), underground)
 	environment.background_energy_multiplier = lerpf(1.0, 0.05, underground)
 	sun.light_energy = lerpf(sun.light_energy, 0.0, underground)

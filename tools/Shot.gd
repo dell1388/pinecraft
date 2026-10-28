@@ -1485,3 +1485,29 @@ static func _leaf_box(mesh: Mesh) -> AABB:
 		else:
 			box = box.expand(v[i])
 	return box
+
+## The sky round the day (moving sun on): dawn, morning, noon, golden hour,
+## sunset, dusk and night, looking towards the sun's side and away from it.
+## --view=<part of a name> for one; --hours=5.5,19.5 for others.
+func shot_skies() -> void:
+	Settings.set_value(&"moving_sun", true, false)
+	var hours: Array = [5.3, 6.2, 8.0, 12.0, 18.6, 20.4, 21.3, 23.5]
+	if args.has("hours"):
+		hours = Array(String(args["hours"]).split(",")).map(func(x): return float(x))
+	var from := Vector3(-380, 0, -60)
+	world.player.global_position = world.terrain.place(from, 1.0)
+	for i in 30:
+		await get_tree().process_frame
+	var ground := world.terrain.height_at(from.x, from.z)
+	for h in hours:
+		Economy.day_time = fposmod(float(h) - 6.0, 24.0) / 24.0 * Economy.day_length()
+		for side in [["east", Vector3(-400, 10, -60)], ["west", Vector3(400, 10, 60)]]:
+			var name := "sky_%05.2f_%s" % [h, side[0]]
+			if args.has("view") and not name.contains(args["view"]):
+				continue
+			var eye := from + Vector3(0, ground + 25.0, 0)
+			var at: Vector3 = eye + side[1]
+			await look(eye, at)
+			for k in 20:
+				await get_tree().process_frame
+			await snap(name)

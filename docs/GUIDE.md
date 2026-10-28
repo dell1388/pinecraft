@@ -836,6 +836,23 @@ grass).
 * **Birds** stay hidden until they have flown a frame: on the main menu (the
   game paused before its first frame) they were all piled at the world's
   origin, over the plot.
+* **The sky and the light** with shaders on (`scripts/world/Atmosphere.gd`):
+  a sky shader in place of the plain two-colour sky. Deep blue overhead
+  fading pale to the horizon by day; at sunrise and sunset an orange band low
+  on the sun's side with pink above it and purple-blue opposite, a disc and a
+  halo round the sun; drifting clouds lit from the sun's side (white by day,
+  gold and pink undersides at either end of the day, dark at night); and at
+  night twinkling stars and the moon. The sunlight's colour follows the sun's
+  height (deep orange on the horizon, gold, then near white from
+  mid-morning) and dims as it gets low, the haze takes the horizon's colour
+  and glows towards the sun at dawn and dusk, shadows are soft-edged
+  (blurring with distance from what casts them), and a faint haze in the
+  air lets the low sun throw shafts of light through the trees (Forward+
+  only). The sky lights the scene a little at a time rather than being
+  redrawn every frame. The sun comes up at five and goes down at nine, and
+  the light now goes smoothly through dawn and dusk instead of switching.
+  `scenes/shot.tscn -- --shot=skies [--hours=5.6,20.3] [--view=west]`
+  photographs it round the day.
 * **Birds** (`scripts/world/Birds.gd`, the *Birds* setting): three flocks of
   small dark birds wheeling over the country round you, a pair of gulls that
   keep to the water, and a hawk circling high up; flapping in bursts and

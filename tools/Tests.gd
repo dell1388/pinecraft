@@ -60,6 +60,7 @@ func _run_all() -> void:
 	await _test(&"grass grows on the ground, on green land, not on roads, water or the plot", test_grass_field)
 	await _test(&"far trees are leaf clusters and tiers, not buns; leaves marked for the shader", test_tree_stand_ins)
 	await _test(&"shaders switch trees and ground between plain and fancy", test_shaders_switch)
+	await _test(&"the sky round the day: a red-gold sun low down, white at noon, the dawn in the east", test_atmosphere)
 	await _test(&"birds fly round you, above the ground, and roost at night", test_birds)
 	await _test(&"birds stay hidden until they have flown (not piled on the plot on the menu)", test_birds_hidden_until_flown)
 	await _test(&"a mixed wood far off: each species its own stand-in", test_mixed_stand_ins)
@@ -7817,6 +7818,26 @@ func test_birds_hidden_until_flown() -> void:
 	world.add_child(birds)
 	birds.set_enabled(true)
 	check(not birds._mmi.visible, "the birds are shown before they have flown")
+	done()
+
+## The shader sky's sums: the sun's light is deep orange on the horizon and
+## near white at noon, the golden hour is strongest with the sun on the
+## horizon and gone by mid-morning or full night, and the sun rises in the
+## east (-x) and sets in the west (+x), as the sun light is turned.
+func test_atmosphere() -> void:
+	const Atm := preload("res://scripts/world/Atmosphere.gd")
+	var low := Atm.sun_colour(0.0)
+	var noon := Atm.sun_colour(0.9)
+	check(low.b < 0.3 and low.r > 0.9, "the sun on the horizon is not deep orange (%s)" % low)
+	check(noon.b > 0.85, "the noon sun is not near white (%s)" % noon)
+	check(Atm.dusk_amount(0.02) > 0.8, "no golden hour with the sun on the horizon")
+	check(Atm.dusk_amount(0.6) < 0.01, "golden light at mid-morning")
+	check(Atm.dusk_amount(-0.4) < 0.01, "golden light in the middle of the night")
+	check(Atm.direction(89.0, 0.0).y > 0.99, "the sun overhead is not overhead")
+	check(Atm.direction(0.0, -110.0).x < -0.9, "the sun does not rise in the east")
+	check(Atm.direction(0.0, 110.0).x > 0.9, "the sun does not set in the west")
+	var mat := Atm.sky_material()
+	check(mat.shader != null and mat.shader.code.contains("shader_type sky"), "no sky shader")
 	done()
 
 ## Shaders on: the ground and every merged tree and stand-in drawn with the
