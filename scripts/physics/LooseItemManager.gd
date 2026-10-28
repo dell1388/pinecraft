@@ -5,7 +5,8 @@ extends Node3D
 ##
 ## Responsibilities (all of them centralised on purpose):
 ##  * pooling            - nodes are recycled, never freed during play
-##  * per-plot cap       - oldest item recycled once a plot is over budget
+##  * per-plot cap       - oldest item off the property recycled once a plot
+##                         is over budget; nothing on the property ever is
 ##  * velocity clamping  - one tight loop instead of 500 _integrate_forces
 ##  * CCD toggling       - only fast movers pay for continuous collision
 ##  * kill plane         - anything below KILL_PLANE_Y returns to its plot
@@ -92,6 +93,9 @@ func awake_count() -> int:
 ## `dims` overrides the item's default size (a felled trunk, a long board).
 ## Co-op guest: every piece here is a picture of one on the host, put here
 ## by mirror_spawn and moved by the host. Nothing else may make one.
+## Whether a point is on the player's property: pieces there are never
+## recycled for the cap. Set by the world; unset, anywhere is fair game.
+var on_property: Callable = Callable()
 var mirror: bool = false
 var _mirroring: bool = false
 
@@ -235,20 +239,21 @@ func _acquire() -> LooseItem:
 		return LooseItem.new()
 	return _pool.pop_back()
 
+## The piece to recycle when a plot is over its cap: the oldest one lying
+## loose off the player's property. Nothing on the property goes - nor
+## anything held, in a machine or a vehicle, or a shop's stock. With nothing
+## to take, none is: the cap gives way rather than a piece the player kept.
 func _oldest(items: Array) -> LooseItem:
 	var best: LooseItem = null
 	for i in items:
 		var it: LooseItem = i
-		# Never recycle something the player is holding, a machine owns, or
-		# a shop's stock.
 		if it.state != LooseItem.State.FREE or it.carrier != null or it.shop_stock:
 			continue
-		if best == null or it.spawn_index < best.spawn_index:
-			best = it
-	if best == null:
-		for i in items:
-			if not (i as LooseItem).shop_stock:
-				return i
+		if best != null and it.spawn_index >= best.spawn_index:
+			continue
+		if on_property.is_valid() and bool(on_property.call(it.global_position)):
+			continue
+		best = it
 	return best
 
 static func _shop_count(items: Array) -> int:

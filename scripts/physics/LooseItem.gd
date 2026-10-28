@@ -440,8 +440,8 @@ func set_state(next: State) -> void:
 			# and stays there, rather than sagging out of the hand.
 			gravity_scale = 0.0
 		State.HELD, State.CAPTURED:
-			# Owned by the player's rack or a machine: kinematic, so it still
-			# pushes loose items aside but costs the solver nothing.
+			# Owned by the player's rack or a machine: kinematic, so it costs
+			# the solver nothing.
 			freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
 			freeze = true
 		State.POOLED:
@@ -449,6 +449,15 @@ func set_state(next: State) -> void:
 			sleeping = true
 			carrier = null
 			clear_limbs()
+	# On the player's rack a piece touches nothing: picking it up out of a
+	# pile does not shove the rest, and walking about with it does not
+	# knock things over. It is solid again the moment it is put down.
+	if next == State.HELD:
+		collision_layer = 0
+		collision_mask = 0
+	elif prev == State.HELD:
+		collision_layer = Layers.LOOSE
+		collision_mask = Layers.MASK_LOOSE
 	quiet_time = 0.0
 	if next != State.CARRIED:
 		gravity_scale = 1.0

@@ -123,6 +123,7 @@ func _run_all() -> void:
 	await _test(&"gear upgrades apply and charge", test_upgrades)
 	await _test(&"the store sells boxes over a counter", test_store)
 	await _test(&"carry rack limits and deposits", test_carry)
+	await _test(&"picking a piece up disturbs nothing", test_pick_up_disturbs_nothing)
 	await _test(&"lift and drag limits are weight limits", test_handling_limits)
 	await _test(&"things are dragged by the point grabbed", test_drag_at_point)
 	await _test(&"tools come from an inventory onto a hotbar", test_hotbar_tools)
@@ -157,6 +158,7 @@ func _run_all() -> void:
 	await _test(&"store-bought buildings are counted copies", test_building_copies)
 	await _test(&"winch and crane respect their power ratings", test_vehicle_rig)
 	await _test(&"a driven truck's settled load is fixed as it lies", test_load_fixed_while_driven)
+	await _test(&"a load heaped over the sides is fixed too", test_heaped_load_fixed)
 	await _test(&"trucks tow trailers on a hitch", test_trailers)
 	await _test(&"the pickup pulls the utility trailer and lighter, not the big ones", test_pickup_tow_limit)
 	await _test(&"trailers chain behind one another", test_trailer_train)
@@ -201,6 +203,7 @@ func _run_all() -> void:
 	await _test(&"save slots: several games, and the old save moves in", test_save_slots)
 	await _test(&"the lumberjack is posed from what you do, and third person still aims true", test_avatar)
 	await _test(&"per-plot cap is enforced", test_cap)
+	await _test(&"the cap takes pieces off the property, never on it", test_cap_spares_property)
 	await _test(&"shop stock stays on the shelf however busy the world gets", test_shop_stock_kept)
 	await _test(&"ore blocks are built to fit any box", test_ore_look_fits_any_box)
 	await _test(&"a knock throws the player limp, and he gets back up", test_knocked_flying)
@@ -2967,6 +2970,78 @@ func _filter_run(def: BuildingDef, yaw: float, tag: String, at := Vector3.ZERO) 
 	check(carried_ore >= 2, tag + "only %d of 3 ore lumps rode over the grate" % carried_ore)
 	check_eq(wrong, 0, tag + "the filter sent pieces the wrong way")
 
+## A load heaped up over the sides is fixed like the rest: the top of the
+## pile used to be left out of the cargo, and slid off on the road.
+func test_heaped_load_fixed() -> void:
+	_setup(false)
+	var truck := Hauler.new()
+	truck.setup(manager, 0)
+	world.add_child(truck)
+	truck.global_position = Vector3(0, truck.spawn_height(), 0)
+	await step(40)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7
+	var mine: Array[LooseItem] = []
+	for i in 360:
+		var top: Vector3 = truck.global_transform * Vector3(rng.randf_range(-0.5, 0.5),
+			truck.bed_floor + truck.wall_height + 2.5, truck.bed_mid_z + rng.randf_range(-0.6, 0.6))
+		mine.append(spawn(&"ore_iron" if i % 2 == 0 else &"lumber_pine", top,
+			Solid.chunk(0.03) if i % 2 == 0 else Solid.box(Vector3(0.2, 0.1, 0.9))))
+		await step(4)
+	await step(240)
+	var driver := Node3D.new()
+	world.add_child(driver)
+	truck.driver = driver
+	await step(400)
+	var in_bed := 0
+	var above := 0
+	var loose := 0
+	for it in mine:
+		var l: Vector3 = truck.global_transform.affine_inverse() * it.global_position
+		if absf(l.x) > truck.bed_half_width + 0.2 or l.z > truck.bed_back + 0.1 or l.z < truck.bed_front - 0.1 or l.y < truck.bed_floor - 0.1:
+			continue
+		in_bed += 1
+		if l.y > truck.bed_floor + truck.wall_height + 0.7:
+			above += 1
+		if not truck.is_fixed(it):
+			loose += 1
+	check(above > 5, "the test load was not heaped well over the sides (%d above)" % above)
+	check(loose <= 2, "%d of %d pieces in a heaped bed were left loose" % [loose, in_bed])
+	done()
+
+## Picking a piece up touches nothing else: taken out of the middle of a row,
+## its neighbours stay exactly where they were, and carried about it does
+## not knock things over. Put down, it is solid again.
+func test_pick_up_disturbs_nothing() -> void:
+	_setup()
+	var player := _make_player()
+	world.add_child(player)
+	PlayerState.levels[&"carry"] = 5
+	var box := Solid.box(Vector3(0.4, 0.4, 0.4))
+	var row: Array[LooseItem] = []
+	for i in 3:
+		row.append(spawn(&"lumber_pine", Vector3(3.0 + float(i) * 0.41, 0.25, 0), box))
+	await step(90)
+	var was: Array[Vector3] = []
+	for it in row:
+		was.append(it.global_position)
+	check(player.pick_up(row[1]), "could not pick up the middle piece")
+	await step(3)
+	# Walk the rack straight through where the others are.
+	for f in 40:
+		player.global_position = Vector3(2.0 + f * 0.05, 0.0, 0.85)
+		await step(1)
+	await step(30)
+	for i in [0, 2]:
+		check(row[i].global_position.distance_to(was[i]) < 0.02,
+			"a neighbour moved %.2f m when its fellow was picked up" % row[i].global_position.distance_to(was[i]))
+	player._drop(1)
+	await step(60)
+	check(row[1].state == LooseItem.State.FREE and row[1].collision_layer == Layers.LOOSE,
+		"a piece put down is not solid again")
+	check(row[1].global_position.y > -0.1, "a piece put down fell through the ground")
+	done()
+
 func test_building() -> void:
 	_setup()
 	await step(2)
@@ -5378,7 +5453,12 @@ func test_vehicle_rig() -> void:
 	check(not rig.anchored, "unhooking left the winch hooked")
 
 	# Past its rating the drum stalls and the load stays put.
-	var heavy := spawn(&"wood_ironwood", front + ahead * 8.0 + Vector3(3, 0.4, 0), Solid.cylinder(0.5, 0.5, 4.0))
+	# Laid on the ground along the pull, so it cannot roll in by itself: a
+	# log dropped on end topples and rolls, and the winch takes up the slack.
+	var lie_at := front + ahead * 8.0 + Vector3(3, 0, 0)
+	lie_at.y = 0.55
+	var heavy := manager.spawn(&"wood_ironwood", Transform3D(LooseItem.lying_basis(atan2(ahead.x, ahead.z)), lie_at),
+		0, Vector3.ZERO, Solid.cylinder(0.5, 0.5, 4.0))
 	await step(60)
 	rig.winch_power_kg = 100.0
 	check_eq(rig.attach_winch(heavy, heavy.global_position), "", "the winch would not hook a heavy log")
@@ -6115,6 +6195,23 @@ func test_chase_camera_clear() -> void:
 	var want := float(truck.get("camera_distance")) if truck.get("camera_distance") != null else player.chase_distance
 	check(trailer.cargo_count() >= 1, "the log is not on the trailer")
 	check(player._cam_distance > want * 0.9, "the camera was pulled in to %.1f m (of %.1f) by its own truck" % [player._cam_distance, want])
+	# The mouse wheel brings it in and takes it back out.
+	var wheel := InputEventMouseButton.new()
+	wheel.pressed = true
+	wheel.button_index = MOUSE_BUTTON_WHEEL_UP
+	for i in 6:
+		player._unhandled_input(wheel)
+	for i in 30:
+		player.global_position = truck.seat_transform().origin
+		await step(1)
+	check(player._cam_distance < want * 0.6, "the wheel did not zoom the driving camera in (%.1f m of %.1f)" % [player._cam_distance, want])
+	wheel.button_index = MOUSE_BUTTON_WHEEL_DOWN
+	for i in 12:
+		player._unhandled_input(wheel)
+	for i in 120:
+		player.global_position = truck.seat_transform().origin
+		await step(1)
+	check(player._cam_distance > want * 1.1, "the wheel did not zoom the driving camera out (%.1f m of %.1f)" % [player._cam_distance, want])
 	player.exit_vehicle()
 	done()
 
@@ -6428,6 +6525,41 @@ func test_cap() -> void:
 	# Pooling means the node count stays near the cap however many spawns happen.
 	var nodes := manager.active_count() + manager.pooled_count()
 	check(nodes <= 45, "pooling leaked nodes: %d live+pooled for a cap of 40" % nodes)
+	done()
+
+## Over the cap, the oldest pieces off the property go first, and nothing on
+## the property ever does - however old it is.
+func test_cap_spares_property() -> void:
+	_setup()
+	manager.per_plot_cap = 20
+	manager.on_property = func(p: Vector3) -> bool: return p.x < 0.0
+	await step(2)
+	var home: Array[LooseItem] = []
+	for i in 15:
+		home.append(spawn(&"wood_pine", Vector3(-3.0 - float(i % 5), 0.5 + float(i / 5) * 0.6, -3.0)))
+	var away: Array[LooseItem] = []
+	for i in 5:
+		away.append(spawn(&"wood_pine", Vector3(5.0 + float(i) * 1.5, 0.5, 5.0)))
+	await step(10)
+	# Five more past the cap: the five off the property go, oldest first.
+	for i in 3:
+		spawn(&"wood_pine", Vector3(20.0 + float(i) * 1.5, 0.5, 5.0))
+	await step(2)
+	for it in home:
+		check(it.state == LooseItem.State.FREE and it.item_id == &"wood_pine" and it.global_position.x < 0.0,
+			"a piece on the property was recycled for the cap")
+	var gone := 0
+	for i in 3:
+		if away[i].state == LooseItem.State.POOLED or away[i].global_position.x > 19.0:
+			gone += 1
+	check_eq(gone, 3, "the three oldest pieces off the property were not the ones recycled")
+	check(away[3].state == LooseItem.State.FREE and away[3].global_position.x < 19.0, "a newer piece went before an older one")
+	# With nothing left off the property to take, the cap gives way.
+	for i in 12:
+		spawn(&"wood_pine", Vector3(-12.0 - float(i % 4), 0.5 + float(i / 4) * 0.6, 3.0))
+	await step(2)
+	for it in home:
+		check(it.state == LooseItem.State.FREE and it.global_position.x < 0.0, "a piece on the property was recycled once the cap was full")
 	done()
 
 func test_shop_stock_kept() -> void:
