@@ -941,6 +941,7 @@ func _build_ostars_forest() -> void:
 	home.wake_distance = TREE_WAKE
 	home.impostor = _tree_impostor(kinds[0])
 	home.impostor_height = (float(kinds[0].height[0]) + float(kinds[0].height[1])) * 0.5
+	home.stand_ins = _stand_ins(kinds)
 	home.setup(kinds, _build_tree, _from_spots(forester.home_spots), 4242)
 	add_child(home)
 	home.prefill()
@@ -1247,6 +1248,7 @@ func _build_starter_forest(species: Array) -> void:
 	field.wake_distance = TREE_WAKE
 	field.impostor = _tree_impostor(kinds[0])
 	field.impostor_height = (float(kinds[0].height[0]) + float(kinds[0].height[1])) * 0.5
+	field.stand_ins = _stand_ins(kinds)
 	field.setup(kinds, _build_tree, sampler, 4242)
 	add_child(field)
 	field.prefill()
@@ -1297,6 +1299,14 @@ func _on_ground(sampler: Callable) -> Callable:
 ## Real trees stand within this many metres of a player; further off they are
 ## drawn as stand-ins (see ResourceField.impostor).
 static var TREE_WAKE: float = Balance.num("world.tree_wake_distance", 230.0)
+
+## Every species in a mixed field with its own stand-in, so a mixed wood
+## stays mixed from a distance: name -> [mesh, height].
+static func _stand_ins(kinds: Array) -> Dictionary:
+	var out: Dictionary = {}
+	for kind in kinds:
+		out[String(kind.name)] = [_tree_impostor(kind), (float(kind.height[0]) + float(kind.height[1])) * 0.5]
+	return out
 
 ## A species' stand-in for the far distance (see ChoppableTree.stand_in).
 static func _tree_impostor(kind: Dictionary) -> Mesh:

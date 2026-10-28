@@ -1332,6 +1332,8 @@ func shot_scenery() -> void:
 		["scenery_meadow", Vector3(10, 1.7, 60), Vector3(-20, 1.0, -40)],
 		["scenery_wood_edge", home_wood + Vector3(26, 1.7, 26), home_wood],
 		["scenery_far_woods", Vector3(-380, 30, -60), Vector3(-700, 10, -260)],
+		["scenery_mid_woods", home_wood + Vector3(230, 14, 60), home_wood],
+		["scenery_far_close", Vector3(-380, 3, -60), Vector3(-700, 10, -260)],
 		["scenery_high", Vector3(60, 60, 160), Vector3(-40, 0, 0)],
 		["scenery_close", Vector3(4, 1.2, 30), Vector3(2, 0.2, 24)],
 	]
@@ -1438,3 +1440,48 @@ func shot_yardkeep() -> void:
 		await snap("outpost_trader_%d" % n)
 		print("outpost ", o.place_name, ": ", t.display_name)
 		n += 1
+
+## Each species' built tree (far version, leaves only) against its stand-in:
+## crown width and height, so the two can be matched. Prints, no pictures.
+func shot_standin_sizes() -> void:
+	world.player.global_position = world.terrain.place(world.starter_forest, 1.0)
+	for i in 30:
+		await get_tree().process_frame
+	var seen: Dictionary = {}
+	for tree in world.trees():
+		if not tree.has_meta("entry") or not tree.is_merged():
+			continue
+		var kind: Dictionary = tree.get_meta("entry")
+		var name := String(kind.get("name", "?"))
+		if seen.has(name):
+			continue
+		seen[name] = true
+		var far: MeshInstance3D = tree._merged.get_node_or_null("MergedFar")
+		var mesh: Mesh = far.mesh if far != null else tree._merged.mesh
+		var leaf := _leaf_box(mesh)
+		var stand := _leaf_box(ChoppableTree.stand_in(kind))
+		for f in world.tree_fields:
+			if tree in f.alive:
+				var list: Array = f._stand_in_list()
+				stand = _leaf_box(list[f._stand_in_index(kind)][0])
+		var h := (float(kind.height[0]) + float(kind.height[1])) * 0.5
+		var sc := tree.trunk_height / h
+		print("SIZES %-14s tree %.1f m: crown %.1f wide, %.1f..%.1f up | stand-in x%.2f: %.1f wide, %.1f..%.1f up" % [
+			name, tree.trunk_height, maxf(leaf.size.x, leaf.size.z), leaf.position.y, leaf.end.y,
+			sc, maxf(stand.size.x, stand.size.z) * sc, stand.position.y * sc, stand.end.y * sc])
+
+static func _leaf_box(mesh: Mesh) -> AABB:
+	var arrays := mesh.surface_get_arrays(0)
+	var v: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var c: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+	var box := AABB()
+	var first := true
+	for i in v.size():
+		if c.size() == v.size() and c[i].a > 0.5:
+			continue
+		if first:
+			box = AABB(v[i], Vector3.ZERO)
+			first = false
+		else:
+			box = box.expand(v[i])
+	return box

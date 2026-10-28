@@ -26,6 +26,10 @@ var terrain: Terrain
 ## Whoever they roam round (the player); the camera if not set.
 var focus: Node3D
 var enabled: bool = true
+## Whether they have flown a frame yet. Until then every bird is still at the
+## world's origin (the plot) at full size, so they stay hidden: the main menu
+## pauses the game before the first frame.
+var _flown: bool = false
 
 var _mmi: MultiMeshInstance3D
 var _flocks: Array = []
@@ -58,7 +62,7 @@ func setup(p_terrain: Terrain) -> void:
 func set_enabled(on: bool) -> void:
 	enabled = on
 	if _mmi != null:
-		_mmi.visible = on
+		_mmi.visible = on and _flown
 
 func _ready() -> void:
 	var mm := MultiMesh.new()
@@ -103,7 +107,7 @@ func _ready() -> void:
 			b.vel = Vector3(_rng.randf_range(-1, 1), 0, _rng.randf_range(-1, 1)).normalized() * f.speed
 			b.phase = _rng.randf()
 			_birds.append(b)
-	_mmi.visible = enabled
+	_mmi.visible = false
 
 ## Where they roam round: the player, or the camera.
 func _around() -> Vector3:
@@ -182,6 +186,7 @@ func _fly(delta: float) -> void:
 		mm.set_instance_transform(i, Transform3D(basis.scaled(Vector3.ONE * b.size), b.pos))
 		var beat := 13.0 if b.kind == 0 else (6.0 if b.kind == 1 else 3.5)
 		mm.set_instance_custom_data(i, Color(b.phase, b.flap, float(b.kind) * 0.5, beat))
+	_flown = true
 
 func _steer_flock(f: Flock, at: Vector3, delta: float) -> void:
 	f.retarget -= delta

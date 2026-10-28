@@ -98,7 +98,11 @@ static func piece(piece_name: String) -> Mesh:
 				_piece_meshes[String(n.name)] = near
 				_shared[near] = true
 				var far := _far_piece(String(n.name))
-				if far != null:
+				if far != null and near != null:
+					# The light version fills the same box as the full one, or
+					# the crowns shrink to two-fifths of their size past
+					# NEAR_RANGE and the trees go lollipop.
+					far = _fitted(far, near.get_aabb())
 					_far_of[near] = far
 					_shared[far] = true
 			root.free()
@@ -120,6 +124,26 @@ static func _far_piece(piece_name: String) -> Mesh:
 		"ConiferStack":
 			return _far_tiers([[1.0, 0.0, 0.5], [0.72, 0.3, 0.42], [0.45, 0.56, 0.34], [0.22, 0.78, 0.22]])
 	return null
+
+## `mesh` stretched and moved to fill `box` exactly.
+static func _fitted(mesh: Mesh, box: AABB) -> Mesh:
+	var own := mesh.get_aabb()
+	if own.size.x <= 0.0 or own.size.y <= 0.0 or own.size.z <= 0.0:
+		return mesh
+	var sc := box.size / own.size
+	var arrays := mesh.surface_get_arrays(0)
+	var v: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	for i in v.size():
+		v[i] = box.position + (v[i] - own.position) * sc
+	arrays[Mesh.ARRAY_VERTEX] = v
+	# Normals go the other way under a stretch.
+	var nrm: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	for i in nrm.size():
+		nrm[i] = (nrm[i] / sc).normalized()
+	arrays[Mesh.ARRAY_NORMAL] = nrm
+	var out := ArrayMesh.new()
+	out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return out
 
 ## Three icosahedron lumps filling the -1..1 box, lighter on top: the near
 ## clump's outline in 60 triangles.
@@ -246,6 +270,64 @@ static func stand_in(kind: Dictionary) -> Mesh:
 	var mesh := st.commit()
 	mesh.surface_set_material(0, plain_material())
 	return mesh
+
+## The crown of this tree as it is drawn from a way off (leaves only), in
+## its own space, or an empty box when there is none yet.
+func crown_box() -> AABB:
+	if _merged == null:
+		return AABB()
+	var far: MeshInstance3D = _merged.get_node_or_null("MergedFar")
+	var mesh: Mesh = far.mesh if far != null else _merged.mesh
+	return leaf_box(mesh)
+
+## The box round a mesh's leaves (vertex alpha under a half).
+static func leaf_box(mesh: Mesh) -> AABB:
+	if mesh == null or mesh.get_surface_count() == 0:
+		return AABB()
+	var arrays := mesh.surface_get_arrays(0)
+	var v: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var c: PackedColorArray = arrays[Mesh.ARRAY_COLOR] if arrays[Mesh.ARRAY_COLOR] != null else PackedColorArray()
+	if c.size() != v.size():
+		return AABB()
+	var box := AABB()
+	var first := true
+	for i in v.size():
+		if c[i].a > 0.5:
+			continue
+		if first:
+			box = AABB(v[i], Vector3.ZERO)
+			first = false
+		else:
+			box = box.expand(v[i])
+	return box
+
+## A stand-in with its leaves moved and stretched to fill `crown` (a real
+## tree's crown box, scaled to the stand-in's height), the trunk left as it
+## is: the far tree then has the near one's spread and height, not a guess
+## at them from the species' numbers.
+static func refit_crown(stand: Mesh, crown: AABB) -> Mesh:
+	var own := leaf_box(stand)
+	if own.size.x <= 0.0 or own.size.y <= 0.0 or own.size.z <= 0.0 or crown.size.y <= 0.0:
+		return stand
+	# Round about the trunk: as wide both ways, centred on it.
+	var wide := maxf(crown.size.x, crown.size.z)
+	var target := AABB(Vector3(-wide * 0.5, crown.position.y, -wide * 0.5), Vector3(wide, crown.size.y, wide))
+	var sc := target.size / own.size
+	var arrays := stand.surface_get_arrays(0)
+	var v: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var n: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var c: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+	for i in v.size():
+		if c[i].a > 0.5:
+			continue
+		v[i] = target.position + (v[i] - own.position) * sc
+		n[i] = (n[i] / sc).normalized()
+	arrays[Mesh.ARRAY_VERTEX] = v
+	arrays[Mesh.ARRAY_NORMAL] = n
+	var out := ArrayMesh.new()
+	out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	out.surface_set_material(0, stand.surface_get_material(0))
+	return out
 
 static func _stand_trunk(st: SurfaceTool, r0: float, r1: float, tall: float, bark: Color) -> void:
 	var sides := 6

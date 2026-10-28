@@ -99,6 +99,10 @@ func _ready() -> void:
 			world.sun.shadow_enabled = true
 		get_tree().quit()
 		return
+	if OS.get_environment("PERF_DRIVE") != "":
+		await _drive_road(_frames(900))
+		get_tree().quit()
+		return
 	# Stand still in the woods, then walk out through them and along a road.
 	await _run("standing in the woods", func(_t: float) -> Vector3: return start, _frames(240))
 	await _run("walking through the woods", func(t: float) -> Vector3:
@@ -106,6 +110,49 @@ func _ready() -> void:
 	await _run("driving the east road", func(t: float) -> Vector3:
 		return Vector3(90.0 + t * 18.0, 0, 20.0), _frames(600))
 	get_tree().quit()
+
+## Really drives: a pickup on the longest asphalt road, the player at the
+## wheel, flat out and steering for the road a little way ahead.
+func _drive_road(frames: int) -> void:
+	var best: Array = []
+	for rp in world.terrain.road_paths:
+		var path: Array = rp.path
+		if String(rp.style) == "asphalt" and path.size() > best.size():
+			best = path
+	var at: Vector3 = best[0]
+	var ahead: Vector3 = best[mini(4, best.size() - 1)]
+	var truck := Hauler.new()
+	truck.setup(world.manager, 0, &"pickup")
+	world.add_child(truck)
+	var h := world.terrain.height_at(at.x, at.z)
+	truck.global_position = Vector3(at.x, h + truck.spawn_height(), at.z)
+	truck.look_at(Vector3(ahead.x, truck.global_position.y, ahead.z))
+	for i in 30:
+		await get_tree().process_frame
+	world.drive(truck)
+	var st := {"k": 0}
+	var steer := func(_t: float) -> Vector3:
+		var pos := truck.global_position
+		var k: int = st.k
+		while k < best.size() - 1 and Vector2(best[k].x - pos.x, best[k].z - pos.z).length() < 14.0:
+			k += 1
+		st.k = k
+		var target: Vector3 = best[k]
+		var fwd := -truck.global_transform.basis.z
+		var to := Vector3(target.x - pos.x, 0, target.z - pos.z).normalized()
+		var side := fwd.cross(to).y
+		Input.action_release(&"move_left")
+		Input.action_release(&"move_right")
+		if side > 0.05:
+			Input.action_press(&"move_left", clampf(side * 3.0, 0.0, 1.0))
+		elif side < -0.05:
+			Input.action_press(&"move_right", clampf(-side * 3.0, 0.0, 1.0))
+		Input.action_press(&"move_forward")
+		return Vector3.INF
+	await _run("driving a pickup", steer, frames)
+	print("PERF drove %.0f m, at %.1f m/s at the end, %d of %d road points" % [
+		truck.global_position.distance_to(Vector3(at.x, truck.global_position.y, at.z)),
+		truck.linear_velocity.length(), st.k, best.size()])
 
 func _run(label: String, path: Callable, frames: int) -> void:
 	var p: Player = world.player
@@ -119,20 +166,27 @@ func _run(label: String, path: Callable, frames: int) -> void:
 	var grass_ms := 0.0
 	var grass_worst := 0.0
 	var birds_ms := 0.0
+	var fields_ms := 0.0
+	var fields_worst := 0.0
+	var decor_ms := 0.0
+	var decor_worst := 0.0
 	var last := Time.get_ticks_usec()
 	var t := 0.0
 	for i in frames:
 		var at: Vector3 = path.call(t)
-		at.y = world.terrain.height_at(at.x, at.z) + 1.0
-		p.global_position = at
-		p.velocity = Vector3.ZERO
+		if at != Vector3.INF:
+			at.y = world.terrain.height_at(at.x, at.z) + 1.0
+			p.global_position = at
+			p.velocity = Vector3.ZERO
 		ResourceField.spent_usec = 0
+		ResourceField.build_usec = 0
+		ResourceField.redraw_usec = 0
+		ResourceField.look_usec = 0
 		ResourceField.built_count = 0
 		ResourceField.slept_count = 0
 		Decor.spent_usec = 0
 		GrassField.spent_usec = 0
 		Birds.spent_usec = 0
-		var tw0 := Time.get_ticks_usec()
 		await get_tree().process_frame
 		var now := Time.get_ticks_usec()
 		var ms := float(now - last) / 1000.0
@@ -141,12 +195,18 @@ func _run(label: String, path: Callable, frames: int) -> void:
 		if i < 10:
 			continue
 		times.append(ms)
-		if ms > 25.0:
-			print("PERF slow frame %.1f ms: fields %.1f ms, built %d, slept %d, decor %.1f ms" % [ms, ResourceField.spent_usec / 1000.0, ResourceField.built_count, ResourceField.slept_count, Decor.spent_usec / 1000.0])
+		if ms > 16.0:
+			print("PERF slow frame %.1f ms: fields %.1f ms (build %.1f, redraw %.1f, look %.1f), built %d, slept %d, decor %.1f ms" % [ms, ResourceField.spent_usec / 1000.0,
+				ResourceField.build_usec / 1000.0, ResourceField.redraw_usec / 1000.0, ResourceField.look_usec / 1000.0,
+				ResourceField.built_count, ResourceField.slept_count, Decor.spent_usec / 1000.0])
 		worst = maxf(worst, ms)
 		grass_ms += GrassField.spent_usec / 1000.0
 		grass_worst = maxf(grass_worst, GrassField.spent_usec / 1000.0)
 		birds_ms += Birds.spent_usec / 1000.0
+		fields_ms += ResourceField.spent_usec / 1000.0
+		fields_worst = maxf(fields_worst, ResourceField.spent_usec / 1000.0)
+		decor_ms += Decor.spent_usec / 1000.0
+		decor_worst = maxf(decor_worst, Decor.spent_usec / 1000.0)
 		proc += Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
 		phys += Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
 		draws += Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)
@@ -159,7 +219,8 @@ func _run(label: String, path: Callable, frames: int) -> void:
 		label, _sum(times) / n, sorted[int(n * 0.95)], worst, proc / n, phys / n,
 		int(draws / n), int(objects / n), int(prims / n / 1000.0),
 		Performance.get_monitor(Performance.OBJECT_NODE_COUNT)])
-	print("PERF %-26s grass %.3f ms a frame (worst %.2f), birds %.3f ms" % [label, grass_ms / n, grass_worst, birds_ms / n])
+	print("PERF %-26s grass %.3f ms a frame (worst %.2f), birds %.3f ms, fields %.2f ms (worst %.1f), decor %.2f ms (worst %.1f)" % [
+		label, grass_ms / n, grass_worst, birds_ms / n, fields_ms / n, fields_worst, decor_ms / n, decor_worst])
 
 static func _stats() -> Vector2i:
 	return Vector2i(int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)),

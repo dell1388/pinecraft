@@ -58,16 +58,18 @@ var _wake_timer: float = 0.0
 ## horizon without a real tree for every one. Null draws nothing.
 var impostor: Mesh = null
 var _impostors_dirty: bool = false
+var _impostor_wait: float = 0.0
+const IMPOSTOR_EVERY := 0.25
 ## The notes are kept in square tiles this many metres across, each with its
 ## own batch of stand-ins: a tile out of view is not drawn, one past the view
 ## distance is not drawn, and a tree waking or sleeping redraws its own tile
 ## only. Waking looks at the tiles round the player, not every note.
 const TILE := 200.0
 var _tiles: Dictionary = {}             ## Vector2i -> Array of notes
-var _tile_draws: Dictionary = {}        ## Vector2i -> MultiMeshInstance3D
+var _tile_draws: Dictionary = {}        ## Vector3i(tile x, tile z, species) -> MultiMeshInstance3D
 ## The built, untouched trees' shadows, cast by stand-ins batched per tile:
 ## one draw per tile in the shadow pass instead of one (or several) per tree.
-var _shadow_draws: Dictionary = {}      ## Vector2i -> MultiMeshInstance3D
+var _shadow_draws: Dictionary = {}      ## the same, for shadows
 var _shadowed: Dictionary = {}          ## tree instance id -> tile
 ## Height the stand-in mesh was made for, so each stand-in is scaled to its tree.
 var impostor_height: float = 0.0
@@ -81,6 +83,8 @@ var _quota_timer: float = 0.0
 ## over a few frames rather than stalling one.
 var _wake_queue: Array = []
 const BUILDS_PER_FRAME := 2
+const BUILD_USEC := 2000
+static var _budget_start: int = 0
 static var _budget_frame: int = -1
 static var _budget_left: int = 0
 
@@ -104,7 +108,12 @@ static func _take_build() -> bool:
 	if frame != _budget_frame:
 		_budget_frame = frame
 		_budget_left = BUILDS_PER_FRAME
+		_budget_start = Time.get_ticks_usec()
 	if _budget_left <= 0:
+		return false
+	# A big tree can take a few milliseconds to put together: once the frame's
+	# building has run past BUILD_USEC, the rest wait for the next frame.
+	if _budget_left < BUILDS_PER_FRAME and Time.get_ticks_usec() - _budget_start > BUILD_USEC:
 		return false
 	_budget_left -= 1
 	return true
@@ -231,12 +240,15 @@ func prefill() -> int:
 	_refresh_impostors()
 	return placed
 
-## Redraws the stand-ins in the tiles that changed.
+## Redraws the stand-ins in the tiles that changed. A mixed field draws each
+## species with its own stand-in (see `stand_ins`): one batch per species a tile.
 func _refresh_impostors() -> void:
 	_impostors_dirty = false
 	if impostor == null:
 		_dirty_tiles.clear()
 		return
+	var kinds := _stand_in_list()
+	_calibrate_stand_ins(kinds)
 	var shadows_by_tile: Dictionary = {}
 	for node in alive:
 		if is_instance_valid(node) and not node.is_queued_for_deletion() and node is ChoppableTree \
@@ -247,24 +259,87 @@ func _refresh_impostors() -> void:
 					shadows_by_tile[key] = []
 				(shadows_by_tile[key] as Array).append(node)
 	for key in _dirty_tiles:
-		var notes: Array = _tiles.get(key, [])
 		var xforms: Array = []
-		for note in notes:
-			xforms.append(note.xform)
-		_draw_tile(_tile_draws, key, xforms, "Impostors", GeometryInstance3D.SHADOW_CASTING_SETTING_OFF,
-			impostor_range)
 		var casters: Array = []
+		for k in kinds.size():
+			xforms.append([])
+			casters.append([])
+		for note in _tiles.get(key, []):
+			(xforms[_stand_in_index(note.get("entry"))] as Array).append(note.xform)
 		for node in shadows_by_tile.get(key, []):
 			var tree := node as ChoppableTree
-			var sc := tree.trunk_height / impostor_height if impostor_height > 0.0 else 1.0
-			casters.append(Transform3D(Basis().scaled(Vector3(1.0, sc, 1.0)), tree.position))
+			var k := _stand_in_index(tree.get_meta("entry", null))
+			var tall: float = kinds[k][1]
+			var sc := tree.trunk_height / tall if tall > 0.0 else 1.0
+			(casters[k] as Array).append(Transform3D(Basis().scaled(Vector3(1.0, sc, 1.0)), tree.position))
 			_shadowed[tree.get_instance_id()] = key
-		_draw_tile(_shadow_draws, key, casters, "Shadows", GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY,
-			ChoppableTree.VIEW_RANGE)
+		for k in kinds.size():
+			var mesh: Mesh = kinds[k][0]
+			_draw_tile(_tile_draws, key, k, mesh, xforms[k], "Impostors", GeometryInstance3D.SHADOW_CASTING_SETTING_OFF,
+				impostor_range)
+			_draw_tile(_shadow_draws, key, k, mesh, casters[k], "Shadows", GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY,
+				ChoppableTree.VIEW_RANGE)
 	_dirty_tiles.clear()
 
-func _draw_tile(draws: Dictionary, key: Vector2i, xforms: Array, label: String,
+## Each species' own stand-in in a mixed field: its name -> [mesh, height].
+## Species not in it (and every single-species field) use `impostor`.
+var stand_ins: Dictionary = {}
+var _stand_in_cache: Array = []
+
+func _stand_in_list() -> Array:
+	if _stand_in_cache.is_empty():
+		_stand_in_cache.append([impostor, impostor_height, ""])
+		for name in stand_ins:
+			var pair: Array = stand_ins[name]
+			_stand_in_cache.append([pair[0], pair[1], String(name)])
+	return _stand_in_cache
+
+## Once a species has a tree built and merged, its stand-in's crown is fitted
+## to that tree's, so near and far agree; every tile is redrawn with it.
+var _calibrated: Dictionary = {}
+
+func _calibrate_stand_ins(kinds: Array) -> void:
+	# A mixed field draws every tree with its species' own; the default is spare.
+	if not stand_ins.is_empty():
+		_calibrated[0] = true
+	if _calibrated.size() >= kinds.size():
+		return
+	for node in alive:
+		var tree := node as ChoppableTree
+		if tree == null or not is_instance_valid(tree) or not tree.is_merged() or tree.trunk_height <= 0.0:
+			continue
+		var k := _stand_in_index(tree.get_meta("entry", null))
+		if _calibrated.has(k):
+			continue
+		var crown := tree.crown_box()
+		if crown.size.y <= 0.0:
+			continue
+		_calibrated[k] = true
+		var tall: float = kinds[k][1]
+		var sc := tall / tree.trunk_height if tall > 0.0 else 1.0
+		kinds[k][0] = ChoppableTree.refit_crown(kinds[k][0], AABB(crown.position * sc, crown.size * sc))
+		if k == 0:
+			impostor = kinds[k][0]
+		# Swapped into the batches already drawn: nothing is rebuilt.
+		for draws in [_tile_draws, _shadow_draws]:
+			for key: Vector3i in draws:
+				var draw: MultiMeshInstance3D = draws[key]
+				if key.z == k and is_instance_valid(draw) and draw.multimesh != null:
+					draw.multimesh.mesh = kinds[k][0]
+
+func _stand_in_index(entry: Variant) -> int:
+	if stand_ins.is_empty() or not entry is Dictionary:
+		return 0
+	var name := String((entry as Dictionary).get("name", ""))
+	var list := _stand_in_list()
+	for k in range(1, list.size()):
+		if list[k][2] == name:
+			return k
+	return 0
+
+func _draw_tile(draws: Dictionary, tile: Vector2i, kind: int, mesh: Mesh, xforms: Array, label: String,
 		shadows: GeometryInstance3D.ShadowCastingSetting, reach: float) -> void:
+	var key := Vector3i(tile.x, tile.y, kind)
 	var draw: MultiMeshInstance3D = draws.get(key)
 	if xforms.is_empty():
 		if draw != null:
@@ -273,7 +348,7 @@ func _draw_tile(draws: Dictionary, key: Vector2i, xforms: Array, label: String,
 		return
 	if draw == null:
 		draw = MultiMeshInstance3D.new()
-		draw.name = "%s_%d_%d" % [label, key.x, key.y]
+		draw.name = "%s_%d_%d_%d" % [label, tile.x, tile.y, kind]
 		draw.cast_shadow = shadows
 		if label == "Impostors":
 			draw.add_to_group(&"tree_impostors")
@@ -285,7 +360,7 @@ func _draw_tile(draws: Dictionary, key: Vector2i, xforms: Array, label: String,
 	draw.visibility_range_end = reach
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
-	mm.mesh = impostor
+	mm.mesh = mesh
 	mm.instance_count = xforms.size()
 	for i in xforms.size():
 		mm.set_instance_transform(i, xforms[i])
@@ -302,6 +377,11 @@ func _shadows_changed(node: Node3D) -> void:
 
 ## Microseconds spent in fields this frame (read by the perf harness).
 static var spent_usec: int = 0
+## Split of the above, for the perf harness: building trees, redrawing
+## stand-ins, and looking for what to wake and sleep.
+static var build_usec: int = 0
+static var redraw_usec: int = 0
+static var look_usec: int = 0
 static var built_count: int = 0
 static var slept_count: int = 0
 
@@ -317,10 +397,21 @@ func _step(delta: float) -> void:
 		_wake_timer -= delta
 		if _wake_timer <= 0.0:
 			_wake_timer = 0.4
+			var tl := Time.get_ticks_usec()
 			_wake_and_sleep()
+			look_usec += Time.get_ticks_usec() - tl
+		var tb := Time.get_ticks_usec()
 		_build_queued()
-	if _impostors_dirty:
+		build_usec += Time.get_ticks_usec() - tb
+	# The stand-ins are redrawn a few times a second, not every frame a tree
+	# comes or goes: driving through a forest wakes and sleeps trees nearly
+	# every frame, and each redraw rebuilds a whole tile's batch.
+	_impostor_wait -= delta
+	if _impostors_dirty and _impostor_wait <= 0.0:
+		_impostor_wait = IMPOSTOR_EVERY
+		var tr := Time.get_ticks_usec()
 		_refresh_impostors()
+		redraw_usec += Time.get_ticks_usec() - tr
 	# Whether it is full only changes when something is used up or grown,
 	# and counting every frame is a waste: every half second will do.
 	_quota_timer -= delta

@@ -61,6 +61,8 @@ func _run_all() -> void:
 	await _test(&"far trees are leaf clusters and tiers, not buns; leaves marked for the shader", test_tree_stand_ins)
 	await _test(&"shaders switch trees and ground between plain and fancy", test_shaders_switch)
 	await _test(&"birds fly round you, above the ground, and roost at night", test_birds)
+	await _test(&"birds stay hidden until they have flown (not piled on the plot on the menu)", test_birds_hidden_until_flown)
+	await _test(&"a mixed wood far off: each species its own stand-in", test_mixed_stand_ins)
 	await _test(&"ostars: each save remembers its map", test_ostars_save_map)
 	await _test(&"ostars: roads from home to the town and every trader", test_ostars_roads)
 	await _test(&"ostars: ore by hardness, the best in the hardest country", test_ostars_ore)
@@ -7758,6 +7760,63 @@ func test_tree_stand_ins() -> void:
 			top = maxf(top, v.y)
 		var h := (float(kind.height[0]) + float(kind.height[1])) * 0.5
 		check(top > h * 0.8 and top < h * 1.6, "%s's stand-in is %.1f m tall for a %.1f m tree" % [name, top, h])
+	done()
+
+## A mixed wood stays mixed from a distance: each species is drawn with its
+## own stand-in, not the first species' for all of them.
+func test_mixed_stand_ins() -> void:
+	_setup(false)
+	var field := ResourceField.new()
+	field.quota = 12
+	field.min_spacing = 3.0
+	field.wake_distance = 5.0
+	field.anchor = Vector3(5000, 0, 5000)
+	var mesh_a := BoxMesh.new()
+	var mesh_b := SphereMesh.new()
+	field.impostor = mesh_a
+	field.impostor_height = 6.0
+	field.stand_ins = {"Alder": [mesh_a, 6.0], "Beech": [mesh_b, 9.0]}
+	field.setup([{"name": "Alder", "h": 6.0}, {"name": "Beech", "h": 9.0}],
+		func(_kind: Dictionary, _form_seed: int) -> Node3D: return null,
+		ResourceField.annulus(10.0, 40.0), 4242)
+	world.add_child(field)
+	field.prefill()
+	var by_mesh: Dictionary = {}
+	for c in field.get_children():
+		if c is MultiMeshInstance3D and String(c.name).begins_with("Impostors"):
+			var mm := (c as MultiMeshInstance3D).multimesh
+			by_mesh[mm.mesh] = int(by_mesh.get(mm.mesh, 0)) + mm.instance_count
+	check(int(by_mesh.get(mesh_a, 0)) > 0, "no Alder stand-ins drawn")
+	check(int(by_mesh.get(mesh_b, 0)) > 0, "no Beech stand-ins drawn - drawn as Alder")
+	check_eq(int(by_mesh.get(mesh_a, 0)) + int(by_mesh.get(mesh_b, 0)), field.dormant.size(),
+		"stand-ins drawn against trees noted")
+	# A stand-in's crown fitted to a real tree's: same spread and height, the
+	# trunk untouched.
+	var kind: Dictionary = World.SPECIES[0]
+	var stand := ChoppableTree.stand_in(kind)
+	var crown := AABB(Vector3(-1.5, 4.0, -1.2), Vector3(3.0, 5.0, 2.4))
+	var fitted := ChoppableTree.refit_crown(stand, crown)
+	var got := ChoppableTree.leaf_box(fitted)
+	check_near(got.position.y, 4.0, 0.01, "fitted crown bottom")
+	check_near(got.end.y, 9.0, 0.01, "fitted crown top")
+	check_near(got.size.x, 3.0, 0.01, "fitted crown width")
+	check_near(got.size.z, 3.0, 0.01, "fitted crown depth (as wide both ways)")
+	check(fitted.get_aabb().position.y <= 0.01, "the trunk no longer reaches the ground")
+	done()
+
+## The birds wait for their first flight before they are shown: until then
+## they are all piled on the world's origin (the plot) at full size, and the
+## main menu pauses the game before that first frame.
+func test_birds_hidden_until_flown() -> void:
+	_setup(false)
+	var land := _region_land()
+	world.add_child(land)
+	await step(2)
+	var birds := Birds.new()
+	birds.setup(land)
+	world.add_child(birds)
+	birds.set_enabled(true)
+	check(not birds._mmi.visible, "the birds are shown before they have flown")
 	done()
 
 ## Shaders on: the ground and every merged tree and stand-in drawn with the

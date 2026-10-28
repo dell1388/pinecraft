@@ -824,14 +824,26 @@ grass).
   (the "buns"): a broadleaf is a cluster of leaf lumps round a middle one, a
   conifer its stacked tiers, a palm its fronds, about 120 triangles, in the
   same colours as a built tree (they used to come out brighter). The middle
-  distance's leaf clumps are five lumps, not three.
+  distance's leaf clumps are five lumps, not three, stretched to fill the
+  same space as the full clump (they were two-fifths its size, so crowns
+  shrank past 35 m). Once a species has a tree built near you, its stand-in's
+  crown is fitted to that tree's spread and height, so a tree looks the same
+  size near and far and its shadow matches it; and a mixed wood (the home
+  wood, the starter wood on Ostars) draws each species with its own stand-in
+  rather than all as the first species. Stand-ins are redrawn at most four
+  times a second, and no more than one tree is built in a frame that has
+  already spent 2 ms building, so driving into a forest does not stutter.
+* **Birds** stay hidden until they have flown a frame: on the main menu (the
+  game paused before its first frame) they were all piled at the world's
+  origin, over the plot.
 * **Birds** (`scripts/world/Birds.gd`, the *Birds* setting): three flocks of
   small dark birds wheeling over the country round you, a pair of gulls that
   keep to the water, and a hawk circling high up; flapping in bursts and
   gliding (in the shader), all one draw, gone to roost at night.
 
-The perf harness (`scenes/perf.tscn`) prints the grass's and the birds' time a
-frame.
+The perf harness (`scenes/perf.tscn`) prints the grass's, the birds', the tree
+fields' and the decor's time a frame; `PERF_DRIVE=1` really drives a pickup
+along the longest asphalt road instead of walking.
 
 ## Models
 
