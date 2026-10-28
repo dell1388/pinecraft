@@ -2431,8 +2431,10 @@ func _set_fancy_lighting(on: bool) -> void:
 	sun.light_angular_distance = 0.6 if on else 0.0
 	if not on:
 		environment.fog_sun_scatter = 0.18
-	# Light shafts (Forward+ only; the Compatibility renderer has none).
-	environment.volumetric_fog_enabled = on
+	# No light shafts: Godot's volumetric haze, however faint, threw stacks of
+	# glowing blobs across the sky and the skyline that flickered as you
+	# looked round. The sky's own glow and the sun-coloured haze stand in.
+	environment.volumetric_fog_enabled = false
 	environment.volumetric_fog_density = 0.0022
 	environment.volumetric_fog_albedo = Color(0.92, 0.94, 1.0)
 	environment.volumetric_fog_anisotropy = 0.7
@@ -2522,8 +2524,6 @@ func _paint_shader_sky(elevation: float, azimuth: float, height: float, dusk: fl
 	_haze = haze
 	environment.fog_sun_scatter = lerpf(0.18, 0.55, dusk)
 	# The haze shines the sun's colour in the shafts at sunrise and sunset.
-	# Shafts are the sun's; at night the haze thins out.
-	environment.volumetric_fog_density = lerpf(0.0018, 0.004, dusk) * (1.0 - underground) * lerpf(0.25, 1.0, daylight)
 
 func _paint_sky(day: float, dark: float) -> void:
 	if _sky == null:

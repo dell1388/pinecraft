@@ -845,11 +845,12 @@ grass).
   night twinkling stars and the moon. The sunlight's colour follows the sun's
   height (deep orange on the horizon, gold, then near white from
   mid-morning) and dims as it gets low, the haze takes the horizon's colour
-  and glows towards the sun at dawn and dusk, shadows are soft-edged
-  (blurring with distance from what casts them), and a faint haze in the
-  air lets the low sun throw shafts of light through the trees (Forward+
-  only). The sky lights the scene a little at a time rather than being
-  redrawn every frame. The sun comes up at five and goes down at nine, and
+  and glows towards the sun at dawn and dusk, and shadows are soft-edged
+  (blurring with distance from what casts them). There are no volumetric
+  light shafts: Godot's volumetric haze threw flickering stacks of glowing
+  blobs across the sky. The light from all round is a steady colour for the time of day (sky blue,
+  warm at dawn and dusk, moonlit blue at night) rather than taken from the
+  sky. The sun comes up at five and goes down at nine, and
   the light now goes smoothly through dawn and dusk instead of switching.
   `scenes/shot.tscn -- --shot=skies [--hours=5.6,20.3] [--view=west]`
   photographs it round the day.
