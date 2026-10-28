@@ -2420,10 +2420,12 @@ func _set_fancy_lighting(on: bool) -> void:
 	if on and _shader_sky == null:
 		_shader_sky = Atmosphere.sky_material()
 	environment.sky.sky_material = _shader_sky if on else _sky
-	# The sky is lit into the scene a little at a time rather than redrawn
-	# every frame (it changes slowly, and the stars twinkle).
-	environment.sky.process_mode = Sky.PROCESS_MODE_INCREMENTAL if on else Sky.PROCESS_MODE_AUTOMATIC
-	environment.sky.radiance_size = Sky.RADIANCE_SIZE_128 if on else Sky.RADIANCE_SIZE_256
+	# The shader sky changes every frame (the sun moves, the clouds drift, the
+	# stars twinkle), so its reflections are redrawn every frame, smoothly.
+	# Lit a little at a time instead, the light pumped up and down about once
+	# a second - a flash every second at night.
+	environment.sky.process_mode = Sky.PROCESS_MODE_REALTIME if on else Sky.PROCESS_MODE_AUTOMATIC
+	environment.sky.radiance_size = Sky.RADIANCE_SIZE_256
 	sun.light_angular_distance = 0.6 if on else 0.0
 	if not on:
 		environment.fog_sun_scatter = 0.18
@@ -2511,7 +2513,8 @@ func _paint_shader_sky(elevation: float, azimuth: float, height: float, dusk: fl
 	_haze = haze
 	environment.fog_sun_scatter = lerpf(0.18, 0.55, dusk)
 	# The haze shines the sun's colour in the shafts at sunrise and sunset.
-	environment.volumetric_fog_density = lerpf(0.0018, 0.004, dusk) * (1.0 - underground)
+	# Shafts are the sun's; at night the haze thins out.
+	environment.volumetric_fog_density = lerpf(0.0018, 0.004, dusk) * (1.0 - underground) * lerpf(0.25, 1.0, daylight)
 
 func _paint_sky(day: float, dark: float) -> void:
 	if _sky == null:
@@ -2527,6 +2530,14 @@ func _paint_sky(day: float, dark: float) -> void:
 	_haze = haze
 
 var _haze: Color = DAY_HAZE
+
+## The light from all round, outdoors, with the shader sky: the colour the
+## plain sky gave by day, warmer at dawn and dusk, moonlit blue at night.
+static func outdoor_ambient(day: float, dusk: float) -> Color:
+	var noon := Color(0.50, 0.64, 0.82)
+	var golden := Color(0.78, 0.56, 0.48)
+	var moonlit := Color(0.16, 0.20, 0.34)
+	return moonlit.lerp(noon.lerp(golden, dusk), day)
 
 # --- Runtime ---------------------------------------------------------------
 
@@ -2578,12 +2589,20 @@ func _update_underground(delta: float) -> void:
 		environment.ambient_light_sky_contribution = 1.0 - underground
 	else:
 		environment.ambient_light_sky_contribution = 1.0
-		environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-		# The night sky lights little, so the ambient is lifted a touch to
-		# keep the land readable by moonlight.
-		# At twilight the sky is still bright on one side but lights little,
-		# so the land is lifted a touch more then too.
-		environment.ambient_light_energy = OUTDOOR_AMBIENT * lerpf(1.0, 2.2, night) * (1.0 + _twilight * 0.8)
+		if _fancy_sky:
+			# With the shader sky the light all round is set here, steady,
+			# rather than taken from the sky: a sky blue by day, warm at
+			# either end of it, and a dim moonlit blue at night that still
+			# lets you see the land.
+			environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+			environment.ambient_light_sky_contribution = 0.0
+			environment.ambient_light_color = outdoor_ambient(daylight, _twilight)
+			environment.ambient_light_energy = OUTDOOR_AMBIENT
+		else:
+			environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+			# The night sky lights little, so the ambient is lifted a touch to
+			# keep the land readable by moonlight.
+			environment.ambient_light_energy = OUTDOOR_AMBIENT * lerpf(1.0, 2.2, night)
 	environment.fog_light_color = _haze.lerp(Color(0.03, 0.03, 0.05), underground)
 	environment.background_energy_multiplier = lerpf(1.0, 0.05, underground)
 	sun.light_energy = lerpf(sun.light_energy, 0.0, underground)
@@ -2594,6 +2613,9 @@ func _update_underground(delta: float) -> void:
 		_headlamp.omni_range = 14.0
 		_headlamp.shadow_enabled = false
 		_headlamp.position = Vector3(0.3, 0.2, 0.0)
+		# Kept out of the haze in the air: a lamp on your own head lighting it
+		# fills the whole screen with a bright fog.
+		_headlamp.light_volumetric_fog_energy = 0.0
 		player.camera.add_child(_headlamp)
 	# On underground, and outside after dark.
 	var lamp := maxf(underground, night * 0.8)
