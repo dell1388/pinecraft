@@ -862,6 +862,32 @@ The perf harness (`scenes/perf.tscn`) prints the grass's, the birds', the tree
 fields' and the decor's time a frame; `PERF_DRIVE=1` really drives a pickup
 along the longest asphalt road instead of walking.
 
+## Sounds and music
+
+A sound with a file in `assets/sounds/<name>.wav` (named as the code plays
+it: `Sfx.play(&"chop")` plays `chop.wav`) plays that recording; any other is
+still made in `Sfx.gd` from arithmetic, so a missing file never leaves the
+game silent. Recorded so far: `chop`, `fall`, `drop`, `boom`, `whoosh`,
+`cash`, `place`, `click`, `grind`, `fuse` and every engine but the buggy's
+(`engine_diesel`, `engine_v8`, `engine_big_diesel`, `engine_plant`,
+`engine_thumper`, `engine_two_stroke`) are real recordings from Freesound,
+all CC0 (`SOURCES.md` beside them says whose), and `hum` is ElevenLabs. Still
+made in `Sfx.gd`: `step`, `clink`, `crack`, `pickup`, `remove`, `squish`,
+`thud` and `engine_flat4`. Engines, `hum` and `fuse` loop; the engine's pitch
+follows the revs.
+
+`tools/freesound.py` finds more: `audition` builds a page of candidates to
+listen to, `fetch <id> <name> --to assets/sounds [--loop]` downloads one,
+converts it to 44.1 kHz mono, trims and levels it, and crossfades a loop's
+end into its start. It needs a Freesound API key in `.freesound_key` (kept out
+of git).
+
+The music is `assets/music/night_shift.ogg`, looped. It plays on its own
+bus that folds it to one voice and carries it slowly round your head - left,
+behind (a little muffled and quieter), right, in front - once every 16
+seconds (Settings > Audio, "Music circles round you (8D)"; off is plain
+stereo).
+
 ## Models
 
 Nearly every mesh is built in code from primitives. The one exception is you.
