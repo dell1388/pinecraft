@@ -2440,6 +2440,13 @@ func _set_fancy_lighting(on: bool) -> void:
 	environment.volumetric_fog_sky_affect = 0.0
 	sun.light_volumetric_fog_energy = 1.0
 	moon.light_volumetric_fog_energy = 0.4
+	# Only the sun and moon light the haze. Every lamp, fire, cave light and
+	# machine glow lighting it too made a glowing ball of fog round each one,
+	# seen for miles and flickering as the haze was sampled.
+	if on and not get_tree().node_added.is_connected(_no_lamp_haze):
+		get_tree().node_added.connect(_no_lamp_haze)
+		for n in find_children("*", "Light3D", true, false):
+			_no_lamp_haze(n)
 	_update_sun()
 
 ## Day and night. The sun rises at five and sets at nine, crossing the sky
@@ -2530,6 +2537,11 @@ func _paint_sky(day: float, dark: float) -> void:
 	_haze = haze
 
 var _haze: Color = DAY_HAZE
+
+## Lamps, fires and glows: kept out of the haze in the air (see _set_fancy_lighting).
+func _no_lamp_haze(n: Node) -> void:
+	if n is Light3D and not (n is DirectionalLight3D):
+		(n as Light3D).light_volumetric_fog_energy = 0.0
 
 ## The light from all round, outdoors, with the shader sky: the colour the
 ## plain sky gave by day, warmer at dawn and dusk, moonlit blue at night.

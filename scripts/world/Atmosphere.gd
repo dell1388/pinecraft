@@ -123,7 +123,8 @@ void sky() {
 		col += vec3(0.5, 0.6, 0.9) * pow(max(cm, 0.0), 80.0) * 0.12 * night;
 		// The sun itself, far brighter than anything else in the sky.
 		float disc = smoothstep(0.99986, 0.99993, cs);
-		col += sun_color * disc * 30.0 * sun_up * above;
+		// Bright, but not so bright that the bloom blows it up into a ball.
+		col += sun_color * disc * 6.0 * sun_up * above;
 	}
 
 	// Clouds on a dome overhead, drifting, lit from the sun's side.
